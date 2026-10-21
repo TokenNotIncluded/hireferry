@@ -5,10 +5,12 @@ import { webcrypto } from 'node:crypto';
 
 const moneySource = await readFile(new URL('../static/money.js', import.meta.url), 'utf8');
 const moneyHelpers = await import('data:text/javascript;base64,' + Buffer.from(moneySource).toString('base64'));
+const requestSource = await readFile(new URL('../static/requests.js', import.meta.url), 'utf8');
+const requestHelpers = await import('data:text/javascript;base64,' + Buffer.from(requestSource).toString('base64'));
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
 
 const serviceSource = await readFile(new URL('../static/service-ui.js', import.meta.url), 'utf8');
-const { createServiceUI, createMessageId } = await import('data:text/javascript;base64,' + Buffer.from(serviceSource).toString('base64'));
+const { createServiceUI, createMessageId, filterConversations, chatSendShortcut, messageDateKey } = await import('data:text/javascript;base64,' + Buffer.from(serviceSource).toString('base64'));
 const appSource = (await readFile(new URL('../static/app.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace(/render\(\);\s*$/, '');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -287,8 +289,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields};')(
-    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields};')(
+    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -835,17 +837,18 @@ test('a conversation outside the latest 200 opens by authorized metadata and sta
   }
 });
 
-test('denied single-conversation metadata never produces a fabricated room or reads messages', async () => {
+test('denied conversation metadata never mounts a room even when its independently authorized history request is in flight', async () => {
   for (const status of [401, 403, 404]) {
     const paths = [];
     const service = ui(async path => {
       paths.push(path);
       if (path === '/api/chat/conversations') return { items: [] };
+      if (path.endsWith('/messages?limit=100')) throw Object.assign(new Error('Access denied'), { status });
       assert.equal(path, '/api/chat/conversations/match_denied');
       throw Object.assign(new Error('Access denied'), { status });
     }, { admin: true, search: '?tab=messages&conversation=match_denied' });
     await assert.rejects(() => service.messagesPage(true), error => error.status === status);
-    assert.deepEqual(paths, ['/api/chat/conversations', '/api/chat/conversations/match_denied']);
+    assert.deepEqual(paths, ['/api/chat/conversations/match_denied/messages?limit=100', '/api/chat/conversations', '/api/chat/conversations/match_denied']);
   }
 });
 
@@ -1324,4 +1327,246 @@ test('post-mount currency synchronization uses retained live selections without 
   }
   assert.equal(requests.length,0);
   assert.match(appSource,/mountPage\(root,header\(\)\+body\+footer\(\),pageKey\);syncCurrencyFields\(\)/);
+});
+
+function chatDom() {
+  const originals = { document: globalThis.document, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, matchMedia: globalThis.matchMedia };
+  const listeners = new Map();
+  const controls = [{ disabled: false, getAttribute: () => null }, { disabled: false, getAttribute: () => null }];
+  const nodes = {
+    '#chat-scroll': { scrollTop: 0, scrollHeight: 600, clientHeight: 300, setAttribute() {} },
+    '#chat-messages': { innerHTML: '', insertAdjacentHTML(where, html) { this.innerHTML = where === 'afterbegin' ? html + this.innerHTML : this.innerHTML + html; }, querySelector: () => null },
+    '#chat-body': { value: '', disabled: false, style: {}, focus() {} },
+    '#conversation-list': { innerHTML: '' }, '#chat-connection': { textContent: '' },
+    '[data-action="chat-latest"]': { hidden: true }, '[data-action="chat-older"]': { hidden: true },
+    '.chat-workspace': { addEventListener: (event, listener) => listeners.set(event, listener), removeEventListener: event => listeners.delete(event), classList: { contains: () => true }, querySelectorAll: () => [] },
+  };
+  let scheduled;
+  globalThis.document = { hidden: false, querySelector: selector => nodes[selector] || null, querySelectorAll: () => controls };
+  globalThis.setTimeout = callback => { scheduled = callback; return 1; };
+  globalThis.clearTimeout = () => {};
+  globalThis.matchMedia = () => ({ matches: false });
+  return { nodes, controls, listeners, poll: () => scheduled?.(), restore() { Object.assign(globalThis, originals); } };
+}
+
+const chatRoom = (id = 'platform_seeker-one', extra = {}) => ({ id, kind: id.startsWith('platform_') ? 'platform' : 'matched', title: id, writable: true, participants: [], ...extra });
+const historyPage = items => ({ items, next_cursor: items.at(-1)?.id || 0, first_cursor: items[0]?.id || 0, has_older: false });
+const chatMessage = (id, body) => ({ id, sender_kind: 'platform', sender_name: 'HireFerry', body, created_at: 1790000000 + id });
+
+test('conversation index and history start together; a slow history does not block the inbox or its thread shell', async () => {
+  const index = deferred(), history = deferred(), requests = [];
+  const service = ui((path, options) => {
+    requests.push([path, options?.method || 'GET']);
+    if (path === '/api/chat/conversations') return index.promise;
+    if (path.endsWith('/messages?limit=100')) return history.promise;
+    return Promise.resolve({});
+  });
+  const page = service.messagesPage();
+  assert.deepEqual(requests.map(([path]) => path), ['/api/chat/conversations/platform_seeker-one/messages?limit=100', '/api/chat/conversations']);
+  index.resolve({ items: [chatRoom()] });
+  const html = await page;
+  assert.match(html, /Search conversations/);
+  assert.match(html, /chat-message-placeholder/);
+  assert.match(html, /<textarea[^>]*disabled/);
+  assert.equal(requests.some(([path]) => path === '/api/chat/platform'), false);
+  const dom = chatDom();
+  try {
+    const mounted = service.mountChat();
+    history.resolve(historyPage([chatMessage(3, 'History arrives independently')]));
+    await mounted;
+    assert.match(dom.nodes['#chat-messages'].innerHTML, /History arrives independently/);
+    assert.ok(dom.controls.every(control => !control.disabled));
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('late history cannot overwrite a newly selected conversation', async () => {
+  const oldHistory = deferred();
+  const service = ui(async path => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom(), chatRoom('match_next')] };
+    if (path.includes('/platform_seeker-one/messages')) return oldHistory.promise;
+    if (path.includes('/match_next/messages')) return historyPage([chatMessage(8, 'Current conversation')]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    const oldMount = service.mountChat();
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_next';
+    const html = await service.messagesPage();
+    assert.match(html, /Current conversation/);
+    dom.nodes['#chat-messages'].innerHTML = 'Current conversation';
+    await service.mountChat();
+    oldHistory.resolve(historyPage([chatMessage(2, 'Stale private history')]));
+    await oldMount;
+    assert.equal(dom.nodes['#chat-messages'].innerHTML, 'Current conversation');
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('drafts and scroll positions belong to a conversation and are discarded on account change', async () => {
+  const user = { id: 'seeker-one', role: 'seeker' };
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [chatRoom('platform_' + user.id), chatRoom('match_second')] } : historyPage([]), { state: { user } });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    dom.nodes['#chat-body'].value = 'Draft <only A>';
+    dom.nodes['#chat-scroll'].scrollTop = 71;
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_second';
+    let html = await service.messagesPage();
+    assert.doesNotMatch(html, /Draft &lt;only A&gt;/);
+    dom.nodes['#chat-body'].value = 'Draft B'; service.stopChat();
+    globalThis.location.search = '?tab=messages';
+    html = await service.messagesPage();
+    assert.match(html, /Draft &lt;only A&gt;/);
+    dom.nodes['#chat-body'].value = 'Draft <only A>';
+    dom.nodes['#chat-scroll'].scrollTop = 0;
+    await service.mountChat();
+    assert.equal(dom.nodes['#chat-scroll'].scrollTop, 71);
+    user.id = 'another-account'; service.stopChat();
+    html = await service.messagesPage();
+    assert.doesNotMatch(html, /Draft/);
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('revoked history erases messages and drafts, disables sending, and stops polling', async () => {
+  let denied = false;
+  const service = ui(async path => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (path.includes('/messages?')) { if (denied) throw Object.assign(new Error('Access denied'), { status: 403 }); return historyPage([chatMessage(1, 'Private message')]); }
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    dom.nodes['#chat-body'].value = 'Unsent private draft';
+    dom.nodes['#chat-messages'].innerHTML = 'Private message';
+    await service.mountChat();
+    denied = true;
+    await dom.poll();
+    assert.doesNotMatch(dom.nodes['#chat-messages'].innerHTML, /Private message/);
+    assert.match(dom.nodes['#chat-messages'].innerHTML, /no longer available/);
+    assert.equal(dom.nodes['#chat-body'].value, '');
+    assert.ok(dom.controls.every(control => control.disabled));
+    service.stopChat();
+    denied = false;
+    assert.doesNotMatch(await service.messagesPage(), /Unsent private draft/);
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('mobile inbox does not mark an unopened thread as read', async () => {
+  const writes = [];
+  const service = ui(async (path, options) => {
+    if (options?.method) { writes.push(path); return {}; }
+    if (path === '/api/chat/conversations') return { items: [chatRoom(undefined, { unread_count: 4 })] };
+    return historyPage([chatMessage(4, 'Unread message')]);
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    globalThis.matchMedia = () => ({ matches: true });
+    dom.nodes['.chat-workspace'].classList.contains = () => false;
+    await service.mountChat(); await dom.poll();
+    assert.deepEqual(writes, []);
+    assert.match(dom.nodes['#conversation-list'].innerHTML, /4 unread messages/);
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('conversation filtering uses names, previews and unread state without mutating source data', () => {
+  const rooms = [chatRoom('one', { title: 'Engineering', participants: [{ name: 'Lina' }], unread_count: 3 }), chatRoom('two', { title: 'Design', last_message_preview: 'Tuesday interview', unread_count: 0 })];
+  assert.deepEqual(filterConversations(rooms, 'LINA').map(room => room.id), ['one']);
+  assert.deepEqual(filterConversations(rooms, 'interview').map(room => room.id), ['two']);
+  assert.deepEqual(filterConversations(rooms, '', 'unread').map(room => room.id), ['one']);
+  assert.deepEqual(filterConversations(rooms, 'interview', 'unread'), []);
+  assert.equal(rooms[0].unread_count, 3);
+});
+
+test('keyboard sending respects multiline composition and IME input', () => {
+  assert.equal(chatSendShortcut({ key: 'Enter' }), false);
+  assert.equal(chatSendShortcut({ key: 'Enter', ctrlKey: true }), true);
+  assert.equal(chatSendShortcut({ key: 'Enter', metaKey: true }), true);
+  assert.equal(chatSendShortcut({ key: 'Enter', ctrlKey: true, isComposing: true }), false);
+  assert.equal(chatSendShortcut({ key: 'Enter', ctrlKey: true, keyCode: 229 }), false);
+  assert.equal(chatSendShortcut({ key: 'Enter', ctrlKey: true, shiftKey: true }), false);
+  assert.equal(messageDateKey(1790000000), messageDateKey(1790000000000));
+  assert.equal(messageDateKey(undefined), '');
+});
+
+test('a send completing after the same conversation remounts clears only its matching draft and shows the receipt once', async () => {
+  const sent = deferred();
+  let postBody;
+  const service = ui(async (path, options) => {
+    if (options?.method === 'POST' && path.endsWith('/messages')) { postBody = options.body; return sent.promise; }
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (path.includes('/messages?')) return historyPage([]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    dom.nodes['#chat-body'].value = 'One send, one receipt';
+    const form = { querySelector: () => dom.nodes['#chat-body'] }, data = new FormData(); data.set('body', dom.nodes['#chat-body'].value);
+    const sending = service.sendMessage(form, data);
+    service.stopChat();
+    const remounted = await service.messagesPage();
+    assert.match(remounted, /One send, one receipt/);
+    await service.mountChat();
+    sent.resolve({ ...chatMessage(40, postBody.body), sender_kind: 'user', sender_id: 'seeker-one' });
+    await sending;
+    assert.equal(dom.nodes['#chat-body'].value, '');
+    assert.equal((dom.nodes['#chat-messages'].innerHTML.match(/data-message-id="40"/g) || []).length, 1);
+    service.stopChat();
+    assert.doesNotMatch(await service.messagesPage(), />One send, one receipt<\/textarea>/);
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('mobile back switches to the retained list immediately even when the selected platform room is unchanged', () => {
+  for (const admin of [false, true]) {
+    const service = ui(async () => ({}), { admin, search: '?tab=messages&view=list' });
+    const dom = chatDom();
+    try {
+      let selected = true;
+      dom.nodes['.chat-thread'] = { getAttribute: () => 'conversation:platform_seeker-one' };
+      dom.nodes['.chat-workspace'].classList.toggle = (_name, value) => { selected = value; };
+      service.showPendingChat(null);
+      assert.equal(selected, false);
+    } finally { dom.restore(); }
+  }
+});
+
+test('a denied send erases the same conversation after it remounts', async () => {
+  const sent = deferred();
+  const service = ui(async (path, options) => {
+    if (options?.method === 'POST' && path.endsWith('/messages')) throw await sent.promise;
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (path.includes('/messages?')) return historyPage([chatMessage(1, 'Private history')]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    dom.nodes['#chat-body'].value = 'Private unsent draft';
+    const data = new FormData(); data.set('body', dom.nodes['#chat-body'].value);
+    const sending = service.sendMessage({}, data);
+    service.stopChat();
+    await service.messagesPage();
+    await service.mountChat();
+    dom.nodes['#chat-messages'].innerHTML = 'Private history';
+    sent.resolve(Object.assign(new Error('Access denied'), { status: 403 }));
+    await assert.rejects(sending, /Access denied/);
+    assert.doesNotMatch(dom.nodes['#chat-messages'].innerHTML, /Private history/);
+    assert.match(dom.nodes['#chat-messages'].innerHTML, /no longer available/);
+    assert.equal(dom.nodes['#chat-body'].value, '');
+    assert.ok(dom.controls.every(control => control.disabled));
+    service.stopChat();
+    assert.doesNotMatch(await service.messagesPage(), /Private unsent draft/);
+    service.stopChat();
+  } finally { dom.restore(); }
 });

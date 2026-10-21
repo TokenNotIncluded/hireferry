@@ -1,13 +1,10 @@
-import { createTimeline } from './runtime/timeline.js';
-import { mountSculpture } from './runtime/motion.js';
-import { makeScenes } from './scenes.js';
-import { mountHomeStory } from './home-story.js';
 import { createServiceUI, createMessageId } from './service-ui.js';
 import { renderLegal } from './legal-content.js';
 import { takeCliReturn } from './cli-auth-return.js';
 import { mountPage, pageIdentity, pagePlaceholder } from './navigation.js';
 import { currencyMeta, currencyOptions, minorToDecimal, parseMinor, minorStep, formatMinor, calculateFee } from './money.js';
 import { createHumanGrantUI } from './humangrant-ui.js';
+import { createRequestClient, createSessionReader, navigationReads, RequestTimeoutError } from './requests.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
@@ -172,7 +169,7 @@ function requestErrorText(message) {
   })[message] || message;
 }
 
-async function api(path,{method='GET',body,...options}={}) {
+const requests = createRequestClient(async (path,{method='GET',body,...options}={}) => {
   const headers = {...options.headers};
   if(body!==undefined && !(body instanceof FormData)) { headers['Content-Type']='application/json'; body=JSON.stringify(body); }
   if(method!=='GET' && state.csrf) headers['X-CSRF-Token']=state.csrf;
@@ -180,15 +177,63 @@ async function api(path,{method='GET',body,...options}={}) {
   const result=await response.json().catch(()=>({}));
   if(!response.ok) { const e=new Error(requestErrorText(result.error||result.message||`${t('请求失败','Request failed')} (${response.status})`)); e.status=response.status;throw e; }
   return result;
+});
+const sessionReader = createSessionReader(() => api('/api/session',{fresh:true}));
+const identityOf = value => `${value.admin?'admin':value.user?.id||'guest'}:${value.csrf||''}`;
+const authMutation = path => /^\/api\/(?:auth\/|role$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
+function invalidateIdentity() {
+  sessionReader.invalidate();requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;
 }
-async function session(renderVersion) { const s=await api('/api/session');if(renderVersion===undefined||renderVersion===state.render)Object.assign(state,{user:s.user,admin:s.admin,bootstrap:s.bootstrap,csrf:s.csrf});return s; }
+function announceIdentityChange() {try{localStorage.setItem('hireferry-session-change',`${Date.now()}:${Math.random()}`);}catch{}}
+async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
+  method=method.toUpperCase();
+  const requestIdentity=identityOf(state);
+  const write=method!=='GET',identityChange=write&&authMutation(path);
+  const changesProfile=write&&(path==='/api/profile'||path.startsWith('/api/profile/'));
+  // Read receipts and idempotent room creation do not invalidate unrelated navigation reads.
+  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&path!=='/api/markdown';
+  if(identityChange)invalidateIdentity();else if(changesData){requests.invalidate();state.eligibility=null;}
+  if(changesProfile)sessionReader.invalidate();
+  try {
+    const group=method==='GET'&&root.dataset?.navigationState==='loading'&&!options.prefetch&&!options.headers&&!['/api/session','/api/config'].includes(path)?`navigation:${state.render}`:undefined;
+    const result=await requests.request(path,{method,body,group,...options,fresh:fresh||cache===false});
+    if(identityChange){invalidateIdentity();announceIdentityChange();}
+    else if(changesData)requests.invalidate();
+    if(changesProfile)sessionReader.invalidate();
+    return result;
+  } catch(error) {
+    if([401,403].includes(error.status)&&identityOf(state)===requestIdentity) {
+      if(error.status===401&&(state.user||state.admin)) {
+        const administrator=state.admin;
+        resetPrivateView();
+        // A background poll can discover expiry too. Remove private DOM in this same task.
+        if(location.pathname.startsWith('/app'))void go('/login');
+        else if(location.pathname==='/admin'&&administrator)void go('/admin');
+        else void render();
+      }else{requests.invalidate();sessionReader.invalidate();state.eligibility=null;}
+    }
+    if(error instanceof RequestTimeoutError)error.message=error.uncertain?t('请求超时，操作结果尚未确认。请刷新查看，再决定是否重试。','The request timed out and its result is unknown. Refresh to check before retrying.'):t('服务器响应超时。请检查网络后重试。','The server took too long to respond. Check your connection and try again.');
+    throw error;
+  }
+}
+async function session(renderVersion) {
+  const s=await sessionReader.read({force:renderVersion===undefined});
+  if(renderVersion===undefined||renderVersion===state.render){
+    if(identityOf(state)!==identityOf(s)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
+    Object.assign(state,{user:s.user,admin:s.admin,bootstrap:s.bootstrap,csrf:s.csrf});
+  }
+  return s;
+}
 function resumeCliLogin(authenticated=false) {try{const path=takeCliReturn(sessionStorage,location.origin,state,authenticated);if(path){location.assign(path);return true;}}catch{/* Browser storage is optional. */}return false;}
 function notify(message,error=false) {clearTimeout(toastTimer);document.querySelector('#toast-root').innerHTML=`<div class="toast ${error?'error':''}" role="status">${icon(error?'info':'check')}<span>${esc(message)}</span></div>`;toastTimer=setTimeout(()=>document.querySelector('#toast-root').replaceChildren(),5500);}
 function setBusy(el,busy) {if(!el)return;el.disabled=busy;el.setAttribute('aria-busy',String(busy));}
-function go(path) {const next=new URL(path,location.href);const changedPage=pageIdentity(location.pathname,qs().get('tab'))!==pageIdentity(next.pathname,next.searchParams.get('tab'));closeDialog();history.pushState({},'',path);if(changedPage)window.scrollTo({top:0,behavior:'instant'});return render();}
+function go(path) {const next=new URL(path,location.href);if(next.origin!==location.origin)return;const changedPage=pageIdentity(location.pathname,qs().get('tab'))!==pageIdentity(next.pathname,next.searchParams.get('tab'));closeDialog();history.pushState({},'',next.pathname+next.search+next.hash);if(changedPage)window.scrollTo({top:0,behavior:'instant'});return render();}
+function themeMenu() {return `<details class="theme-menu"><summary aria-label="${t('切换主题','Change theme')}"><span class="theme-dot" aria-hidden="true"></span>${t('主题','Theme')}</summary><div class="theme-panel"><label><span>${t('配色主题','Color palette')}</span><select data-palette-select aria-label="${t('配色主题','Color palette')}"><option value="blue">${t('海蓝','Ocean blue')}</option><option value="violet">${t('紫罗兰','Violet')}</option><option value="rose">${t('玫瑰','Rose')}</option></select></label><label><span>${t('外观','Appearance')}</span><select data-theme-select aria-label="${t('外观','Appearance')}"><option value="light">${t('浅色','Light')}</option><option value="dark">${t('深色','Dark')}</option><option value="system">${t('跟随系统','System')}</option></select></label><small>${t('自动记住你的选择','Your choices are saved automatically')}</small></div></details>`;}
 function header() {
+  const workspace=(location.pathname==='/admin'&&state.admin)||(location.pathname.startsWith('/app')&&state.user);
   const navigation = `<a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a>`;
-  return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right"><details class="theme-menu"><summary aria-label="${t('切换主题','Change theme')}"><span class="theme-dot" aria-hidden="true"></span>${t('主题','Theme')}</summary><div class="theme-panel"><label><span>${t('配色主题','Color palette')}</span><select data-palette-select aria-label="${t('配色主题','Color palette')}"><option value="blue">${t('海蓝','Ocean blue')}</option><option value="violet">${t('紫罗兰','Violet')}</option><option value="rose">${t('玫瑰','Rose')}</option></select></label><label><span>${t('外观','Appearance')}</span><select data-theme-select aria-label="${t('外观','Appearance')}"><option value="light">${t('浅色','Light')}</option><option value="dark">${t('深色','Dark')}</option><option value="system">${t('跟随系统','System')}</option></select></label><small>${t('自动记住你的选择','Your choices are saved automatically')}</small></div></details><button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
+  if(workspace)return `<header class="site-header workspace-header" data-dom-key="site-header">${brand()}<div class="workspace-location"><span class="workspace-location-divider" aria-hidden="true">/</span>${state.admin?t('管理工作台','Administration'):t('我的工作台','Workspace')}</div><div class="nav-right"><a href="/contact" data-nav class="workspace-help">${icon('info')}<span>${t('帮助','Help')}</span></a>${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button></div></header>${state.config?.development?`<div class="environment-banner workspace-environment" data-dom-key="environment">${t('测试环境 · 以下为测试资料','Test environment · Test data only')}</div>`:''}`;
+  return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right">${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
 }
 function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry <span class="footer-dot">/</span> ${t('让相遇，恰到好处。','Good people. Good possibilities.')}</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('源代码','Source')}</a></nav></footer>`;}
 function heading(title,subtitle='',action='',eyebrow='') {return `<div class="page-heading"><div>${eyebrow?`<div class="eyebrow">${esc(eyebrow)}</div>`:''}<h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div>${action}</div>`;}
@@ -218,8 +263,14 @@ function home() {
   return `<main id="main" class="home-main"><section class="home-story" aria-label="${t('认识聘渡','Discover HireFerry')}" aria-roledescription="${t('轮播','carousel')}"><div class="hero page-width"><div class="hero-copy"><div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><div class="eyebrow"><span class="dot"></span>${story.eyebrow}</div><h1>${story.title}</h1><p class="hero-description">${story.description}</p></article>`).join('')}</div><div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('我在找工作','Find my next role')}${icon('arrow')}</a><a href="/login?role=employer" data-nav class="button secondary">${t('我想招人','Find my next hire')}${icon('arrow')}</a></div><div class="hero-footnote">${icon('check')}${t('求职者永久免费，无需手机号','Always free for job seekers. No phone number.')}</div></div><div class="sculpture-panel"><canvas id="sculpture" aria-label="${t('渡船、桥与罗盘随内容一起变换的三维粒子雕塑','Three-dimensional particle sculptures of a ferry, bridge, and compass, changing with the story')}"></canvas><div class="fallback" hidden>HireFerry · ${t('一起，驶向下一站','On to your next chapter')}</div></div><div class="story-bottom"><div class="scene-switch" role="group" aria-label="${t('切换介绍','Choose a chapter')}">${stories.map((story,i)=>`<button data-scene="${i}" aria-pressed="${i===0}" aria-label="${t(['平台介绍','初筛与匹配','收费方式'][i],['Introduction','Screening and matching','Pricing'][i])}">0${i+1}</button>`).join('')}<button class="sculpture-pause icon-button" data-action="pause" aria-label="${t('暂停动画','Pause animation')}">${icon('pause')}</button></div><p class="scene-caption" id="scene-caption">${t('每段旅程，都有人同行。','Every crossing, together.')}</p><a class="story-continue" href="#how" data-scroll="how">${t('向下探索','Keep exploring')}<span aria-hidden="true">↓</span></a></div></div></section><div class="home-flow page-width"><div class="trust-strip"><span class="trust-label">BUILT AROUND PEOPLE</span><span class="trust-item">${icon('person')}${t('人类 HR 与 AI HR 共同初筛','Human HR and AI HR screen for fit')}</span><span class="trust-item">${icon('shield')}${t('先匹配，再相互认识','Introductions before sharing')}</span><span class="trust-item">${icon('bot')}${t('AI 原生，开放连接','AI-native, open by design')}</span></div><section class="section" id="how"><div class="section-heading"><div><div class="eyebrow">A LITTLE LESS SEARCHING</div><h2>${t('把时间，留给更重要的事。','A little less searching.<br>A little more possibility.')}</h2></div><p>${t('不公开陈列简历和岗位。<br>先理解你的期待，再主动寻找合适的机会。','No public directories of profiles or roles.<br>We learn what matters, then actively search for a fit.')}</p></div><div class="steps"><article class="step"><span class="step-number">01 / SHARE</span><h3>${t('先和平台聊聊','Start with a conversation')}</h3><p>${t('一份简历，或一份岗位描述。<br>在私聊中告诉我们，你真正期待什么。','A résumé or a role description.<br>Tell us privately what you’re hoping to find.')}</p></article><article class="step"><span class="step-number">02 / CONNECT</span><h3>${t('我们持续去找','We keep looking')}</h3><p>${t('第三方人类 HR 与 AI HR 协作初筛、匹配。<br>持续寻找，认真跟进每次联系与进展。','Third-party human HR and AI HR screen and match together.<br>Research, contact, and follow-up stay on track.')}</p></article><article class="step"><span class="step-number">03 / MOVE FORWARD</span><h3>${t('合适，再介绍彼此','Meet when there’s a fit')}</h3><p>${t('匹配后才开放双方资料与共同会话。<br>平台继续陪伴，跟进每一个下一步。','An introduction opens profiles and a shared room.<br>We stay involved for the next steps.')}</p></article></div></section>${pricingSection()}<section class="home-bottom"><div><h2>${t('下一站，值得期待。','Your next chapter starts here.')}</h2><p>${t('你认真出发，我们认真搭桥。','You bring the ambition. We make the introduction.')}</p></div><a href="/login" data-nav class="button">${t('从这里开始','Let’s get started')}${icon('arrow')}</a></section></div></main>`;
 }
 
-function mountHome() {
+let homeModules;
+async function mountHome() {
   const canvas=document.querySelector('#sculpture');if(!canvas)return;
+  const version=state.render;
+  try{
+    homeModules ||= Promise.all([import('./runtime/timeline.js'),import('./runtime/motion.js'),import('./scenes.js'),import('./home-story.js')]).catch(error=>{homeModules=null;throw error;});
+    const [{createTimeline},{mountSculpture},{makeScenes},{mountHomeStory}]=await homeModules;
+    if(version!==state.render||!canvas.isConnected)return;
   state.sculpture=mountSculpture(canvas,createTimeline(makeScenes(),{hold:8,morph:2}),{
     onState:s=>{const b=document.querySelector('[data-action=pause]');if(b){b.innerHTML=icon(s==='paused'?'play':'pause');b.setAttribute('aria-label',s==='paused'?t('继续动画','Resume animation'):t('暂停动画','Pause animation'));b.setAttribute('aria-pressed',String(s==='paused'));b.disabled=s==='reduced'||s==='unsupported';}if(s==='unsupported')document.querySelector('.fallback').hidden=false;}
   });
@@ -227,6 +278,7 @@ function mountHome() {
     onPosition:position=>state.sculpture?.seek(position),
     captions:[t('每段旅程，都有人同行。','Every crossing, together.'),t('两端的期待，在这里相遇。','Two sides. One connection.'),t('为下一站，找到方向。','Find your next direction.')]
   });
+  }catch{if(version===state.render){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}}
 }
 
 function sidebar(tab,admin=false) {
@@ -238,9 +290,13 @@ function sidebar(tab,admin=false) {
     ...(state.user?.role==='employer'?[['jobs','briefcase',t('我的招聘','My roles')]]:[]),
     ['profile',state.user?.role==='employer'?'person':'file',state.user?.role==='employer'?t('我的资料','My profile'):t('我的简历','My résumé')],['matches','link',t('我的匹配','Introductions')],['orders','receipt',t('订单','Orders')],['agents','bot',t('AI 连接','AI connections')],['webhooks','link',t('联动','Webhooks')]
   ];
-  return `<aside class="sidebar" data-dom-key="sidebar"><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div><div class="sidebar-name">${admin?t('聘渡总控台','HireFerry admin'):esc(state.user?.name||state.user?.email)}</div><div class="role-label">${admin?t('超级管理员','Administrator'):roleText(state.user?.role)}</div></div></div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${entries.map(([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}">${icon(ico)}${label}</a>`).join('')}<a href="/oauth/connections">${icon('key')}${t('命令行连接','Command-line connections')}</a><button type="button" data-action="logout">${icon('logout')}${t('退出','Sign out')}</button></nav><div class="sidebar-bottom"><span class="dot"></span>${t('先认真听，再认真找。','First we listen. Then we look.')}<br>${t('每段旅程，都有人跟进。','A team behind your next step.')}</div></aside>`;
+  const item=([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}"${tab===key?' aria-current="page"':''}>${icon(ico)}<span>${label}</span>${tab===key?'<span class="nav-current-dot" aria-hidden="true"></span>':''}</a>`;
+  const primary=entries.slice(0,4),secondary=entries.slice(4);
+  const cliConnection=`<a href="/oauth/connections">${icon('key')}<span>${t('命令行连接','Command-line connections')}</span></a>`;
+  const logout=`<button type="button" data-action="logout">${icon('logout')}<span>${t('退出登录','Sign out')}</span></button>`;
+  return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin?t('聘渡管理团队','HireFerry team'):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?t('管理员','Administrator'):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
 }
-function shell(body,tab,admin=false) {return `<main id="main" class="page-width app-layout">${sidebar(tab,admin)}<section class="app-content">${body}</section></main>`;}
+function shell(body,tab,admin=false) {return `<main id="main" class="page-width app-layout workspace-layout" data-workspace-page="${esc(tab)}">${sidebar(tab,admin)}<section class="app-content" tabindex="-1">${body}</section></main>`;}
 function paymentProviders(record) {
   const code=currency(record).currency,configured=state.config?.payment_currencies;
   return (state.config?.providers||[]).filter(provider=>!configured||(Array.isArray(configured[provider])&&configured[provider].includes(code)));
@@ -260,7 +316,7 @@ function employerActivation() {
 
 async function profilePage() {
   const u=await api('/api/profile');
-  return shell(`${heading(u.role==='seeker'?t('先让我们，了解你。','Help us get to know you.'):t('从认识你们开始。','A little about your team.'),t('资料仅平台与已匹配的对方可见，不会公开展示。','Your profile is visible only to HireFerry and an introduced counterpart.'),'',u.role==='seeker'?'YOUR RÉSUMÉ':'YOUR PROFILE')}<form data-form="profile"><section class="panel"><div class="panel-header"><div><h2>${t('基本资料','Your profile')}</h2><p>${t('简单介绍，认真表达。其余的，我们一起完成。','A simple introduction. We’ll help with the rest.')}</p></div><span class="pill">${icon('shield')}${t('仅匹配后共享','Shared after introduction')}</span></div><div class="avatar-editor">${avatar(u,'large')}<div><div class="field-label">${t('你的头像','Your avatar')}</div><div class="avatar-actions"><label class="upload-label">${icon('upload')}${t('上传图片','Upload image')}<input type="file" id="avatar-upload" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="text-button" data-action="svg-avatar">${t('使用 SVG 文本','Use SVG text')}</button></div><p class="help">${t('PNG、JPG 或 WebP。图片会移除附带信息。','PNG, JPG or WebP. Image metadata is removed.')}</p></div></div><div class="grid-2"><div class="field"><label for="profile-name">${t('显示名称','Display name')}</label><input class="input" id="profile-name" name="name" value="${esc(u.name)}" maxlength="100" required></div><div class="field"><label for="profile-email">${t('联系邮箱','Contact email')}</label><input class="input" id="profile-email" type="email" name="public_email" value="${esc(u.public_email)}" placeholder="hello@example.com" maxlength="254"><p class="help">${t('仅平台和已匹配的对方可以看到。','Only HireFerry and an introduced counterpart can see this address.')}</p></div></div>${notice(`${t('登录邮箱','Sign-in email')}: ${esc(u.email)}<br>${t('仅用于登录，不向匹配方展示。无需提供手机号。','Used only for sign-in and never shared with a match. No phone number required.')}`)}${u.role!=='seeker'?'<input type="hidden" name="resume_md" value="">':''}</section>${u.role==='seeker'?`<section class="panel"><div class="panel-header"><div><h2>${t('一份简历，写清楚就好。','Your résumé. In your own words.')}</h2><p>${t('纯文本，支持 Markdown。没有复杂模板。','Plain text with Markdown. No complicated template.')}</p></div><span class="new-label">MARKDOWN</span></div><div class="tabs" role="tablist"><button type="button" data-action="resume-edit" role="tab" aria-selected="true">${t('编辑','Write')}</button><button type="button" data-action="resume-preview" role="tab" aria-selected="false">${t('预览','Preview')}</button></div><label class="field-label" for="resume-md">${t('简历内容','Résumé content')}</label><textarea id="resume-md" name="resume_md" class="input code resume-editor" maxlength="60000" placeholder="${esc(t('# 介绍一下自己\n\n## 我擅长的事\n- ...\n\n## 工作 / 项目经历\n- ...\n\n## 我期待的下一站\n...','# A little about me\n\n## What I do well\n- ...\n\n## Work / projects\n- ...\n\n## What comes next\n...'))}">${esc(u.resume_md)}</textarea><div id="resume-preview" class="markdown" hidden></div><p class="help resume-privacy">${icon('shield')}${t('匹配前，只有平台可以查看这份简历。','Before an introduction, only HireFerry can view this résumé.')}</p></section>`:''}<div class="form-actions"><p class="help">${t('不需要填写电话号码、身份证或家庭地址。','No phone number, identity document, or home address required.')}</p><button class="button" type="submit">${t('保存资料','Save profile')}${icon('check')}</button></div></form>`,'profile');
+  return shell(`${heading(u.role==='seeker'?t('我的简历','My résumé'):t('团队资料','Team profile'),t('资料仅平台与已匹配的对方可见，不会公开展示。','Your profile is visible only to HireFerry and an introduced counterpart.'),'',u.role==='seeker'?'YOUR RÉSUMÉ':'YOUR PROFILE')}<form data-form="profile"><section class="panel"><div class="panel-header"><div><h2>${t('基本资料','Your profile')}</h2><p>${t('更新姓名、头像和联系方式。','Update your name, photo, and contact details.')}</p></div><span class="pill">${icon('shield')}${t('仅匹配后共享','Shared after introduction')}</span></div><div class="avatar-editor">${avatar(u,'large')}<div><div class="field-label">${t('你的头像','Your avatar')}</div><div class="avatar-actions"><label class="upload-label">${icon('upload')}${t('上传图片','Upload image')}<input type="file" id="avatar-upload" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="text-button" data-action="svg-avatar">${t('使用 SVG 文本','Use SVG text')}</button></div><p class="help">${t('PNG、JPG 或 WebP。图片会移除附带信息。','PNG, JPG or WebP. Image metadata is removed.')}</p></div></div><div class="grid-2"><div class="field"><label for="profile-name">${t('显示名称','Display name')}</label><input class="input" id="profile-name" name="name" value="${esc(u.name)}" maxlength="100" required></div><div class="field"><label for="profile-email">${t('联系邮箱','Contact email')}</label><input class="input" id="profile-email" type="email" name="public_email" value="${esc(u.public_email)}" placeholder="hello@example.com" maxlength="254"><p class="help">${t('仅平台和已匹配的对方可以看到。','Only HireFerry and an introduced counterpart can see this address.')}</p></div></div>${notice(`${t('登录邮箱','Sign-in email')}: ${esc(u.email)}<br>${t('仅用于登录，不向匹配方展示。无需提供手机号。','Used only for sign-in and never shared with a match. No phone number required.')}`)}${u.role!=='seeker'?'<input type="hidden" name="resume_md" value="">':''}</section>${u.role==='seeker'?`<section class="panel"><div class="panel-header"><div><h2>${t('经历与技能','Experience & skills')}</h2><p>${t('纯文本，支持 Markdown。没有复杂模板。','Plain text with Markdown. No complicated template.')}</p></div><span class="new-label">MARKDOWN</span></div><div class="tabs" role="tablist"><button type="button" data-action="resume-edit" role="tab" aria-selected="true">${t('编辑','Write')}</button><button type="button" data-action="resume-preview" role="tab" aria-selected="false">${t('预览','Preview')}</button></div><label class="field-label" for="resume-md">${t('简历内容','Résumé content')}</label><textarea id="resume-md" name="resume_md" class="input code resume-editor" maxlength="60000" placeholder="${esc(t('# 介绍一下自己\n\n## 我擅长的事\n- ...\n\n## 工作 / 项目经历\n- ...\n\n## 我期待的下一站\n...','# A little about me\n\n## What I do well\n- ...\n\n## Work / projects\n- ...\n\n## What comes next\n...'))}">${esc(u.resume_md)}</textarea><div id="resume-preview" class="markdown" hidden></div><p class="help resume-privacy">${icon('shield')}${t('匹配前，只有平台可以查看这份简历。','Before an introduction, only HireFerry can view this résumé.')}</p></section>`:''}<div class="form-actions"><p class="help">${t('不需要填写电话号码、身份证或家庭地址。','No phone number, identity document, or home address required.')}</p><button class="button" type="submit">${t('保存资料','Save profile')}${icon('check')}</button></div></form>`,'profile');
 }
 async function myJobs() {
   const trash=qs().get('view')==='trash';
@@ -268,7 +324,7 @@ async function myJobs() {
   const jobs=r.items||[];
   jobCache.clear();jobs.forEach(job=>jobCache.set(job.id,job));
   const actions=trash?`<a href="/app?tab=jobs" data-nav class="button secondary">${icon('back')}${t('返回我的岗位','Back to my roles')}</a>`:`<div class="jobs-page-actions"><a href="/app?tab=jobs&view=trash" data-nav class="button secondary">${icon('trash')}${t('回收站','Trash')}</a><a href="/app/jobs/new" data-nav class="button">${icon('plus')}${t('发布新岗位','Post a new role')}</a></div>`;
-  const head=heading(trash?t('留一次，重新出发的机会。','One chance to bring it back.'):t('好的人，值得认真找。','Good people are worth finding.'),trash?t('首次删除的岗位可以免费恢复一次，或直接永久删除。恢复后再次删除将永久清除。','A role’s first deletion can be restored once for free, or made permanent. Deleting it again after restoration is permanent.'):t('管理岗位与招聘人数，由平台寻找并介绍合适的人。','Manage your roles and hiring targets. HireFerry finds and introduces people.'),actions,trash?'YOUR RECENTLY DELETED ROLES':'YOUR OPPORTUNITIES');
+  const head=heading(trash?t('岗位回收站','Deleted roles'):t('我的招聘','My roles'),trash?t('首次删除的岗位可以免费恢复一次，或直接永久删除。恢复后再次删除将永久清除。','A role’s first deletion can be restored once for free, or made permanent. Deleting it again after restoration is permanent.'):t('管理岗位与招聘人数，由平台寻找并介绍合适的人。','Manage your roles and hiring targets. HireFerry finds and introduces people.'),actions,trash?'YOUR RECENTLY DELETED ROLES':'YOUR OPPORTUNITIES');
   const rows=jobs.map(job=>`<article class="list-row job-row"><div class="job-row-main"><h3>${trash?esc(job.title):`<a href="/jobs/${encodeURIComponent(job.id)}" data-nav>${esc(job.title)}</a>`}</h3><div class="list-meta">${jobBadge(job)}<span class="job-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></span><span>${headcountText(job)}</span><span>${t('描述已修改','Description updates')} ${job.edits_used}</span></div><div class="row-actions job-row-links">${trash?`<button class="text-button" data-action="restore-job" data-id="${esc(job.id)}">${t('免费恢复','Restore for free')}</button><button class="text-button danger-text" data-action="permanently-delete-job" data-id="${esc(job.id)}">${t('永久删除','Delete permanently')}</button>`:`${job.status==='published'?`<a class="text-button" href="/app/jobs/${encodeURIComponent(job.id)}/edit" data-nav>${t('修改描述','Edit description')}</a>`:job.status==='draft'?`<a class="text-button" href="/app?tab=orders" data-nav>${t('查看待付订单','View pending order')} →</a>`:''}<button class="text-button ${Number(job.delete_count)>=1?'danger-text':''}" data-action="delete-job" data-id="${esc(job.id)}">${Number(job.delete_count)>=1?t('永久删除','Delete permanently'):t('删除岗位','Delete role')}</button>`}</div></div>${trash?'':headcountControl(job)}</article>`).join('');
   return shell(`${head}${!trash&&!state.user.employer_paid?notice(`${t('招聘方账户尚未开通。请先开通账户，即可发布招聘。','Your employer account is not active. Activate it to publish roles.')} <button class="text-button" data-action="role-employer">${t('开通账户','Activate account')} →</button>`,'warning'):''}${!trash?notice(t('人数可免费、无限次调整，不占描述修改次数。已发布岗位填 0 暂停新匹配，改回正数恢复；已有匹配和会话保留。人数由你手动维护。','Change the hiring target free of charge, as often as needed, without using a description update. For a published role, set 0 to pause new introductions; a positive number resumes them. Existing introductions and chats remain. You maintain the count yourself.')):''}<section class="panel"><div class="panel-header"><h2>${trash?t('岗位回收站','Role trash'):t('我的岗位','My roles')} <span class="muted">${jobs.length.toString().padStart(2,'0')}</span></h2><span class="new-label">${trash?t('可恢复一次','ONE RESTORATION'):t('底薪透明','BASE SALARY, UPFRONT')}</span></div>${jobs.length?`<div class="list">${rows}</div>${pagination(r.total??jobs.length,r.limit)}`:empty(trash?t('回收站是空的。','The trash is empty.'):t('第一个岗位，从这里开始。','Your first role starts here.'),trash?t('首次删除的岗位会显示在这里，永久删除的岗位无法恢复。','Roles appear here after their first deletion. Permanently deleted roles cannot be restored.'):t('写清工作内容、固定底薪与招聘人数，我们一起寻找合适的人。','Describe the work, fixed base salary, and hiring target. We’ll help find the right person.'),trash?'':`<a href="/app/jobs/new" data-nav class="button secondary">${icon('plus')}${t('创建岗位','Create a role')}</a>`,trash?'trash':'briefcase')}${trash?`<p class="help job-trash-note">${t('删除与恢复均不收费，也不自动退款。删除期间匹配资料与共同会话暂停访问，平台私聊保持独立；永久删除清除岗位标题与正文，保留必要订单和安全关联记录。','Deletion and restoration are free and do not trigger refunds. Deleted roles and shared rooms are inaccessible while in the trash; private platform chats stay separate. Permanent deletion erases the title and description while retaining necessary order and security records.')}</p>`:''}</section>`,'jobs');
 }
@@ -310,7 +366,7 @@ function syncCurrencyFields(container=root) {
 
 function orderRefundDetails(order) {const refunded=Number(order.refunded_cents||0);return refunded>0?`<span class="order-refund">${t('已退','Refunded')} ${money(refunded,order)}</span><span class="order-net">${t('当前净额','Net amount')} ${money(Number(order.amount_cents)-refunded,order)}</span>`:'';}
 
-async function ordersPage() {const r=await api('/api/orders');return shell(`${heading(t('每笔费用，都有记录。','Every payment, in one place.'),t('查看订单、付款状态和历史费用。','Review your orders, payment status, and history.'),'','YOUR ORDERS')}<section class="panel">${r.items?.length?`<div class="list">${r.items.map(o=>`<article class="list-row"><div><h3>${kindText(o.kind)}</h3><div class="list-meta">${orderBadge(o)}<span>${date(o.created_at)}</span><span>${esc(providerText(o.provider))}</span>${o.live_mode===false&&o.provider!=='free'?`<span class="test-badge">${t('测试订单','Test order')}</span>`:''}</div><p class="order-number" style="margin-top:10px">${esc(o.id)}</p>${o.status==='pending'?`<div class="order-pending"><button class="text-button" data-action="pay-order" data-id="${esc(o.id)}">${t('继续支付','Continue payment')} →</button></div>`:''}${o.status==='paid_needs_review'?`<p class="help">${t('款项已收到，内容未自动更新。请联系管理员核对。','Payment was received; the update needs an administrator’s review.')}</p>`:''}</div><div class="order-amount"><strong>${money(o.amount_cents,o)}</strong>${orderRefundDetails(o)}</div></article>`).join('')}</div>`:empty(t('还没有订单。','No orders yet.'),state.user.role==='seeker'?t('求职者永久免费。你可以专心寻找下一站。','HireFerry is free for job seekers. Focus on your next chapter.'):t('你的开通、发布和修改费用会显示在这里。','Your activation, publication, and update payments will appear here.'),'','receipt')}</section>`,'orders');}
+async function ordersPage() {const r=await api('/api/orders');return shell(`${heading(t('订单与付款','Orders & payments'),t('查看订单、付款状态和历史费用。','Review your orders, payment status, and history.'),'','YOUR ORDERS')}<section class="panel">${r.items?.length?`<div class="list">${r.items.map(o=>`<article class="list-row"><div><h3>${kindText(o.kind)}</h3><div class="list-meta">${orderBadge(o)}<span>${date(o.created_at)}</span><span>${esc(providerText(o.provider))}</span>${o.live_mode===false&&o.provider!=='free'?`<span class="test-badge">${t('测试订单','Test order')}</span>`:''}</div><p class="order-number" style="margin-top:10px">${esc(o.id)}</p>${o.status==='pending'?`<div class="order-pending"><button class="text-button" data-action="pay-order" data-id="${esc(o.id)}">${t('继续支付','Continue payment')} →</button></div>`:''}${o.status==='paid_needs_review'?`<p class="help">${t('款项已收到，内容未自动更新。请联系管理员核对。','Payment was received; the update needs an administrator’s review.')}</p>`:''}</div><div class="order-amount"><strong>${money(o.amount_cents,o)}</strong>${orderRefundDetails(o)}</div></article>`).join('')}</div>`:empty(t('还没有订单。','No orders yet.'),state.user.role==='seeker'?t('求职者永久免费。你可以专心寻找下一站。','HireFerry is free for job seekers. Focus on your next chapter.'):t('你的开通、发布和修改费用会显示在这里。','Your activation, publication, and update payments will appear here.'),'','receipt')}</section>`,'orders');}
 async function agentsPage() {
   const [r,eligibility,humanGrants]=await Promise.all([api('/api/tokens'),api('/api/ai/eligibility'),state.config?.humangrant_enabled?humanGrant().grantsPanel():'']);
   const allowed=!!eligibility.eligible;
@@ -344,15 +400,20 @@ function contactPage() {
 }
 
 async function render() {
+  const navigationStarted=performance.now();
+  requests.cancel(`navigation:${state.render}`);
   const version=++state.render;service.stopChat();state.homeStory?.dispose();state.homeStory=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=(state.config?.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
   const path=location.pathname,tab=qs().get('tab');
   const pageKey=pageIdentity(path,tab);
   const placeholderTab=path.startsWith('/human/')?'human-review':path.startsWith('/app/jobs/')?'editor':tab||(path==='/admin'?'overview':'messages');
   const pendingBody=()=>{const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
-  const showPending=()=>{if(root.dataset.pageKey===pageKey){root.classList.add('page-pending');(root.querySelector('.app-content')||root.querySelector('main'))?.setAttribute('aria-busy','true');}else mountPage(root,header()+pendingBody()+footer(),pageKey,{busy:true});};
+  root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
+  const recordPaint=stage=>requestAnimationFrame(()=>{if(version!==state.render)return;root.dataset[stage==='shell'?'navigationShellMs':'navigationReadyMs']=(performance.now()-navigationStarted).toFixed(1);if(stage!=='shell')root.dataset.navigationState=stage;});
+  const showPending=(force=false)=>{if(!force&&root.dataset.pageKey===pageKey){root.classList.add('page-pending');(root.querySelector('.app-content')||root.querySelector('main'))?.setAttribute('aria-busy','true');if((path==='/app'&&(!tab||tab==='messages'))||(path==='/admin'&&tab==='messages'))service.showPendingChat(qs().get('conversation'));}else mountPage(root,header()+pendingBody()+footer(),pageKey,{busy:true});};
   showPending();
+  recordPaint('shell');
   try {
-    if(!state.config) {const results=await Promise.all([api('/api/config'),session(version)]);if(version!==state.render)return;state.config=results[0];if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';document.documentElement.lang=state.lang==='en'?'en':'zh-CN';}
+    if(!state.config) {const results=await Promise.all([api('/api/config'),session(version)]);if(version!==state.render)return;state.config=results[0];if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';document.documentElement.lang=state.lang==='en'?'en':'zh-CN';showPending(true);}
     if(resumeCliLogin())return;
     let body;
     if(path==='/')body=home();
@@ -384,14 +445,15 @@ async function render() {
     else if(path==='/admin'){await session(version);if(version!==state.render)return;body=await adminPage(tab||'overview');}
     else if(path==='/billing/return'||path==='/payment/return'||path==='/payment/success'||path==='/checkout/return'){await session(version);if(version!==state.render)return;body=await paymentReturn();}
     else body=`<main id="main" class="page-width page-error"><div class="eyebrow" style="justify-content:center">404 / A SMALL DETOUR</div><h1 style="margin-top:20px">${t('这条路，还没有渡口。','This path has no ferry yet.')}</h1><p>${t('页面不存在，或已经被移走。','This page does not exist or has been moved.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to the beginning')}${icon('arrow')}</a></main>`;
-    if(version!==state.render||resumeCliLogin())return;mountPage(root,header()+body+footer(),pageKey);syncCurrencyFields();if(path==='/')mountHome();
+    if(version!==state.render||resumeCliLogin())return;mountPage(root,header()+body+footer(),pageKey);syncCurrencyFields();recordPaint('ready');if(path==='/')void mountHome();
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&state.user?.role==='unassigned')chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
-    // The visible page does not wait for optional AI tool discovery.
-    if(state.user&&!state.admin){const eligibility=await api('/api/ai/eligibility').catch(()=>({eligible:false}));if(version!==state.render)return;state.eligibility=eligibility;}
-    registerWebMCP();
-  } catch(error) {if(version!==state.render)return;const message=`<section class="route-error"><h1>${t('内容暂时无法加载','Content could not be loaded')}</h1><p>${esc(error.message)}</p><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></section>`;const body=path==='/admin'&&state.admin?shell(message,tab||'overview',true):path.startsWith('/app')&&state.user?shell(message,tab||'messages'):`<main id="main" class="page-width">${message}</main>`;mountPage(root,header()+body+footer(),pageKey);}
+    // Browsers without WebMCP need no eligibility request. Discovery never holds navigation open.
+    if((document.modelContext||navigator.modelContext)?.registerTool&&state.user&&!state.admin&&!state.eligibility){
+      void api('/api/ai/eligibility').then(eligibility=>{if(version!==state.render)return;state.eligibility=eligibility;registerWebMCP();}).catch(()=>{});
+    }else registerWebMCP();
+  } catch(error) {if(version!==state.render)return;const message=`<section class="route-error"><h1>${t('内容暂时无法加载','Content could not be loaded')}</h1><p>${esc(error.message)}</p><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></section>`;const body=path==='/admin'&&state.admin?shell(message,tab||'overview',true):path.startsWith('/app')&&state.user?shell(message,tab||'messages'):`<main id="main" class="page-width">${message}</main>`;mountPage(root,header()+body+footer(),pageKey);recordPaint('error');}
 }
 
 async function adminPage(tab) {
@@ -537,6 +599,20 @@ document.addEventListener('submit',async event=>{
     else if(kind==='match')await service.saveFollowup(form,data);
   }catch(error){notify(error.message,true);}finally{setBusy(submit,false);}
 });
+let navigationIntentTimer;
+function prefetchNavigation(link) {
+  if(!link||state.admin||!sessionReader.fresh()||navigator.connection?.saveData)return;
+  const url=new URL(link.getAttribute('href'),location.href);
+  if(url.origin!==location.origin)return;
+  for(const path of navigationReads(url,state.user))void api(path,{prefetch:true}).catch(()=>{});
+}
+document.addEventListener('pointerover',event=>{
+  const link=event.target.closest('[data-nav]');if(!link||link.contains(event.relatedTarget))return;
+  clearTimeout(navigationIntentTimer);navigationIntentTimer=setTimeout(()=>prefetchNavigation(link),70);
+});
+document.addEventListener('pointerout',event=>{const link=event.target.closest('[data-nav]');if(link&&!link.contains(event.relatedTarget))clearTimeout(navigationIntentTimer);});
+document.addEventListener('focusin',event=>prefetchNavigation(event.target.closest('[data-nav]')));
+document.addEventListener('pointerdown',event=>{if(event.button===0)prefetchNavigation(event.target.closest('[data-nav]'));});
 document.addEventListener('click',async event=>{
   const brandLink=event.target.closest('[data-brand]');if(brandLink){logoClicks++;clearTimeout(logoTimeout);logoTimeout=setTimeout(()=>logoClicks=0,1800);if(logoClicks>=5){logoClicks=0;event.preventDefault();go('/admin');return;}if(location.pathname==='/'){event.preventDefault();return;}}
   const scroll=event.target.closest('[data-scroll]');if(scroll){event.preventDefault();if(location.pathname!=='/')go('/#'+scroll.dataset.scroll);else document.getElementById(scroll.dataset.scroll)?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});return;}
@@ -609,7 +685,18 @@ document.addEventListener('change',event=>{
 document.addEventListener('change',async event=>{if(event.target.id!=='avatar-upload')return;const file=event.target.files[0];if(!file)return;if(file.size>2*1024*1024){notify(t('图片不能超过 2 MB。','The image must be 2 MB or smaller.'),true);return;}const data=new FormData();data.append('file',file);try{state.user=await api('/api/profile/avatar',{method:'POST',body:data});document.querySelector('.avatar-editor .avatar').outerHTML=avatar(state.user,'large');notify(t('头像已更新。','Avatar updated.'));}catch(error){notify(error.message,true);}event.target.value='';});
 window.addEventListener('popstate',()=>{closeDialog();render();});
 window.addEventListener('pagehide',event=>{service.stopChat();if(dialogs.querySelector('#webhook-signing-secret'))closeDialog();if(!event.persisted)state.sculpture?.dispose();});
-window.addEventListener('pageshow',event=>{if(event.persisted)render();});
+function resetPrivateView() {
+  invalidateIdentity();Object.assign(state,{user:null,admin:false,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
+}
+async function refreshVisibleSession() {
+  if(document.hidden||!state.config)return;
+  const before=identityOf(state);
+  try{await session();if(identityOf(state)!==before){service.stopChat();closeDialog();root.dataset.pageKey='';await render();}}
+  catch(error){sessionReader.invalidate();requests.invalidate();if(error.status===401&&(state.user||state.admin)){resetPrivateView();void render();}}
+}
+window.addEventListener('storage',event=>{if(event.key==='hireferry-session-change'){resetPrivateView();void render();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else void refreshVisibleSession();});
+window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView();void render();}});
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
 

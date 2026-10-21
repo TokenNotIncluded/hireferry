@@ -1,0 +1,997 @@
+{
+  "environment": "Node route execution with a minimal DOM mount adapter; no browser automation",
+  "limitations": [
+    "Synthetic fixtures; every fetch adds the same requested delay, including writes.",
+    "Measures real app/service request scheduling and HTML publication, not browser layout, paint, transfer size, or production backend latency.",
+    "Authentication is primed before timing, representing ordinary signed-in navigation. No hover/focus prefetch is simulated.",
+    "Browser event binding, chat read receipts and polling are excluded; chat timing requires the actual message body in published HTML."
+  ],
+  "latencyMs": 200,
+  "samples": 5,
+  "sourceHashes": {
+    "baseline": {
+      "app.js": "d84282663de98cb6135d1b19ab65a58a65395665e1e9682d33072e9f6f1752c4",
+      "service-ui.js": "9b4d3eccecb7c30fb6408631588555d68f340eee7c4963d88bc0962cacc71d96",
+      "requests.js": null,
+      "cli-auth-return.js": null
+    },
+    "revised": {
+      "app.js": "0e02e748489c95e6c445a76e31628789effcff6262fb2e5b242924b0221aa9b8",
+      "service-ui.js": "3d65bd356263fb2146075b65344b1a60bcb2aaf02c190b850eb7c39a5e6f545c",
+      "requests.js": "fed3806b691569ba5f6def04ddf34380c811a9fac8a59e505e04e1e1e74c93fa",
+      "cli-auth-return.js": "9674040916a4375cd665cffb820bd720dd22306f24b299ea917afe526935bb51"
+    }
+  },
+  "variants": {
+    "baseline": {
+      "profile": [
+        {
+          "shellMs": 0.5682550000000219,
+          "contentMs": 402.167599,
+          "completedMs": 602.7516499999999,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.5926719999999932,
+              "finishedMs": 201.016888
+            },
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 201.40139299999998,
+              "finishedMs": 401.79975
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 402.213309,
+              "finishedMs": 602.636225
+            }
+          ]
+        },
+        {
+          "shellMs": 0.4617520000001605,
+          "contentMs": 402.02220899999975,
+          "completedMs": 602.6127640000004,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.4835050000001502,
+              "finishedMs": 200.91885900000034
+            },
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 201.24041800000032,
+              "finishedMs": 401.659858
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 402.0481580000005,
+              "finishedMs": 602.470257
+            }
+          ]
+        },
+        {
+          "shellMs": 0.2771819999998115,
+          "contentMs": 401.7101050000001,
+          "completedMs": 602.3330340000002,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.30009700000027806,
+              "finishedMs": 200.8613519999999
+            },
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 201.00744399999985,
+              "finishedMs": 401.4374800000005
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.7643969999999,
+              "finishedMs": 602.216907
+            }
+          ]
+        },
+        {
+          "shellMs": 0.17682999999851745,
+          "contentMs": 401.3706719999991,
+          "completedMs": 601.9219709999998,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.1984229999998206,
+              "finishedMs": 200.63156699999854
+            },
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.7699080000002,
+              "finishedMs": 401.2215239999987
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.4094819999991,
+              "finishedMs": 601.8232799999987
+            }
+          ]
+        },
+        {
+          "shellMs": 0.2709820000000036,
+          "contentMs": 401.3777260000006,
+          "completedMs": 601.9382129999995,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.2827400000005582,
+              "finishedMs": 200.69937899999968
+            },
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.81430399999954,
+              "finishedMs": 401.22813900000074
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.4024040000004,
+              "finishedMs": 601.8447500000002
+            }
+          ]
+        }
+      ],
+      "messages": [
+        {
+          "shellMs": 0.16662399999995614,
+          "contentMs": 822.843077,
+          "completedMs": 1023.5028179999999,
+          "requestsBeforeContent": 4,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.18622400000003836,
+              "finishedMs": 200.64233999999988
+            },
+            {
+              "path": "/api/chat/platform",
+              "method": "POST",
+              "aborted": false,
+              "beganMs": 219.55703099999982,
+              "finishedMs": 420.0508
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 420.17954699999996,
+              "finishedMs": 620.645968
+            },
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 620.9726069999999,
+              "finishedMs": 821.494267
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 822.8893579999999,
+              "finishedMs": 1023.322662
+            }
+          ]
+        },
+        {
+          "shellMs": 0.2784639999999854,
+          "contentMs": 803.3999979999999,
+          "completedMs": 1004.0792219999994,
+          "requestsBeforeContent": 4,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.29914499999995314,
+              "finishedMs": 200.71169399999962
+            },
+            {
+              "path": "/api/chat/platform",
+              "method": "POST",
+              "aborted": false,
+              "beganMs": 200.8769259999999,
+              "finishedMs": 401.322134
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.443499,
+              "finishedMs": 601.853024
+            },
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 602.0061369999994,
+              "finishedMs": 802.4895429999997
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 803.450014,
+              "finishedMs": 1003.8811299999998
+            }
+          ]
+        },
+        {
+          "shellMs": 0.24741699999958655,
+          "contentMs": 803.7168279999996,
+          "completedMs": 1004.3214280000002,
+          "requestsBeforeContent": 4,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.26794799999970564,
+              "finishedMs": 201.0921129999997
+            },
+            {
+              "path": "/api/chat/platform",
+              "method": "POST",
+              "aborted": false,
+              "beganMs": 201.3041059999996,
+              "finishedMs": 401.7278610000003
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.85165999999936,
+              "finishedMs": 602.3389309999993
+            },
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 602.5078380000004,
+              "finishedMs": 803.0025610000002
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 803.7577599999995,
+              "finishedMs": 1004.1910600000001
+            }
+          ]
+        },
+        {
+          "shellMs": 0.16366999999991094,
+          "contentMs": 802.827405,
+          "completedMs": 1003.4064209999997,
+          "requestsBeforeContent": 4,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.18170699999973294,
+              "finishedMs": 200.58586400000058
+            },
+            {
+              "path": "/api/chat/platform",
+              "method": "POST",
+              "aborted": false,
+              "beganMs": 200.74381600000015,
+              "finishedMs": 401.1493040000005
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.23893099999987,
+              "finishedMs": 601.6377300000004
+            },
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 601.7547790000008,
+              "finishedMs": 802.228489000001
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 802.8936659999999,
+              "finishedMs": 1003.287139
+            }
+          ]
+        },
+        {
+          "shellMs": 0.2130139999990206,
+          "contentMs": 805.1666349999996,
+          "completedMs": 1005.7717909999992,
+          "requestsBeforeContent": 4,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.22799699999995937,
+              "finishedMs": 200.62219299999924
+            },
+            {
+              "path": "/api/chat/platform",
+              "method": "POST",
+              "aborted": false,
+              "beganMs": 200.74727299999904,
+              "finishedMs": 401.16773399999875
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.2595939999992,
+              "finishedMs": 601.6837099999993
+            },
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 603.872460999999,
+              "finishedMs": 804.4214309999988
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 805.2036909999988,
+              "finishedMs": 1005.6703369999996
+            }
+          ]
+        }
+      ],
+      "mandate": [
+        {
+          "shellMs": 0.18852800000013303,
+          "contentMs": 402.9449770000001,
+          "completedMs": 603.5459169999999,
+          "requestsBeforeContent": 3,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.210381000000325,
+              "finishedMs": 200.634231
+            },
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 201.3053460000001,
+              "finishedMs": 401.900662
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 201.3399290000002,
+              "finishedMs": 402.024531
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 402.96974500000033,
+              "finishedMs": 603.4037290000001
+            }
+          ]
+        },
+        {
+          "shellMs": 0.24545300000045245,
+          "contentMs": 402.3955759999999,
+          "completedMs": 603.0397860000003,
+          "requestsBeforeContent": 3,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.26698600000054284,
+              "finishedMs": 200.7097100000001
+            },
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.86338400000022,
+              "finishedMs": 401.69835500000045
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.89631400000053,
+              "finishedMs": 401.8505359999999
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 402.4231470000004,
+              "finishedMs": 602.8794619999999
+            }
+          ]
+        },
+        {
+          "shellMs": 0.20411000000058266,
+          "contentMs": 401.6616750000012,
+          "completedMs": 602.2605780000013,
+          "requestsBeforeContent": 3,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.22331900000062888,
+              "finishedMs": 200.6524129999998
+            },
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.81981799999994,
+              "finishedMs": 401.2853690000011
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.8851969999996,
+              "finishedMs": 401.38511199999994
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.685211,
+              "finishedMs": 602.143419
+            }
+          ]
+        },
+        {
+          "shellMs": 0.1635889999997744,
+          "contentMs": 400.40082599999914,
+          "completedMs": 600.9717249999994,
+          "requestsBeforeContent": 3,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.18195699999887438,
+              "finishedMs": 199.61900099999912
+            },
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 199.75952499999948,
+              "finishedMs": 400.1528789999993
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 199.7872069999994,
+              "finishedMs": 400.2331409999988
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 400.4638019999984,
+              "finishedMs": 600.8750879999989
+            }
+          ]
+        },
+        {
+          "shellMs": 0.1747960000011517,
+          "contentMs": 401.6882280000009,
+          "completedMs": 601.6374460000006,
+          "requestsBeforeContent": 3,
+          "requests": [
+            {
+              "path": "/api/session",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.1919820000002801,
+              "finishedMs": 200.8091710000008
+            },
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.94412700000066,
+              "finishedMs": 401.39520300000004
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 200.98920500000168,
+              "finishedMs": 401.47896000000037
+            },
+            {
+              "path": "/api/ai/eligibility",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 401.7075280000008,
+              "finishedMs": 601.5376140000008
+            }
+          ]
+        }
+      ]
+    },
+    "revised": {
+      "profile": [
+        {
+          "shellMs": 0.11052900000004229,
+          "contentMs": 200.2880399999999,
+          "completedMs": 200.37815799999998,
+          "requestsBeforeContent": 1,
+          "requests": [
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.4865529999997307,
+              "finishedMs": 199.93141500000002
+            }
+          ]
+        },
+        {
+          "shellMs": 0.12951700000030542,
+          "contentMs": 201.0066510000006,
+          "completedMs": 201.05457399999977,
+          "requestsBeforeContent": 1,
+          "requests": [
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.2728750000005675,
+              "finishedMs": 200.73316500000055
+            }
+          ]
+        },
+        {
+          "shellMs": 0.13118000000031316,
+          "contentMs": 201.11535700000059,
+          "completedMs": 201.16414199999963,
+          "requestsBeforeContent": 1,
+          "requests": [
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.23576999999932013,
+              "finishedMs": 200.70276600000034
+            }
+          ]
+        },
+        {
+          "shellMs": 0.3037420000000566,
+          "contentMs": 201.5189050000008,
+          "completedMs": 201.5549289999999,
+          "requestsBeforeContent": 1,
+          "requests": [
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.4712170000002516,
+              "finishedMs": 201.0018880000007
+            }
+          ]
+        },
+        {
+          "shellMs": 0.13522599999851082,
+          "contentMs": 200.901170000001,
+          "completedMs": 200.93470100000195,
+          "requestsBeforeContent": 1,
+          "requests": [
+            {
+              "path": "/api/profile",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.263450999998895,
+              "finishedMs": 200.70091500000126
+            }
+          ]
+        }
+      ],
+      "messages": [
+        {
+          "shellMs": 0.15198299999974552,
+          "contentMs": 201.88446099999965,
+          "completedMs": 201.9637819999998,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.44145499999967797,
+              "finishedMs": 200.89265499999965
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.4544149999996989,
+              "finishedMs": 201.043365
+            }
+          ]
+        },
+        {
+          "shellMs": 0.14692399999967165,
+          "contentMs": 202.41063200000008,
+          "completedMs": 202.47672200000034,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.37461999999959517,
+              "finishedMs": 200.87777000000006
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.3910150000001522,
+              "finishedMs": 201.3026659999996
+            }
+          ]
+        },
+        {
+          "shellMs": 0.14002400000026682,
+          "contentMs": 201.6483389999994,
+          "completedMs": 201.7052359999998,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.28778000000056636,
+              "finishedMs": 200.74116200000026
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.300558999999339,
+              "finishedMs": 200.88590300000033
+            }
+          ]
+        },
+        {
+          "shellMs": 0.093843000000561,
+          "contentMs": 202.10537900000054,
+          "completedMs": 202.15796899999987,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.238894000000073,
+              "finishedMs": 200.7071109999997
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.25247400000080233,
+              "finishedMs": 200.89286399999946
+            }
+          ]
+        },
+        {
+          "shellMs": 2.286820000001171,
+          "contentMs": 204.01658300000054,
+          "completedMs": 204.0984580000004,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/chat/conversations/platform_fixture-user/messages?limit=100",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 2.508336999999301,
+              "finishedMs": 202.97068099999888
+            },
+            {
+              "path": "/api/chat/conversations",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 2.5200049999984913,
+              "finishedMs": 203.1235740000011
+            }
+          ]
+        }
+      ],
+      "mandate": [
+        {
+          "shellMs": 0.1356670000000122,
+          "contentMs": 201.79630300000008,
+          "completedMs": 201.84662000000026,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.5181120000002011,
+              "finishedMs": 200.97018100000014
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.5309609999999338,
+              "finishedMs": 201.13950000000023
+            }
+          ]
+        },
+        {
+          "shellMs": 0.1772899999996298,
+          "contentMs": 201.60509300000012,
+          "completedMs": 201.6465760000001,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.3743690000001152,
+              "finishedMs": 201.0853529999995
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.38690799999949377,
+              "finishedMs": 201.28096000000005
+            }
+          ]
+        },
+        {
+          "shellMs": 0.0986109999994369,
+          "contentMs": 201.24601399999847,
+          "completedMs": 201.29089299999941,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.24138899999888963,
+              "finishedMs": 200.7637969999996
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.2538479999984702,
+              "finishedMs": 200.87279299999864
+            }
+          ]
+        },
+        {
+          "shellMs": 0.12554099999942991,
+          "contentMs": 201.216758999999,
+          "completedMs": 201.25052099999994,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.37964800000008836,
+              "finishedMs": 200.88378199999897
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.39158599999973376,
+              "finishedMs": 201.02420600000005
+            }
+          ]
+        },
+        {
+          "shellMs": 0.09829999999783468,
+          "contentMs": 201.13287900000068,
+          "completedMs": 201.1766659999994,
+          "requestsBeforeContent": 2,
+          "requests": [
+            {
+              "path": "/api/mandate",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.2374119999985851,
+              "finishedMs": 200.66435600000113
+            },
+            {
+              "path": "/api/outreach",
+              "method": "GET",
+              "aborted": false,
+              "beganMs": 0.24860899999839603,
+              "finishedMs": 200.85507700000016
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "summary": {
+    "baseline": {
+      "profile": {
+        "shell": {
+          "medianMs": 0.3,
+          "minMs": 0.2,
+          "maxMs": 0.6
+        },
+        "content": {
+          "medianMs": 401.7,
+          "minMs": 401.4,
+          "maxMs": 402.2
+        },
+        "requestsBeforeContent": [
+          2
+        ],
+        "totalRouteRequests": [
+          3
+        ]
+      },
+      "messages": {
+        "shell": {
+          "medianMs": 0.2,
+          "minMs": 0.2,
+          "maxMs": 0.3
+        },
+        "content": {
+          "medianMs": 803.7,
+          "minMs": 802.8,
+          "maxMs": 822.8
+        },
+        "requestsBeforeContent": [
+          4
+        ],
+        "totalRouteRequests": [
+          5
+        ]
+      },
+      "mandate": {
+        "shell": {
+          "medianMs": 0.2,
+          "minMs": 0.2,
+          "maxMs": 0.2
+        },
+        "content": {
+          "medianMs": 401.7,
+          "minMs": 400.4,
+          "maxMs": 402.9
+        },
+        "requestsBeforeContent": [
+          3
+        ],
+        "totalRouteRequests": [
+          4
+        ]
+      }
+    },
+    "revised": {
+      "profile": {
+        "shell": {
+          "medianMs": 0.1,
+          "minMs": 0.1,
+          "maxMs": 0.3
+        },
+        "content": {
+          "medianMs": 201,
+          "minMs": 200.3,
+          "maxMs": 201.5
+        },
+        "requestsBeforeContent": [
+          1
+        ],
+        "totalRouteRequests": [
+          1
+        ]
+      },
+      "messages": {
+        "shell": {
+          "medianMs": 0.1,
+          "minMs": 0.1,
+          "maxMs": 2.3
+        },
+        "content": {
+          "medianMs": 202.1,
+          "minMs": 201.6,
+          "maxMs": 204
+        },
+        "requestsBeforeContent": [
+          2
+        ],
+        "totalRouteRequests": [
+          2
+        ]
+      },
+      "mandate": {
+        "shell": {
+          "medianMs": 0.1,
+          "minMs": 0.1,
+          "maxMs": 0.2
+        },
+        "content": {
+          "medianMs": 201.2,
+          "minMs": 201.1,
+          "maxMs": 201.8
+        },
+        "requestsBeforeContent": [
+          2
+        ],
+        "totalRouteRequests": [
+          2
+        ]
+      }
+    }
+  },
+  "improvementPercent": {
+    "profile": 50,
+    "messages": 74.9,
+    "mandate": 49.9
+  }
+}
