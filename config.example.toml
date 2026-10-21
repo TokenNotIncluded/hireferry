@@ -146,3 +146,19 @@ payment_provider = "Waffo Pancake"
 # "terms.en" = "legal/terms.en.md"
 # "privacy.zh" = "legal/privacy.zh.md"
 # "privacy.en" = "legal/privacy.en.md"
+
+# Native hfy login. Existing manual tokens and browser login remain separate.
+[cli_auth]
+enabled = true
+client_id = "hireferry-cli"
+allowed_scopes = ["identity", "mcp", "admin"]
+access_token_minutes = 15
+refresh_token_days = 30
+code_seconds = 120
+grant_minutes = 10
+poll_seconds = 5
+max_active_tokens = 10
+rate_limit_requests = 100
+rate_limit_window_seconds = 300
+max_user_code_attempts = 30
+max_pending_grants = 1000

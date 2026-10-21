@@ -106,7 +106,7 @@ fn upgrade_revokes_existing_suspended_account_grants_and_is_idempotent() {
     grant(&db, "legacy_unclaimed", "owner", false);
     let unaffected = grant(&db, "unaffected", "other", true);
     // Simulate a database predating HumanGrant's permanent suspension rule.
-    db.execute_batch("DROP TRIGGER hg_account_suspended; PRAGMA user_version=6; UPDATE users SET banned=1 WHERE id='owner';").unwrap();
+    db.execute_batch("DROP TRIGGER cli_account_suspended; DROP TABLE cli_refresh_tokens; DROP TABLE cli_tokens; DROP TABLE cli_grants; DROP TABLE cli_authorizations; DROP TRIGGER hg_account_suspended; PRAGMA user_version=6; UPDATE users SET banned=1 WHERE id='owner';").unwrap();
     assert_eq!(revoked_at(&db, "legacy"), None);
 
     db::migrate(&db).unwrap();
@@ -117,7 +117,7 @@ fn upgrade_revokes_existing_suspended_account_grants_and_is_idempotent() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        8
     );
     assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name='hg_account_suspended'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
 
@@ -126,4 +126,37 @@ fn upgrade_revokes_existing_suspended_account_grants_and_is_idempotent() {
     assert!(humangrant::validate_grant(&db, &old).is_err());
     assert_eq!(phase(&db, "legacy_unclaimed"), "cancelled");
     assert!(humangrant::validate_grant(&db, &unaffected).is_ok());
+}
+
+#[test]
+fn version_seven_humangrant_permissions_and_sessions_survive_cli_version_eight_upgrade() {
+    let db = database();
+    let claimed = grant(&db, "claimed_before_cli", "owner", true);
+    grant(&db, "approved_before_cli", "other", false);
+    db.execute_batch("DROP TRIGGER cli_account_suspended; DROP TABLE cli_refresh_tokens; DROP TABLE cli_tokens; DROP TABLE cli_grants; DROP TABLE cli_authorizations; PRAGMA user_version=7;").unwrap();
+    assert!(humangrant::validate_grant(&db, &claimed).is_ok());
+
+    db::migrate(&db).unwrap();
+    let current = humangrant::validate_grant(&db, &claimed).unwrap();
+    assert_eq!(current.user_id, claimed.user_id);
+    assert_eq!(current.actor_id, claimed.actor_id);
+    assert_eq!(current.client_id, claimed.client_id);
+    assert_eq!(current.token_hash, claimed.token_hash);
+    assert_eq!(current.permissions, claimed.permissions);
+    assert_eq!(current.expires_at, claimed.expires_at);
+    assert_eq!(phase(&db, "approved_before_cli"), "approved");
+    assert_eq!(revoked_at(&db, "claimed_before_cli"), None);
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        8
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM cli_authorizations", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    db::migrate(&db).unwrap();
+    assert!(humangrant::validate_grant(&db, &claimed).is_ok());
 }

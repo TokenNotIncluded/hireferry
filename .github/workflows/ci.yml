@@ -45,8 +45,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Test Rust application
-        run: cargo test --locked
+      - name: Test server and command-line client
+        run: cargo test --locked --workspace
 
       - name: Verify matching queries with 100,000 synthetic candidates
         run: cargo test --locked --test workbench -- --ignored --nocapture
@@ -59,8 +59,18 @@ jobs:
           node --check examples/humangrant-client.mjs
           for suite in tests/*.test.mjs; do node "$suite"; done
 
+      - name: Verify isolated skill installation and packaging scripts
+        run: python3 tests/cli-scripts.test.py
+
+      - name: Verify real browser and CLI authentication
+        run: |
+          cargo build --locked --workspace
+          npm install --prefix "$RUNNER_TEMP/hfy-browser" --no-save --ignore-scripts playwright@1.62.1
+          node "$RUNNER_TEMP/hfy-browser/node_modules/playwright/cli.js" install --with-deps chromium --only-shell
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-browser.mjs
+
       - name: Build Linux release
-        run: cargo build --locked --release
+        run: cargo build --locked --release --workspace
 
       - name: Assemble release bundle
         run: |
@@ -69,11 +79,59 @@ jobs:
           cp -r docs deploy legal examples dist/hireferry/
           cp static/runtime/NOTICE dist/hireferry/static/runtime/NOTICE
           tar -czf dist/hireferry-linux-x86_64.tar.gz -C dist hireferry
+          ./scripts/package-cli.sh --binary target/release/hfy --target x86_64-unknown-linux-gnu --out-dir dist/hfy
 
       - name: Upload Linux release
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: hireferry-linux-x86_64
           path: dist/hireferry-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Linux command-line client
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hireferry-cli-linux-x86_64
+          path: dist/hfy/
+          if-no-files-found: error
+          retention-days: 14
+
+  cli-native:
+    name: CLI on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
+
+      - name: Test standalone client
+        run: cargo test --locked -p hireferry-cli
+
+      - name: Build and package standalone client
+        run: |
+          cargo build --locked --release -p hireferry-cli
+          target=$(rustc -vV | sed -n 's/^host: //p')
+          binary=target/release/hfy
+          if [[ "$target" == *windows* ]]; then binary="$binary.exe"; fi
+          ./scripts/package-cli.sh --binary "$binary" --target "$target" --out-dir dist/hfy
+
+      - name: Upload client archive and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hireferry-cli-${{ matrix.os }}
+          path: dist/hfy/
           if-no-files-found: error
           retention-days: 14

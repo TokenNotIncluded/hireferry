@@ -45,7 +45,7 @@
 匹配跟进使用可搜索、按阶段筛选的列表，阶段数量随当前筛选计算，按最近更新时间排列。
 
 搜索只向管理员及独立管理员 AI 开放。它不创建匹配，不扩大求职委托或外部联系同意，
-也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；
+也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；schema 7 增加 HumanGrant 授权和防重放状态，当前 schema 8 增加 CLI 授权与刷新凭据记录。
 较短关键词仍采用受筛选条件约束的字面匹配。规模测试与实测结果见 [验收记录](docs/acceptance.md)，
 接口和分页规则见 [工作台 API](docs/api.md#岗位中心匹配工作台)。
 
@@ -91,6 +91,66 @@
 ## 公开政策
 
 服务条款与隐私政策使用独立的中英 Markdown 模板，经 `/api/legal/terms`、`/api/legal/privacy` 返回清洗后的 HTML 和版本元数据。`[legal.values]` 配置运营方、版本、生效日期、退款窗口及保留期限；`[legal.document_files]` 可加载相对配置文件的完整替代文档，修改后通过 `check-config` 并重启即可生效。当前币种、费用模式、金额精度、修改次数及 AI 门槛直接由业务配置生成，不能被政策变量覆盖；已有岗位仍保留原条款。默认文本保留运营方需实际履行的承诺，配置本身不会自动执行退款、账户注销或到期清理。详见 [政策配置](docs/legal-policies.md)。
+
+## 官方命令行客户端 `hfy`
+
+`hireferry-cli` 是独立的 Rust 客户端包，安装后使用 `hfy` 命令。它通过 HTTPS 连接已部署的聘渡，不需要服务端数据库、TOML 配置或 Google secret。现有 `hireferry` 命令继续负责启动服务、初始化管理员和备份。
+
+在仓库中安装客户端：
+
+```sh
+cargo install --path crates/hireferry-cli --locked
+hfy auth login
+hfy whoami
+hfy capabilities --json
+hfy auth status --json
+hfy auth refresh
+hfy auth logout
+```
+
+更新源码后可用 `cargo install --path crates/hireferry-cli --locked --force` 升级；先退出各站点登录，再用 `cargo uninstall hireferry-cli` 卸载。需要二进制压缩包时运行 `./scripts/package-cli.sh`，脚本会生成带文档和技能的本地包及 `SHA256SUMS`，不会自动发布 Release。
+
+也可直接从 Git 构建，不要求 crates.io 已发布此包：
+
+```sh
+cargo install --git https://github.com/TokenNotIncluded/hireferry --locked hireferry-cli
+# 本地打包与校验；macOS 可用 shasum -a 256 -c SHA256SUMS
+./scripts/package-cli.sh
+cd dist/hfy
+sha256sum -c SHA256SUMS
+```
+
+`hfy auth login` 在可交互的桌面环境中使用浏览器登录，其他环境使用设备码。也可以明确选择：
+
+```sh
+hfy auth login --device
+hfy auth login --oauth
+hfy --server https://your-hireferry.example auth login --device
+```
+
+浏览器登录通过系统浏览器、一次性授权码和 S256 PKCE 完成；设备码适合 SSH、容器或另一台设备确认。两种方式都需要在网站上登录并确认授权。默认只申请 `identity` 身份查询权限；`--scope mcp` 才申请普通用户 AI 权限并检查资格，`--scope admin` 则必须明确授权并完成最近的管理员 Passkey 认证。
+
+访问令牌默认 15 分钟有效，刷新授权默认 30 天；客户端自动续期，每次刷新会更换令牌，重复使用旧刷新令牌会撤销整次授权。用户可在网站的 `/oauth/connections` 查看和撤销自己的 CLI 连接。CLI 不打印访问令牌或刷新令牌；`--json` 结果写入 stdout，网址、设备码和提示写入 stderr。
+
+客户端配置按「默认值 → 客户端配置文件 → `HFY_*` 环境变量 → 命令参数」覆盖。凭据优先保存在系统钥匙环，不可用时使用受限的私有文件。Linux 是本次本地验证平台；macOS、Windows 有对应实现，尚未进行真实系统验收。配置字段、存储细节、从 Git 安装和打包校验见 [CLI 使用说明](docs/cli.md)。当前业务操作继续使用网站或已有 MCP 工具。
+
+Linux / macOS 的配置目录为 `$XDG_CONFIG_HOME/hireferry`，未设置时为 `$HOME/.config/hireferry`；Windows 为 `%LOCALAPPDATA%\hireferry`。客户端只读取该目录中的 `config.toml`，也可用 `HFY_CONFIG_DIR` 或 `--config-dir` 指定独立目录。私有文件后备保存在该目录内；登录结果中的 `storage.backend` 和 `storage.location` 明确给出实际存储方式与位置。Unix 目录权限为 `700`、凭据文件为 `600`。
+
+### 安装 Agent Skill
+
+仓库附带名为 `hireferry` 的技能，指导 AI 使用上述命令，不包含账号或凭据：
+
+```sh
+npx skills add TokenNotIncluded/hireferry --skill hireferry -a codex
+```
+
+默认安装到当前项目的 `.agents/skills/hireferry`；加 `-g` 安装到用户级目录，可用于多个项目。项目技能升级使用 `npx skills update hireferry -p`，移除使用 `npx skills remove hireferry -a codex`；用户级升级和移除分别使用 `update hireferry -g` 与 `remove hireferry -a codex -g`。安装器当前要求 Node.js 22.20 或以上，见 [Skills CLI](https://github.com/vercel-labs/skills)。
+
+不用 Node.js 时，在目标项目中运行 `/path/to/hireferry/scripts/install-skill.sh`；升级加 `--force`，移除加 `--uninstall`。脚本默认拒绝覆盖，支持 `--global`、`--dest`，并尊重显式设置的 `CODEX_HOME`。目录规则与完整命令见 [技能安装说明](docs/cli.md#安装升级与移除-agent-skill)。技能先检查 `hfy 0.1.x`、身份与能力，不会自动提升权限。
+
+手工安装默认使用当前项目的 `.agents/skills/hireferry`；`--global` 在显式设置 `CODEX_HOME` 时使用 `$CODEX_HOME/skills/hireferry`，否则使用 `$HOME/.agents/skills/hireferry`。安装或更新后，若当前 Codex 会话尚未发现技能，检查目录并重启对应客户端。安装技能不授予任何业务操作权限，登录和授权仍由本人完成。
+
+使用示例：**「使用 $hireferry，帮我登录并查看当前账户和 AI 使用资格。」**
 
 ## 本机运行
 
@@ -189,7 +249,7 @@ sudo -u hireferry sh -c 'cd /var/lib/hireferry && /usr/local/bin/hireferry --con
 
 ### 在线备份
 
-CLI 使用 SQLite 在线备份 API，可在服务运行时得到一致快照；不要只复制正在使用 WAL 的主数据库文件。
+服务端 `hireferry backup` 使用 SQLite 在线备份 API，可在服务运行时得到一致快照；不要只复制正在使用 WAL 的主数据库文件。
 
 ```sh
 sudo install -d -m 0700 -o hireferry -g hireferry /var/lib/hireferry/backups
@@ -229,7 +289,7 @@ docker run -d --name hireferry --restart unless-stopped \
 
 求职者选择身份后可免费使用 AI 连接。招聘方需要已开通，并且至少有一个**发布订单已完成、状态为 `published`、底薪达到该岗位保存的币种薪资门槛**的岗位。门槛在 `[pricing]` 和各币种金额配置中设置；默认模板为 CNY 3,000，新岗位可配置为零。免费发布的已完成订单也可满足发布条件；未支付草稿不能满足资格。旧岗位保留原门槛，每次 AI 请求仍重新检查当前状态和权限。
 
-创建个人令牌和每一次 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。HumanGrant 的批准、领取凭据和每次业务调用也检查当前资格。**招聘人数为 0 不影响已发布广告的 AI 资格**，可继续通过 AI 调整人数；关闭或删除最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用，此时可用人工浏览器工作台恢复符合规则的回收站内容。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
+创建个人令牌和每一次业务 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。HumanGrant 的批准、领取凭据和每次业务调用也检查当前资格。**招聘人数为 0 不影响已发布广告的 AI 资格**，可继续通过 AI 调整人数；关闭或删除最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用，此时可用人工浏览器工作台恢复符合规则的回收站内容。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
 
 在工作台「AI 连接」创建个人令牌，配置兼容客户端：
 
@@ -262,7 +322,7 @@ HumanGrant 使用同一 `/mcp` 端点，凭据为 `Authorization: HumanGrant <ac
 
 浏览器 WebMCP 在支持 `modelContext.registerTool` 时按登录角色注册工具，沿用当前 Cookie/CSRF。管理员和普通用户拥有不同工具集合，未登录或不具备资格时不注册；不支持该草案接口的浏览器仍能使用普通网页。WebMCP 不注册 Passkey、令牌签发或系统设置操作。
 
-远程 MCP 为无状态 `POST /mcp` JSON-RPC；接受现有 Bearer 令牌，或独立凭据与签名齐全的 HumanGrant 请求。Cookie 不能代替这两类远程凭据。没有 OAuth 自动发现，也没有 SSE 推送。协议、全部 HTTP 接口、两组远程工具 schema 和 WebMCP 名称差异见 [API 文档](docs/api.md)。
+远程 MCP 为无状态 `POST /mcp` JSON-RPC；接受现有 Bearer 令牌，或独立凭据与签名齐全的 HumanGrant 请求。Cookie 不能代替这两类远程凭据。不提供第三方 MCP 客户端的 OAuth 自动接入，也没有 SSE 推送。`hfy` 的登录授权用于官方 CLI，不会自动把凭据交给其他 MCP 客户端。协议、全部 HTTP 接口、两组远程工具 schema 和 WebMCP 名称差异见 [API 文档](docs/api.md)。
 
 ## 用户 Webhook
 
@@ -276,7 +336,7 @@ HumanGrant 使用同一 `/mcp` 端点，凭据为 `Authorization: HumanGrant <ac
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked
+cargo test --locked --workspace
 for asset in static/*.js static/runtime/*.js; do
   node --input-type=module --check < "$asset" || exit 1
 done
@@ -285,10 +345,12 @@ node tests/sculpture.test.mjs
 node tests/service-ui.test.mjs
 node tests/humangrant-ui.test.mjs
 node tests/theme.test.mjs
-cargo build --locked --release
+node tests/cli-auth.test.mjs
+python3 tests/cli-scripts.test.py
+cargo build --locked --release --workspace
 ```
 
-上述脚本覆盖服务界面、HumanGrant 确认流程和全站外观模块。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型、服务界面与系统/浅色/深色外观测试，并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费/退款事务、免费招聘人数、删除/恢复及版本竞态、角色/匹配/聊天权限、管理员令牌、委托授权、工作台分页与访问边界、撤销、重试幂等、输入清洗、Webhook 权限/投递和支付返回页。
+上述脚本覆盖服务界面、HumanGrant 确认流程、全站外观模块、CLI 授权页面辅助逻辑、技能安装与打包。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型、服务界面与系统/浅色/深色外观测试，并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费/退款事务、免费招聘人数、删除/恢复及版本竞态、角色/匹配/聊天权限、管理员令牌、委托授权、工作台分页与访问边界、撤销、重试幂等、输入清洗、Webhook 权限/投递和支付返回页。可选的 CLI 真实浏览器测试需要另行准备 Playwright 与 Chromium，运行方式见 [CLI 浏览器验收](docs/cli.md#可选的真实浏览器验收)，本次实际结果见 [CLI 本地验收记录](docs/cli-validation.md)。
 
 大数据量工作台回归使用独立合成资料，单独运行，不包含在普通 `cargo test` 中；CI 会显式执行：
 
@@ -310,13 +372,15 @@ Planned headcount defaults to 1 and accepts integers from 0 to 1,000,000. Update
 
 The server records job-search mandates and explicit consent for external outreach. Platform staff or a separately configured AI may poll messages, reply, manage introductions and record factual progress through MCP. The application does not include an LLM, crawler, external job-board integration or automatic outreach service. Administrators can read all business history, including archived conversations, but cannot send to archived rooms.
 
-The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
+The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Schema 7 adds HumanGrant authorization and replay protection; the current schema 8 adds CLI authorizations and refresh credential records. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
 
-One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The CLI provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
+One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The server command `hireferry backup` provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
 
 HumanGrant lets a member review the AI identity, choose permissions and expiry, and revoke access later; the AI gets a separate credential bound to its own signing key. Administrator access still uses Passkeys and separate administrator tokens. Cookie sessions cannot replace remote MCP credentials.
 
 The production origin is `https://hireferry.lmm.best`, with support at `support@lmm.best`. Both gateways return to `/billing/return`; a redirect never confirms payment. Waffo payment and refund events are verified and settled transactionally, with successful refunds deducted by their own cash-flow date. The application does not initiate refunds or process Stripe refund/dispute notifications. Member-owned outbound HTTPS webhooks provide permission-checked event notifications; only the member's signed-in browser can manage their destinations and signing secrets.
+
+The separate `hireferry-cli` Rust package installs `hfy`. Use `hfy auth login`, or select `--device` / `--oauth`, then query `hfy whoami`, `hfy capabilities`, or `hfy auth status`. Login defaults to identity access only; member MCP and administrator access require an explicit scope and browser consent. Access tokens default to 15 minutes, with rotating refresh credentials valid for up to 30 days. Use `hfy auth refresh` or `hfy auth logout`, and manage connections at `/oauth/connections`. Add `--json` for machine-readable stdout; prompts go to stderr and credentials are never printed. Linux is locally validated; macOS and Windows paths still need native acceptance. See [the CLI guide](docs/cli.md) for configuration, storage, installation, upgrade, removal and local package checksums. Install the included Agent Skill with `npx skills add TokenNotIncluded/hireferry --skill hireferry -a codex`.
 
 Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refunds, native browser WebMCP and independently operated webhook/AI integrations require deployment-specific acceptance tests. The referenced external production handoff files were not available in this environment; no merchant IDs, products or credentials were inferred. Copy verified values into the protected TOML on the deployment machine. See [deployment handoff](docs/deployment-handoff.md), [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [HumanGrant](docs/humangrant.md), [payments](docs/payments.md) and [member webhooks](docs/webhooks.md).
 

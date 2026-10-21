@@ -220,6 +220,9 @@ fn remove_workbench_indexes(db: &Connection) {
     for name in names {
         db.execute_batch(&format!("DROP INDEX {name};")).unwrap();
     }
+    // This fixture simulates a v4 database, before HumanGrant and CLI authorization.
+    db.execute_batch("DROP TRIGGER cli_account_suspended; DROP TABLE cli_refresh_tokens; DROP TABLE cli_tokens; DROP TABLE cli_grants; DROP TABLE cli_authorizations;").unwrap();
+    db.execute_batch("DROP TRIGGER hg_account_suspended; DROP TABLE hg_sessions; DROP TABLE hg_grants; DROP TABLE hg_requests; DROP TABLE hg_nonces; DROP TABLE hg_limits;").unwrap();
     db.pragma_update(None, "user_version", 4).unwrap();
 }
 
@@ -252,7 +255,7 @@ fn v4_upgrade_rebuilds_search_and_write_triggers_keep_all_four_indexes_current()
         assert_eq!(
             db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            7
+            8
         );
     }
     let search = |q: &str| {

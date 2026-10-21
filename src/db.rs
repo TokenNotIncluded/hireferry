@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 7 {
+    if version > 8 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -115,7 +115,19 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     crate::webhooks::migrate(db)?;
     crate::workbench::migrate(db)?;
     crate::humangrant::migrate(db)?;
-    db.pragma_update(None, "user_version", 7)?;
+    // HumanGrant owns version 7. Its idempotent migration also preserves the
+    // upstream suspension backfill when reopening an existing database.
+    if version < 7 {
+        db.pragma_update(None, "user_version", 7)?;
+    }
+    // Version 8 adds native-client grants and rotating credential families.
+    // The schema and version marker commit together; a failed upgrade rolls back.
+    if version < 8 {
+        let tx = db.unchecked_transaction()?;
+        crate::cli_auth::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 8)?;
+        tx.commit()?;
+    }
     Ok(())
 }
 pub fn audit(

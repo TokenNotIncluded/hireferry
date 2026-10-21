@@ -20,6 +20,7 @@ pub struct Config {
     pub limits: Limits,
     pub webhooks: Webhooks,
     pub legal: crate::legal::Legal,
+    pub cli_auth: CliAuth,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -39,6 +40,43 @@ impl Default for Config {
             limits: Limits::default(),
             webhooks: Webhooks::default(),
             legal: crate::legal::Legal::default(),
+            cli_auth: CliAuth::default(),
+        }
+    }
+}
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CliAuth {
+    pub enabled: bool,
+    pub client_id: String,
+    pub allowed_scopes: Vec<String>,
+    pub access_token_minutes: u64,
+    pub refresh_token_days: u64,
+    pub code_seconds: u64,
+    pub grant_minutes: u64,
+    pub poll_seconds: u64,
+    pub max_active_tokens: u64,
+    pub rate_limit_requests: u64,
+    pub rate_limit_window_seconds: u64,
+    pub max_user_code_attempts: u64,
+    pub max_pending_grants: u64,
+}
+impl Default for CliAuth {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            client_id: "hireferry-cli".into(),
+            allowed_scopes: vec!["identity".into(), "mcp".into(), "admin".into()],
+            access_token_minutes: 15,
+            refresh_token_days: 30,
+            code_seconds: 120,
+            grant_minutes: 10,
+            poll_seconds: 5,
+            max_active_tokens: 10,
+            rate_limit_requests: 100,
+            rate_limit_window_seconds: 300,
+            max_user_code_attempts: 30,
+            max_pending_grants: 1000,
         }
     }
 }
@@ -396,6 +434,39 @@ impl Config {
             })
         {
             return Err(AppError::bad_request("Invalid HumanGrant configuration"));
+        }
+        let cli = &self.cli_auth;
+        if cli.client_id.is_empty()
+            || cli.client_id.len() > 80
+            || !cli
+                .client_id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+            || !cli.allowed_scopes.iter().any(|s| s == "identity")
+            || cli
+                .allowed_scopes
+                .iter()
+                .any(|s| !matches!(s.as_str(), "identity" | "mcp" | "admin"))
+            || cli.allowed_scopes.len() > 3
+            || cli
+                .allowed_scopes
+                .iter()
+                .enumerate()
+                .any(|(index, scope)| cli.allowed_scopes[..index].contains(scope))
+            || !(1..=1440).contains(&cli.access_token_minutes)
+            || !(1..=365).contains(&cli.refresh_token_days)
+            || !(30..=600).contains(&cli.code_seconds)
+            || !(1..=30).contains(&cli.grant_minutes)
+            || !(5..=60).contains(&cli.poll_seconds)
+            || !(1..=100).contains(&cli.max_active_tokens)
+            || !(1..=10000).contains(&cli.rate_limit_requests)
+            || !(10..=3600).contains(&cli.rate_limit_window_seconds)
+            || !(1..=1000).contains(&cli.max_user_code_attempts)
+            || !(1..=100000).contains(&cli.max_pending_grants)
+        {
+            return Err(AppError::bad_request(
+                "Invalid cli_auth client, scopes, lifetime or rate limit configuration",
+            ));
         }
         let url = url::Url::parse(&self.public_url).map_err(AppError::bad_request)?;
         let bind: std::net::SocketAddr = self.bind.parse().map_err(AppError::bad_request)?;

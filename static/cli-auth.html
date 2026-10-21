@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>连接 hfy · HireFerry CLI</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/cli-auth.css">
+  <script type="module" src="/static/cli-auth.js"></script>
+</head>
+<body>
+  <header><a href="/" class="brand">聘渡 <span>HireFerry</span></a><button id="language" type="button" aria-label="Switch language">EN</button></header>
+  <main>
+    <p class="eyebrow">HIREFERRY CLI</p>
+    <h1 data-text="title">连接你的命令行</h1>
+    <p class="intro" data-text="intro">确认账户和权限后，回到终端继续。</p>
+    <section class="card" aria-labelledby="request-title">
+      <h2 id="request-title" data-text="requestTitle">授权 hfy</h2>
+      <p id="status" role="status" aria-live="polite">正在检查登录状态 / Checking your sign-in…</p>
+      <p id="error" role="alert" hidden></p>
+      <form id="code-form" hidden>
+        <label for="user-code" data-text="codeLabel">输入终端显示的设备码</label>
+        <input id="user-code" name="user_code" maxlength="16" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX" required>
+        <button class="primary" type="submit" data-text="continue">继续</button>
+      </form>
+      <div id="sign-in" hidden>
+        <p data-text="signInHelp">先在聘渡网站登录。完成后会回到本页确认授权。</p>
+        <div class="actions"><a href="/login" id="member-login" class="button primary" data-text="memberLogin">使用 Google 或邮箱登录</a><a href="/admin" id="admin-login" class="button" data-text="adminLogin">管理员 Passkey 登录</a></div>
+      </div>
+      <div id="consent" aria-describedby="status error" hidden>
+        <dl><dt data-text="siteLabel">网站</dt><dd id="site"></dd><dt data-text="accountLabel">当前账户</dt><dd id="account"></dd><dt data-text="clientLabel">客户端</dt><dd id="client"></dd><dt data-text="scopeLabel">权限范围</dt><dd id="scope"></dd></dl>
+        <div id="code-confirm" class="code-confirm" hidden><span data-text="compareCode">请核对终端上的设备码</span><strong id="display-code"></strong></div>
+        <p id="permissions"></p>
+        <p class="warning" data-text="ownRequest">只有你刚在自己的设备上运行了 hfy auth login，才应批准。不要批准他人发来的设备码或链接。</p>
+        <p class="hint" data-text="revokeHelp">授权有有效期。运行 hfy auth logout 或在命令行连接页面撤销后，访问令牌和刷新令牌都会失效。</p>
+        <a class="hint" href="/oauth/connections" target="_blank" rel="noopener" data-text="manageConnections">管理命令行连接</a>
+        <div class="actions"><button id="approve" class="primary" type="button" data-text="approve">允许连接</button><button id="deny" type="button" data-text="deny">拒绝</button><button id="switch-account" class="text-button" type="button" data-text="switchAccount">切换账户</button></div>
+      </div>
+      <div id="recover" class="actions" hidden><button id="retry" type="button" data-text="retry">重新检查</button><a id="workspace" href="/app" class="button" data-text="workspace">打开工作台</a><a id="reauth" href="/admin?tab=keys" class="button" hidden data-text="reauth">重新验证 Passkey</a></div>
+    </section>
+    <p class="footer" data-text="footer">登录操作在聘渡网站完成。终端不会索取你的 Google 密码、邮箱验证码或 Passkey。</p>
+    <noscript>请启用 JavaScript 后继续。Enable JavaScript to continue.</noscript>
+  </main>
+</body>
+</html>

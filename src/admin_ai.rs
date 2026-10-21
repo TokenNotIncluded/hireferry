@@ -194,6 +194,7 @@ async fn revoke(
     if tx.execute("UPDATE admin_api_tokens SET revoked=1 WHERE id=?1", [&id])? != 1 {
         return Err(AppError::not_found("Administrator token not found"));
     }
+    crate::cli_auth::revoke_token_family_by_id(&tx, &id, true)?;
     audit(
         &tx,
         &format!("admin_session:{}", session.token_hash),

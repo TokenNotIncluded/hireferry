@@ -6,6 +6,11 @@ rust-version = "1.88"
 description = "HireFerry — a small, private-by-default human recruitment service"
 license = "AGPL-3.0-or-later"
 
+[workspace]
+members = ["crates/hireferry-cli"]
+default-members = ["."]
+resolver = "3"
+
 [dependencies]
 axum = { version = "0.8", features = ["multipart", "macros"] }
 tokio = { version = "1", features = ["full"] }

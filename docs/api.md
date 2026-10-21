@@ -1,22 +1,22 @@
 # HTTP API、MCP 与 WebMCP
 
-本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[聊天与委托](../src/chat.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[HumanGrant](../src/humangrant.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
+本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[CLI 授权](../src/cli_auth.rs)、[聊天与委托](../src/chat.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[HumanGrant](../src/humangrant.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
 
 聘渡由平台 HR 居中服务。账号资料、简历、头像与岗位均不提供公共目录。每位用户与平台的私聊独立保存；平台建立明确匹配后，双方才能读取对应资料，并进入新的独立匹配会话。管理员可以读取全平台业务历史，包含封禁、拒绝匹配与岗位删除后的归档会话；归档会话不可发送新消息。
 
-当前数据库版本为 schema 7，新增 HumanGrant 申请、授权和防重放状态。此前 schema 6 中，旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
+当前数据库版本为 schema 8，新增 CLI 授权、访问及刷新凭据哈希记录。schema 7 的 HumanGrant 申请、授权和防重放状态保持不变。此前 schema 6 中，旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
 
 ## 1. 通用约定
 
 - JSON 请求使用 `Content-Type: application/json`。时间戳为 UTC Unix 秒；统计日期为包含首尾日期的 `YYYY-MM-DD`。
 - 所有金额按记录币种的整数最小单位保存，沿用 `_cents` 字段名兼容客户端。`currency:"USD",salary_cents:300000` 表示 USD 3,000；JPY 的相同整数表示 JPY 300,000。底薪不包含奖金、提成。不要假设统一除以 100，应读取 `currency_decimals`。
 - 业务错误通常为 HTTP 400/401/403/404/409/429/503 与 `{"error":"说明"}`。JSON 提取及请求体超限等框架错误可能不同。无权读取的资料、岗位、头像通常返回 404。
-- 全局请求体上限 3 MiB；头像、文本另有限制。输入 DTO 拒绝未知字段；无参数操作不要附加业务字段。
+- 全局请求体上限 3 MiB；头像、文本另有限制。业务输入 DTO 拒绝未知字段；无参数操作不要附加业务字段。OAuth 表单参数按协议处理，见下方 CLI 授权说明。
 - 浏览器 Cookie 为 `hf_session`，HttpOnly、SameSite=Lax，HTTPS 下 Secure；默认 24 小时，可由 TOML 调整。
 - Cookie 写请求携带 `Origin`（配置的 public_url 来源）和 `X-CSRF-Token`（来自 GET /api/session）。尚未登录的认证接口验证同源及浏览器挑战。
 - Bearer 为 `Authorization: Bearer <token>`。普通用户、管理员两类令牌严格隔离；管理员不能冒充普通用户调用本人资料接口。
 - HumanGrant 的远程业务请求只走 `POST /mcp`，使用 `Authorization: HumanGrant <access_token>` 并由原申请密钥签名；它不能作为个人 Bearer 使用，也不能直接调用普通用户 HTTP 业务接口。具体签名要求见 [HumanGrant 说明](humangrant.md)。
-- 每次普通用户 Bearer 请求检查封禁、撤销、过期和 AI 资格。求职者免费；招聘方须已开通，并拥有至少一个发布订单已完成、状态为 published、底薪达到该岗位 `ai_min_salary_cents` 的岗位。门槛使用岗位自己的币种；默认模板为 CNY 300000 最小单位，允许配置为零。免费发布的已完成订单可满足发布条件，`headcount=0` 仍满足这里的已发布条件。
+- 每次普通用户业务 Bearer 请求检查封禁、撤销、过期和 AI 资格。求职者免费；招聘方须已开通，并拥有至少一个发布订单已完成、状态为 published、底薪达到该岗位 `ai_min_salary_cents` 的岗位。门槛使用岗位自己的币种；默认模板为 CNY 300000 最小单位，允许配置为零。免费发布的已完成订单可满足发布条件，`headcount=0` 仍满足这里的已发布条件。CLI 的身份查询凭据不要求 AI 资格，也不授予这些业务权限。
 - WebMCP 请求携带 `X-HireFerry-AI: webmcp` 并使用当前 Cookie/CSRF，服务端再次检查 AI 资格。关闭或删除最后一个合资格岗位后，已有招聘方 AI 令牌立即不可用；可用人工工作台执行符合规则的回收站恢复。
 - `public_email` 是历史字段名，现表示向平台及明确匹配对象提供的联系邮箱。`visible` 兼容旧客户端，写入固定 false，不授予公开访问。登录邮箱 email 只向本人、获准读取本人资料的 AI 和管理员返回。
 
@@ -24,7 +24,8 @@
 | --- | --- |
 | 未登录 | 首页、条款、隐私/退款/联系页面、公开配置、登录流程、健康检查；支付返回页不显示私人订单 |
 | 普通用户 Cookie | 本人资料/岗位/订单、平台私聊、明确匹配对象和对应匹配会话；按角色操作 |
-| 普通用户 Bearer / WebMCP | 同上，每次重新检查 AI 资格；不能自行签发令牌 |
+| CLI `identity` Bearer | 仅 `/oauth/userinfo` 身份、当前资格和能力查询；可续期或撤销自己的连接 |
+| 普通用户 Bearer / WebMCP | 普通用户 Cookie 的业务范围，每次重新检查 AI 资格；不能自行签发令牌 |
 | 普通用户 HumanGrant | 仅限本人明确批准的 MCP 操作与资源；每次检查签名、原申请密钥、授权期限、撤销和当前 AI 资格；无管理员权限 |
 | 管理员 Cookie | 全平台业务、会话历史、订单/统计/审计，以及 Passkey/管理员令牌管理 |
 | 管理员 Bearer / WebMCP | 全平台业务操作；无 Passkey、令牌签发、系统配置或伪造付款操作 |
@@ -92,6 +93,47 @@ CLI admin-bootstrap 口令一次性、10 分钟有效。首次引导会话 5 分
 | DELETE `/api/humangrant/grants/{id}` | 本人 Cookie、同源、授权列表的 `X-HG-CSRF`；`{}` | 撤销本人对应授权 |
 
 HumanGrant 的完整请求字段、取消、会话检查、签名与有效权限计算见 [HumanGrant 说明](humangrant.md)。本节的浏览器审批确认凭据与普通 API 的 `X-CSRF-Token` 不可互换。
+
+### CLI 授权与连接管理
+
+`hfy` 是公共客户端，默认 `client_id=hireferry-cli`，没有客户端密钥。设备码授权遵循 [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html)；浏览器授权使用 [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html) 的系统浏览器和回环回调，并强制 S256 PKCE。安装、配置与操作示例见 [CLI 文档](cli.md)。
+
+默认 scope 是 `identity`，仅允许查询自己的身份、AI 资格和当前能力。普通用户明确申请 `mcp` 后，服务端按现有 AI 资格授予 `identity mcp`；管理员明确申请 `admin` 并通过最近的 Passkey 认证后，可获得 `identity admin`。两种业务范围不能组合。未选身份的新用户或暂不具备 AI 资格的招聘方可以使用 `identity`，不会因此获得 MCP、业务 API 或管理员能力。
+
+| 方法与路径 | 输入 | 返回 / 条件 |
+| --- | --- | --- |
+| GET `/.well-known/oauth-authorization-server` | 无 | 发行者、各 OAuth 端点、支持的授权方式、scope 与 S256 能力 |
+| POST `/oauth/device/code` | form：`client_id`、可选 `scope` | `device_code`、`user_code`、`verification_uri`、`verification_uri_complete`、`expires_in`、`interval` |
+| GET `/oauth/device` | 可选 `user_code` | 网页设备确认页；登录后核对短码、账户及权限 |
+| GET `/oauth/authorize` | query：`client_id`、`response_type=code`、`redirect_uri`、`state`、`code_challenge`、`code_challenge_method=S256`、可选 `scope` | 网页授权确认页；打开页面不授予权限 |
+| GET `/api/cli/authorization` | 当前 Cookie、授权页面的请求参数 | 当前账户、申请范围、客户端、设备码或回调地址及有效期；`can_approve`、`approval_error`、`requires_recent_auth` 说明当前账户能否批准；不返回令牌 |
+| POST `/api/cli/authorization` | Cookie、Origin、CSRF；JSON：授权参数和 `approve` | 允许或拒绝；浏览器方式返回带 `code` 或 `error`、`state`、`iss` 的回调地址 |
+| POST `/oauth/token` | form：`client_id`、`grant_type` 及对应凭据，见下表 | `access_token`、`token_type=Bearer`、`expires_in`、`scope`、`refresh_token`、`refresh_expires_in` |
+| GET `/oauth/userinfo` | CLI 访问令牌 Bearer | `{admin,user,scope,expires_at,ai_eligibility,capabilities}`；`user` 为 `{id,name,email,role}` 或 null |
+| POST `/oauth/revoke` | form：`client_id`、`token`（访问或刷新令牌） | 200，撤销整个授权族；重复撤销或未知令牌不暴露状态 |
+| GET `/oauth/connections` | 浏览器 | 当前账户的 CLI 连接管理页，未登录时先登录 |
+| GET `/api/cli/connections` | 当前 Cookie | `{items:[{id,client_id,scope,created_at,expires_at,revoked}]}`；仅本人连接，最多 200 条 |
+| DELETE `/api/cli/connections/{id}` | 当前 Cookie、Origin、CSRF | 204，撤销本人的整个授权族；其他身份的 ID 返回 404 |
+
+这里的 form 指 `application/x-www-form-urlencoded`，不是 JSON。令牌端点按授权方式接收以下参数：
+
+| `grant_type` | 其他参数 | 行为 |
+| --- | --- | --- |
+| `urn:ietf:params:oauth:grant-type:device_code` | `device_code` | 仅批准后换取令牌；每次查询遵守服务端间隔 |
+| `authorization_code` | `code`、原 `redirect_uri`、`code_verifier` | 一次性兑换；验证客户端、精确回调和 PKCE |
+| `refresh_token` | `refresh_token`、可选 `scope` | 轮换访问与刷新令牌；范围只能保留或收窄 |
+
+浏览器回调仅允许 `http://127.0.0.1:<port>/callback` 或 `http://[::1]:<port>/callback`，端口由客户端临时监听决定。客户端校验 `state` 和返回的 `iss`。令牌接口忽略协议允许的未知参数，但不接受未知 scope、缺失必填项或其他授权类型。
+
+当前账户不符合请求范围时，确认页仍展示账户与权限，并允许拒绝或切换账户；批准按钮不可用。这个展示状态不替代服务端检查，提交批准时仍重新验证会话、AI 资格及最近的管理员 Passkey 认证。
+
+设备码签发、令牌兑换与撤销端点的协议错误使用 `{error,error_description}`；`/oauth/userinfo` 和浏览器连接管理沿用 `{error:"说明"}` 与 HTTP 状态。设备轮询的 `authorization_pending` 表示尚未决定；`slow_down` 要求之后每次查询间隔增加 5 秒；`access_denied` 或 `expired_token` 停止当前授权。HTTP 429 及限流提示不应通过快速重复请求绕过。响应设置禁止缓存，日志和 CLI 标准输出不得包含访问令牌、刷新令牌、设备秘密码或 PKCE 验证串。
+
+默认访问令牌有效 15 分钟，刷新授权在最初批准起 30 天到期。续期会原子地使旧访问令牌和旧刷新令牌失效；再次使用已消费的刷新令牌会撤销整个授权族，客户端不能在结果不确定时盲目重试。刷新时重新检查账户状态、当前配置与对应 AI 权限，不扩大原授权或延长总期限。
+
+只申请身份的连接通过 `/oauth/connections` 管理，不列入旧的个人或管理员 AI 令牌列表。具有业务范围的 CLI 访问令牌也出现在相应的既有令牌列表；撤销其中任一令牌同样撤销其刷新授权。网站会话、其他独立 CLI 连接和手动创建的令牌不会被同次退出自动撤销。
+
+`[cli_auth] enabled=false` 阻止新的授权和所有令牌兑换，包括续期；已有访问令牌在到期或撤销前仍可查询身份、按原权限访问业务。撤销接口和网页连接管理继续可用。改变允许的范围或客户端 ID 可进一步限制现有连接，具体配置与范围见 [CLI 文档](cli.md#服务器设置)。
 
 ## 3. 普通用户 HTTP API
 
@@ -349,7 +391,7 @@ OutreachInput 必填 channel、opportunity、stage，可选 source_url、note（
 
 ### 传输与请求
 
-端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。没有 OAuth 自动发现、SSE 推送、resources/prompts 或 MCP 会话 ID。
+端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。不提供第三方 MCP 客户端的 OAuth 自动接入、SSE 推送、resources/prompts 或 MCP 会话 ID。
 
 ```http
 Authorization: Bearer <personal-token-or-admin-token>

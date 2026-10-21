@@ -4,6 +4,7 @@ pub mod admin_ai;
 pub mod api;
 pub mod auth;
 pub mod chat;
+pub mod cli_auth;
 pub mod commerce;
 pub mod config;
 pub mod db;
@@ -111,6 +112,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(auth::routes())
         .merge(humangrant::routes())
+        .merge(cli_auth::routes())
         .merge(api::routes())
         .merge(legal::routes())
         .merge(admin::routes())
@@ -206,6 +208,7 @@ pub fn user_id(state: &AppState, headers: &HeaderMap, write: bool) -> AppResult<
         use sha2::Digest;
         let hash = hex::encode(sha2::Sha256::digest(token.as_bytes()));
         let db = state.conn()?;
+        cli_auth::check_business_token(&db, &state.cfg, token)?;
         let id:Option<String>=db.query_row("SELECT t.user_id FROM api_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?1 AND t.revoked=0 AND t.expires_at>?2 AND u.banned=0",rusqlite::params![hash,now()],|r|r.get(0)).optional()?;
         let id = id.ok_or_else(|| AppError::unauthorized("Token expired or revoked"))?;
         // Check on every use: closing the last qualifying job immediately

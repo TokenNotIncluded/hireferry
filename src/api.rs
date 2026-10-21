@@ -695,12 +695,17 @@ async fn revoke_token(
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
     let uid = user_id(&s, &h, true)?;
-    let db = s.conn()?;
-    db.execute(
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let changed = tx.execute(
         "UPDATE api_tokens SET revoked=1 WHERE id=?1 AND user_id=?2",
         params![id, uid],
     )?;
-    crate::db::audit(&db, &uid, "token_revoke", &id, "")?;
+    if changed == 1 {
+        crate::cli_auth::revoke_token_family_by_id(&tx, &id, false)?;
+    }
+    crate::db::audit(&tx, &uid, "token_revoke", &id, "")?;
+    tx.commit()?;
     Ok(StatusCode::NO_CONTENT)
 }
 #[derive(Deserialize)]

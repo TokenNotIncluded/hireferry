@@ -4,6 +4,7 @@ import { makeScenes } from './scenes.js';
 import { mountHomeStory } from './home-story.js';
 import { createServiceUI, createMessageId } from './service-ui.js';
 import { renderLegal } from './legal-content.js';
+import { takeCliReturn } from './cli-auth-return.js';
 import { mountPage, pageIdentity, pagePlaceholder } from './navigation.js';
 import { currencyMeta, currencyOptions, minorToDecimal, parseMinor, minorStep, formatMinor, calculateFee } from './money.js';
 import { createHumanGrantUI } from './humangrant-ui.js';
@@ -181,6 +182,7 @@ async function api(path,{method='GET',body,...options}={}) {
   return result;
 }
 async function session(renderVersion) { const s=await api('/api/session');if(renderVersion===undefined||renderVersion===state.render)Object.assign(state,{user:s.user,admin:s.admin,bootstrap:s.bootstrap,csrf:s.csrf});return s; }
+function resumeCliLogin(authenticated=false) {try{const path=takeCliReturn(sessionStorage,location.origin,state,authenticated);if(path){location.assign(path);return true;}}catch{/* Browser storage is optional. */}return false;}
 function notify(message,error=false) {clearTimeout(toastTimer);document.querySelector('#toast-root').innerHTML=`<div class="toast ${error?'error':''}" role="status">${icon(error?'info':'check')}<span>${esc(message)}</span></div>`;toastTimer=setTimeout(()=>document.querySelector('#toast-root').replaceChildren(),5500);}
 function setBusy(el,busy) {if(!el)return;el.disabled=busy;el.setAttribute('aria-busy',String(busy));}
 function go(path) {const next=new URL(path,location.href);const changedPage=pageIdentity(location.pathname,qs().get('tab'))!==pageIdentity(next.pathname,next.searchParams.get('tab'));closeDialog();history.pushState({},'',path);if(changedPage)window.scrollTo({top:0,behavior:'instant'});return render();}
@@ -236,7 +238,7 @@ function sidebar(tab,admin=false) {
     ...(state.user?.role==='employer'?[['jobs','briefcase',t('我的招聘','My roles')]]:[]),
     ['profile',state.user?.role==='employer'?'person':'file',state.user?.role==='employer'?t('我的资料','My profile'):t('我的简历','My résumé')],['matches','link',t('我的匹配','Introductions')],['orders','receipt',t('订单','Orders')],['agents','bot',t('AI 连接','AI connections')],['webhooks','link',t('联动','Webhooks')]
   ];
-  return `<aside class="sidebar" data-dom-key="sidebar"><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div><div class="sidebar-name">${admin?t('聘渡总控台','HireFerry admin'):esc(state.user?.name||state.user?.email)}</div><div class="role-label">${admin?t('超级管理员','Administrator'):roleText(state.user?.role)}</div></div></div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${entries.map(([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}">${icon(ico)}${label}</a>`).join('')}<button type="button" data-action="logout">${icon('logout')}${t('退出','Sign out')}</button></nav><div class="sidebar-bottom"><span class="dot"></span>${t('先认真听，再认真找。','First we listen. Then we look.')}<br>${t('每段旅程，都有人跟进。','A team behind your next step.')}</div></aside>`;
+  return `<aside class="sidebar" data-dom-key="sidebar"><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div><div class="sidebar-name">${admin?t('聘渡总控台','HireFerry admin'):esc(state.user?.name||state.user?.email)}</div><div class="role-label">${admin?t('超级管理员','Administrator'):roleText(state.user?.role)}</div></div></div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${entries.map(([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}">${icon(ico)}${label}</a>`).join('')}<a href="/oauth/connections">${icon('key')}${t('命令行连接','Command-line connections')}</a><button type="button" data-action="logout">${icon('logout')}${t('退出','Sign out')}</button></nav><div class="sidebar-bottom"><span class="dot"></span>${t('先认真听，再认真找。','First we listen. Then we look.')}<br>${t('每段旅程，都有人跟进。','A team behind your next step.')}</div></aside>`;
 }
 function shell(body,tab,admin=false) {return `<main id="main" class="page-width app-layout">${sidebar(tab,admin)}<section class="app-content">${body}</section></main>`;}
 function paymentProviders(record) {
@@ -351,6 +353,7 @@ async function render() {
   showPending();
   try {
     if(!state.config) {const results=await Promise.all([api('/api/config'),session(version)]);if(version!==state.render)return;state.config=results[0];if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';document.documentElement.lang=state.lang==='en'?'en':'zh-CN';}
+    if(resumeCliLogin())return;
     let body;
     if(path==='/')body=home();
     else if(path==='/humangrant')body=humanGrant().intro();
@@ -381,7 +384,7 @@ async function render() {
     else if(path==='/admin'){await session(version);if(version!==state.render)return;body=await adminPage(tab||'overview');}
     else if(path==='/billing/return'||path==='/payment/return'||path==='/payment/success'||path==='/checkout/return'){await session(version);if(version!==state.render)return;body=await paymentReturn();}
     else body=`<main id="main" class="page-width page-error"><div class="eyebrow" style="justify-content:center">404 / A SMALL DETOUR</div><h1 style="margin-top:20px">${t('这条路，还没有渡口。','This path has no ferry yet.')}</h1><p>${t('页面不存在，或已经被移走。','This page does not exist or has been moved.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to the beginning')}${icon('arrow')}</a></main>`;
-    if(version!==state.render)return;mountPage(root,header()+body+footer(),pageKey);syncCurrencyFields();if(path==='/')mountHome();
+    if(version!==state.render||resumeCliLogin())return;mountPage(root,header()+body+footer(),pageKey);syncCurrencyFields();if(path==='/')mountHome();
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&state.user?.role==='unassigned')chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
@@ -494,7 +497,7 @@ async function paymentReturn() {
 function decodeBuffer(value) {const s=value.replace(/-/g,'+').replace(/_/g,'/');return Uint8Array.from(atob(s.padEnd(Math.ceil(s.length/4)*4,'=')),c=>c.charCodeAt(0));}
 function encodeBuffer(buffer) {return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function credentialJson(c) {if(typeof c.toJSON==='function')return c.toJSON();const r=c.response;return {id:c.id,rawId:encodeBuffer(c.rawId),type:c.type,authenticatorAttachment:c.authenticatorAttachment,clientExtensionResults:c.getClientExtensionResults(),response:{clientDataJSON:encodeBuffer(r.clientDataJSON),...(r.attestationObject?{attestationObject:encodeBuffer(r.attestationObject),transports:r.getTransports?.()||[]}:{authenticatorData:encodeBuffer(r.authenticatorData),signature:encodeBuffer(r.signature),userHandle:r.userHandle?encodeBuffer(r.userHandle):null})}};}
-async function passkey(register=false,name='') {const returnPath=state.admin?location.pathname+location.search:'/admin';if(!window.PublicKeyCredential)throw new Error(t('此浏览器不支持通行密钥，请使用支持 WebAuthn 的浏览器。','This browser does not support passkeys. Use a browser with WebAuthn support.'));const prefix='/api/admin/passkeys/'+(register?'register':'login');const start=await api(prefix+'/start',{method:'POST',body:register?{name}:{}});const publicKey=start.options.publicKey;publicKey.challenge=decodeBuffer(publicKey.challenge);if(publicKey.user)publicKey.user.id=decodeBuffer(publicKey.user.id);for(const field of ['allowCredentials','excludeCredentials'])if(publicKey[field])publicKey[field]=publicKey[field].map(c=>({...c,id:decodeBuffer(c.id)}));let credential;try{credential=await navigator.credentials[register?'create':'get']({publicKey});}catch(error){if(error.name==='NotAllowedError')throw new Error(t('验证已取消或超时。可以再次尝试。','Authentication was canceled or timed out. You can try again.'));throw error;}if(!credential)throw new Error(t('没有收到通行密钥。','No passkey response was received.'));await api(prefix+'/finish',{method:'POST',body:{credential:credentialJson(credential)}});await session();await go(register?'/admin?tab=keys':returnPath);}
+async function passkey(register=false,name='') {const returnPath=state.admin?location.pathname+location.search:'/admin';if(!window.PublicKeyCredential)throw new Error(t('此浏览器不支持通行密钥，请使用支持 WebAuthn 的浏览器。','This browser does not support passkeys. Use a browser with WebAuthn support.'));const prefix='/api/admin/passkeys/'+(register?'register':'login');const start=await api(prefix+'/start',{method:'POST',body:register?{name}:{}});const publicKey=start.options.publicKey;publicKey.challenge=decodeBuffer(publicKey.challenge);if(publicKey.user)publicKey.user.id=decodeBuffer(publicKey.user.id);for(const field of ['allowCredentials','excludeCredentials'])if(publicKey[field])publicKey[field]=publicKey[field].map(c=>({...c,id:decodeBuffer(c.id)}));let credential;try{credential=await navigator.credentials[register?'create':'get']({publicKey});}catch(error){if(error.name==='NotAllowedError')throw new Error(t('验证已取消或超时。可以再次尝试。','Authentication was canceled or timed out. You can try again.'));throw error;}if(!credential)throw new Error(t('没有收到通行密钥。','No passkey response was received.'));await api(prefix+'/finish',{method:'POST',body:{credential:credentialJson(credential)}});await session();if(!resumeCliLogin(true))await go(register?'/admin?tab=keys':returnPath);}
 async function payOrder(order) {if(order.status==='paid'){notify(order.provider==='free'?t('这笔订单已免费完成。','This order was completed free of charge.'):t('这笔订单已支付。','This order is already paid.'));go('/app?tab=orders');return;}order=await api(`/api/orders/${encodeURIComponent(order.id)}/checkout`,{method:'POST',body:{}});if(!order.checkout_url)throw new Error(t('尚未获得支付链接。请在订单中稍后重试。','A checkout link is not available yet. Try again from your orders.'));const url=new URL(order.checkout_url);if(url.protocol!=='https:')throw new Error(t('支付链接不安全，已停止跳转。','The checkout URL is not secure. Navigation was stopped.'));location.assign(url.href);}
 function centsInput(value,record,options={}) {
   const meta=currency(record),bounds={min:1,max:1000000000,...options};
@@ -508,7 +511,7 @@ document.addEventListener('submit',async event=>{
   try {
     if(kind.startsWith('hg-'))await humanGrant().submit(form,data);
     else if(kind==='email-start'){const email=String(data.get('email')).trim();const r=await api('/api/auth/email/start',{method:'POST',body:{email}});emailCode(email,r.dev_code);}
-    else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();go(afterSignIn());}
+    else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();if(!resumeCliLogin(true))go(afterSignIn());}
     else if(kind==='profile'){state.user=await api('/api/profile',{method:'PUT',body:{name:data.get('name'),public_email:data.get('public_email'),resume_md:data.get('resume_md')||'',visible:false}});notify(t('已保存。你的下一站，又近了一点。','Saved. One step closer to what’s next.'));}
     else if(kind==='svg-avatar'){state.user=await api('/api/profile/avatar',{method:'PUT',body:{svg:data.get('svg')}});closeDialog();await render();notify(t('头像已更新。','Avatar updated.'));}
     else if(kind==='activate-employer'){const r=await api('/api/role',{method:'POST',body:{role:'employer',provider:data.get('provider')||''}});state.user=r.user;closeDialog();if(r.order){await go('/app?tab=orders');await payOrder(r.order);}else go('/app');}

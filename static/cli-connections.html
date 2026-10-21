@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>命令行连接 · HireFerry</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/cli-auth.css">
+  <script type="module" src="/static/cli-connections.js"></script>
+</head>
+<body>
+  <header><a href="/" class="brand">聘渡 <span>HireFerry</span></a><button id="language" type="button" aria-label="Switch language">EN</button></header>
+  <main>
+    <p class="eyebrow">HIREFERRY CLI</p>
+    <h1 data-text="title">命令行连接</h1>
+    <p class="intro" data-text="intro">查看当前账户的授权。撤销后，该设备的访问令牌和刷新令牌都会失效。</p>
+    <section class="card" aria-labelledby="account">
+      <h2 id="account" data-text="account">当前账户</h2>
+      <p id="status" role="status" aria-live="polite">正在检查登录状态 / Checking your sign-in…</p>
+      <p id="error" role="alert" hidden></p>
+      <div id="sign-in" hidden>
+        <div class="actions"><a id="member-login" href="/login" class="button primary" data-text="memberLogin">使用 Google 或邮箱登录</a><a id="admin-login" href="/admin" class="button" data-text="adminLogin">管理员 Passkey 登录</a></div>
+      </div>
+      <div id="connections"></div>
+      <div class="actions"><button id="refresh" type="button" data-text="refresh">刷新列表</button><a id="workspace" class="button" href="/app" data-text="workspace">打开工作台</a></div>
+    </section>
+    <p class="footer" data-text="footer">这里只显示授权记录，不显示任何凭据。身份登录、AI 工具权限和管理员权限分别授权。</p>
+    <noscript>请启用 JavaScript 后继续。Enable JavaScript to continue.</noscript>
+  </main>
+</body>
+</html>

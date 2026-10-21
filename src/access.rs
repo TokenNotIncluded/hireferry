@@ -59,6 +59,7 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
             .ok_or_else(|| AppError::unauthorized("Invalid bearer token"))?;
         if raw.starts_with("hf_admin_") {
             let db = s.conn()?;
+            crate::cli_auth::check_business_token(&db, &s.cfg, raw)?;
             let id = crate::admin_ai::verify_db(&db, raw)?
                 .ok_or_else(|| AppError::unauthorized("Admin token expired or revoked"))?;
             return Ok(Principal {

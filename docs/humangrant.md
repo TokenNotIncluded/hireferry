@@ -43,7 +43,7 @@ service_limit_per_hour = 600
 
 **同一 SQLite 数据库只运行一个聘渡服务实例。** 当前业务共用一个 `AppState` 数据库锁，撤销检查和业务读取／写入在该实例内按同一锁排序；这个锁不协调其他进程。不要把多个独立服务实例指向同一数据库来做负载均衡。
 
-数据库启动时在主分支 schema 6 的基础上迁移到 schema 7，新增 `hg_requests`、`hg_grants`、`hg_sessions`、`hg_nonces`、`hg_limits`，不转换已有用户登录或 Bearer 令牌。升级前按既有备份流程备份数据库。旧版程序无法打开 schema 7；需要回退时使用升级前备份，不能手动改版本号绕过保护。
+HumanGrant 的数据库迁移保持为 schema 7：在 schema 6 的基础上新增 `hg_requests`、`hg_grants`、`hg_sessions`、`hg_nonces`、`hg_limits`，不转换已有用户登录或 Bearer 令牌。当前版本随后应用 schema 8，单独增加官方 CLI 授权及刷新记录；既有 HumanGrant 数据保留。升级前按既有备份流程备份数据库。旧版程序无法打开超出其支持版本的数据库；需要回退时使用升级前备份，不能手动改版本号绕过保护。
 
 本版本采用人工转发授权链接。`POST /v1/requests/{id}/email` 返回 `503 mail_unavailable`，不会发送邮件。邮箱验证码登录仍按原 SMTP 配置工作。
 

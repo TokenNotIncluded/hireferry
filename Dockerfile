@@ -8,7 +8,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY static ./static
 COPY legal ./legal
-RUN cargo build --locked --release
+COPY crates ./crates
+RUN cargo build --locked --release -p hireferry
 
 FROM debian:bookworm-slim
 

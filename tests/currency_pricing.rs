@@ -465,7 +465,7 @@ PRAGMA user_version=3;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        8
     );
     assert_eq!(
         db.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))

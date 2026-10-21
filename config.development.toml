@@ -102,3 +102,18 @@ max_response_bytes = 16384
 poll_interval_secs = 5
 delivered_retention_days = 30
 failed_retention_days = 90
+
+[cli_auth]
+enabled = true
+client_id = "hireferry-cli"
+allowed_scopes = ["identity", "mcp", "admin"]
+access_token_minutes = 15
+refresh_token_days = 30
+code_seconds = 120
+grant_minutes = 10
+poll_seconds = 5
+max_active_tokens = 10
+rate_limit_requests = 100
+rate_limit_window_seconds = 300
+max_user_code_attempts = 30
+max_pending_grants = 1000

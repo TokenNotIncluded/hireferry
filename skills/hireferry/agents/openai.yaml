@@ -1,0 +1,4 @@
+interface:
+  display_name: "HireFerry"
+  short_description: "Sign in with hfy and check account access"
+  default_prompt: "Use $hireferry to sign in with hfy and check my account and permitted actions."
