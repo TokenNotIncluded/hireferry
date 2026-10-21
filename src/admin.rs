@@ -278,6 +278,7 @@ fn record_access_change(
     if banned {
         db.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         db.execute("UPDATE api_tokens SET revoked=1 WHERE user_id=?1", [id])?;
+        crate::humangrant::revoke_member_access(db, id)?;
         db.execute("DELETE FROM auth_challenges WHERE kind='email' AND subject=(SELECT email FROM users WHERE id=?1) COLLATE NOCASE", [id])?;
     }
     db.execute(

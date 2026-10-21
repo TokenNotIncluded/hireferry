@@ -8,6 +8,8 @@ pub mod commerce;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod humangrant;
+pub mod humangrant_access;
 pub mod legal;
 pub mod mcp;
 pub mod models;
@@ -33,10 +35,18 @@ pub struct AppState {
     pub db: Arc<Mutex<rusqlite::Connection>>,
     pub client: reqwest::Client,
     pub auth: Arc<auth::AuthService>,
+    // Scoped per request; never placed in the shared application router state.
+    humangrant: Option<humangrant_access::Execution>,
 }
 impl AppState {
-    pub fn new(cfg: config::Config) -> AppResult<Self> {
+    pub fn new(mut cfg: config::Config) -> AppResult<Self> {
         cfg.validate()?;
+        // Browsers and signing clients canonicalize host case and default ports.
+        // Use the same origin for signatures, consent checks and generated URLs.
+        cfg.public_url = url::Url::parse(&cfg.public_url)
+            .map_err(AppError::bad_request)?
+            .origin()
+            .ascii_serialization();
         let db = db::open(&cfg.database)?;
         webhooks::configure(&db, &cfg.webhooks)?;
         let auth = auth::AuthService::new(&cfg)?;
@@ -49,12 +59,48 @@ impl AppState {
                 .build()
                 .map_err(AppError::internal)?,
             auth: Arc::new(auth),
+            humangrant: None,
         })
     }
     pub fn conn(&self) -> AppResult<MutexGuard<'_, rusqlite::Connection>> {
-        self.db
+        let db = self
+            .db
             .lock()
-            .map_err(|_| AppError::internal("Database mutex poisoned"))
+            .map_err(|_| AppError::internal("Database mutex poisoned"))?;
+        if let Some(execution) = &self.humangrant {
+            if !self.cfg.humangrant.enabled {
+                return Err(AppError::forbidden("HumanGrant is disabled"));
+            }
+            if let Some(tool) = &execution.tool {
+                humangrant_access::authorize_tool(
+                    &db,
+                    &execution.grant,
+                    tool,
+                    &execution.arguments,
+                )?;
+            } else {
+                humangrant::validate_grant(&db, &execution.grant)?;
+            }
+        }
+        // Each business operation holds this guard through its database work.
+        // This orders revocation against access within this shared AppState.
+        // The SQLite deployment uses one service instance per database; this
+        // Rust mutex does not coordinate independent processes/connections.
+        Ok(db)
+    }
+    pub(crate) fn for_humangrant(
+        &self,
+        grant: humangrant::GrantContext,
+        tool: Option<&str>,
+        arguments: serde_json::Value,
+    ) -> Self {
+        let mut scoped = self.clone();
+        scoped.humangrant = Some(humangrant_access::Execution {
+            grant,
+            tool: tool.map(str::to_owned),
+            arguments,
+        });
+        scoped
     }
 }
 pub fn now() -> i64 {
@@ -64,6 +110,7 @@ static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/static");
 pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(auth::routes())
+        .merge(humangrant::routes())
         .merge(api::routes())
         .merge(legal::routes())
         .merge(admin::routes())
@@ -85,7 +132,7 @@ pub fn app(state: AppState) -> Router {
 async fn static_asset(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = path.strip_prefix("static/").unwrap_or(path);
-    if path.starts_with("api/") || path == "mcp" {
+    if path.starts_with("api/") || path.starts_with("v1/") || path == "mcp" {
         return AppError::not_found("Route not found").into_response();
     }
     let name = if path.is_empty() || !path.rsplit('/').next().unwrap_or("").contains('.') {

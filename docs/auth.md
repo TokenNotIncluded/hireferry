@@ -20,7 +20,9 @@ console.
 
 普通用户使用 Google 或邮箱验证码。首次登录创建 `unassigned` 账户，再通过界面选择求职者或招聘方。选择招聘方会创建开通订单，收到有效支付通知后才开通招聘权限。
 
-登录邮箱是账户身份标识，只向本人和管理员返回。`public_email` 是历史字段名，现表示向平台及明确匹配对象提供的联系邮箱。资料、简历、头像与岗位没有公共目录；`visible` 不授予公开访问。网站不要求手机号。管理员为服务运营可以查看账户及业务历史，普通会话和个人 MCP 令牌只能读取本人以及平台明确匹配后授予的对应资源。
+资料、简历、头像和岗位不进入公开目录。`public_email` 是历史字段名，表示供平台及明确匹配对象使用的联系邮箱；旧 `visible` 字段不授予公开访问。平台建立明确匹配后，双方才能读取对应资料，并进入独立匹配会话，此前各自与平台的私聊不会复制给对方。
+
+登录邮箱是账户身份标识，不向匹配对象返回。本人、获得本人资料读取权限的 AI，以及平台管理员可以读取它。网站不要求手机号。管理员为服务运营可以查看账户及业务历史；普通会话和 MCP 身份仍受当前角色、匹配关系、封禁和资源权限约束。
 
 ### 邮箱验证码
 
@@ -72,9 +74,19 @@ Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
 
 参考：[Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect)。
 
+### HumanGrant：由本人确认的 AI 访问
+
+登录页提供 **Continue with human beings** 入口，`/humangrant` 说明如何让 AI 发起申请。本人仍通过现有 Google 或邮箱验证码登录。打开 `/human/{link}` 时，已有有效登录会直接进入权限确认；未登录时先登录，再返回原申请。
+
+确认页显示当前账户、原申请 AI 的身份、服务、用途、具体权限、资源和期限。权限默认不勾选，用户还须明确同意。服务器在提交时重新检查账户与申请，并验证绑定该登录、账户和申请的 `X-HG-CSRF`；仅打开链接或切换账户不能取得授权。
+
+批准后，只有原申请密钥可以单次领取独立 AI 凭据。后续远程 MCP 请求同时使用 `Authorization: HumanGrant <access_token>` 和该密钥的请求签名。AI 不获得本人的浏览器 Cookie。服务器持续检查有效期、撤销、封禁、AI 资格及实际操作权限。用户可以在「AI 连接」中查看授权并随时撤销。
+
+现有个人 Bearer 令牌继续可用。HumanGrant 不用于管理员登录或管理员 AI，也不能扩大本人当前的业务权限。配置、完整协议接口与签名示例见 [HumanGrant 说明](humangrant.md)。
+
 ## 管理员首次开通
 
-管理员不属于普通用户，也不能通过 Google、邮箱验证码或个人 MCP 令牌登录总控台。
+管理员不属于普通用户，也不能通过 Google、邮箱验证码、HumanGrant 或个人 MCP 令牌登录总控台。
 
 1. 在持有服务器权限的交互式终端运行 `hireferry --config /path/to/config.toml admin-bootstrap`。命令生成 32 字节随机秘密并仅向当前终端输出；数据库只保存哈希。不要把输出写入共享日志。
 2. 在 10 分钟内访问 `/admin`，或连续点击 Logo 5 次，输入该一次性口令。
@@ -115,7 +127,7 @@ Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
 
 在登录后的「AI 连接」页面创建令牌。必须由交互式浏览器会话授权创建，已有 Bearer 令牌不能再创建令牌。每个账户最多 10 个有效令牌，30 天过期，只显示一次，数据库保存哈希，可立即撤销。
 
-使用方式是 `Authorization: Bearer <token>`。令牌可使用该用户的业务工具，并受相同所有权、角色、支付与封禁检查限制。它不能使用管理员 API。MCP 为 `2025-11-25` 无状态 Streamable HTTP，当前需要手动配置请求头，没有 OAuth 自动发现。令牌不应放入公开仓库、网页源码或链接中。
+使用方式是 `Authorization: Bearer <token>`。令牌可使用该用户的业务工具，并受相同所有权、角色、支付与封禁检查限制。它不能使用管理员 API。MCP 为 `2025-11-25` 无状态 Streamable HTTP。远程连接接受 Bearer 或 HumanGrant 签名凭据，Cookie 不能替代；没有 OAuth 自动发现。令牌不应放入公开仓库、网页源码或链接中。
 
 WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工具。在支持的浏览器中同样受服务端授权与计费规则约束；浏览器未实现接口时不注册工具。
 
@@ -140,6 +152,8 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 | `GET /api/admin/passkeys` | 读取已登记密钥的 ID、名称、创建时间及最后使用时间 |
 | `DELETE /api/admin/passkeys/{id}` | 需要 CSRF、完整管理员会话和最近认证；保留至少一把 |
 
+HumanGrant 的代理请求、本人确认、凭据领取与撤销接口见 [HumanGrant 说明](humangrant.md)。浏览器审批与授权列表使用各自返回的 `X-HG-CSRF`，不能用普通会话的 CSRF 值代替。
+
 两个 Passkey `start` 响应都把标准浏览器请求选项放在 `{ "options": { "publicKey": ... } }` 中。挑战 ID 通过 HttpOnly Cookie 关联，不接受客户端提供的服务器验证状态。前端负责标准 base64url 与 ArrayBuffer 转换。
 
 ## 验证范围
@@ -150,10 +164,12 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 
 ## English overview
 
-Users authenticate with a browser-bound, one-time email code or Google's server-side authorization-code flow with state and PKCE. Login addresses are visible only to their owner and platform administrators. Profiles, résumés and contact addresses are shared with the platform and explicitly matched counterparties; there is no public directory. Existing accounts are not automatically merged by an email returned from a new Google identity.
+Users authenticate with a browser-bound, one-time email code or Google's server-side authorization-code flow with state and PKCE. Profiles and roles have no public directory. Contact details and résumés are shared only with the platform and explicitly introduced counterparties; earlier private conversations remain separate. Sign-in addresses are visible to the account owner, an AI authorized to read that owner's profile, and platform administrators. Existing accounts are not automatically merged by an email returned from a new Google identity.
 
 The production origin is `https://hireferry.lmm.best`, with the exact Google callback `https://hireferry.lmm.best/auth/google/callback`. SMTP messages default to `Reply-To: support@lmm.best`; the sending address is configured separately. These defaults do not establish a live provider connection. The two supplied credential-file paths were unavailable in the delivery environment, and no production credentials were imported from them.
 
-Administrators begin with a local, single-use 10-minute secret. It grants a 5-minute enrollment session only, never console access. A verified first Passkey completes setup. Later sign-ins require Passkeys; additions and removals require recent authentication, and the last credential cannot be removed. Store a second independent credential before deployment.
+HumanGrant adds AI access after explicit member approval. The member chooses permissions and expiry; the original AI key can claim a separate credential once. Each use requires a signed request, and access can be revoked. Existing Bearer tokens remain available. Remote MCP accepts Bearer or signed HumanGrant credentials, not a browser Cookie. See [HumanGrant](humangrant.md) for the protocol and setup.
+
+Administrators do not use HumanGrant. They begin with a local, single-use 10-minute secret. It grants a 5-minute enrollment session only, never console access. A verified first Passkey completes setup. Later sign-ins require Passkeys; additions and removals require recent authentication, and the last credential cannot be removed. Store a second independent credential before deployment.
 
 Session secrets and personal AI tokens are stored only as hashes. Cookies are HttpOnly and SameSite=Lax, with Secure on HTTPS. Browser mutations require CSRF and origin validation. Suspension is checked on every authenticated request. Suspending a member deletes their sessions, revokes personal AI tokens and pending email challenges, disables webhooks and cancels queued delivery. Restoring access never revives those credentials or webhook switches; a fresh sign-in is required, including for a Google flow started before suspension. Reasoned administrative changes are audited. Personal MCP tokens never grant administrator privileges.

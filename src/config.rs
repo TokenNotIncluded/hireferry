@@ -13,6 +13,7 @@ pub struct Config {
     pub webauthn_rp_id: String,
     pub site: Site,
     pub google: Google,
+    pub humangrant: HumanGrant,
     pub smtp: Smtp,
     pub payments: Payments,
     pub pricing: Pricing,
@@ -31,6 +32,7 @@ impl Default for Config {
             webauthn_rp_id: "localhost".into(),
             site: Site::default(),
             google: Google::default(),
+            humangrant: HumanGrant::default(),
             smtp: Smtp::default(),
             payments: Payments::default(),
             pricing: Pricing::default(),
@@ -64,6 +66,29 @@ pub struct Google {
     pub enabled: bool,
     pub client_id: String,
     pub client_secret: String,
+}
+/// Local account-to-agent authorization. No third-party identity or secrets.
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HumanGrant {
+    pub enabled: bool,
+    pub client_ids: Vec<String>,
+    pub request_ttl_seconds: i64,
+    pub max_grant_seconds: i64,
+    pub request_limit_per_hour: i64,
+    pub service_limit_per_hour: i64,
+}
+impl Default for HumanGrant {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            client_ids: vec!["hireferry-web".into(), "hireferry-cli".into()],
+            request_ttl_seconds: 600,
+            max_grant_seconds: 86_400,
+            request_limit_per_hour: 12,
+            service_limit_per_hour: 600,
+        }
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -354,6 +379,24 @@ impl Config {
         Ok(cfg)
     }
     pub fn validate(&self) -> AppResult<()> {
+        let hg = &self.humangrant;
+        if !(60..=3600).contains(&hg.request_ttl_seconds)
+            || !(60..=86_400).contains(&hg.max_grant_seconds)
+            || !(1..=1000).contains(&hg.request_limit_per_hour)
+            || !(1..=100_000).contains(&hg.service_limit_per_hour)
+            || hg.client_ids.is_empty()
+            || hg.client_ids.len() > 64
+            || hg.client_ids.iter().enumerate().any(|(index, id)| {
+                id.is_empty()
+                    || id.len() > 64
+                    || !id
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+                    || hg.client_ids[..index].contains(id)
+            })
+        {
+            return Err(AppError::bad_request("Invalid HumanGrant configuration"));
+        }
         let url = url::Url::parse(&self.public_url).map_err(AppError::bad_request)?;
         let bind: std::net::SocketAddr = self.bind.parse().map_err(AppError::bad_request)?;
         if url.path() != "/"

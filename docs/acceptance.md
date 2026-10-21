@@ -1,14 +1,14 @@
 # 聘渡 HireFerry 验收记录
 
-更新：2026-10-21 21:43 UTC。本轮代码保留远端 `f3aae1a0ce3352306962b8ecf9d8b0dc45a84764` 的政策配置改动，并合入此前待交付功能、页面切换、收费/币种配置和账号停用机制。
+更新：2026-10-21。HumanGrant 增量基于远端 `84671e355ec58fbc0e90535c0b089b32cf430c64`，保留此前的政策配置、页面切换、收费/币种配置、工作台、Webhook 与账号停用机制。新增接入与素材验收见第 8 节。
 
-**本地通过 146 项 Rust 常规测试、1 项十万候选人规模测试、88 项 JavaScript 测试，共 235 项，0 失败。** 另有 12 个浏览器 JavaScript 模块语法检查、Rust 格式检查和本地 Linux 开发构建。GitHub CI 与发布包以这份源码对应提交的实际 Actions 结果为准。
+**最新完整回归通过 166 项 Rust 常规测试、111 项 JavaScript 测试，共 277 项，0 失败。** 另有 13 个浏览器 JavaScript 模块和示例客户端语法检查、Rust 格式检查、本地 Linux 开发构建及真实 Node 客户端到 Rust 服务的 HTTP 联调。GitHub CI 与发布包以这份源码对应提交的实际 Actions 结果为准。
 
 ## 1. 自动化验证
 
 | Rust 套件 | 通过数 | 主要范围 |
 | --- | ---: | --- |
-| `library` | 15 | 认证格式、OAuth 撤权代次、精确金额、Stripe HMAC、Waffo RSA 与环境隔离 |
+| `library` | 16 | 认证格式、OAuth 撤权代次、精确金额、Stripe HMAC、Waffo RSA、HumanGrant 官方签名向量与篡改拒绝 |
 | `account_access` | 2 | 管理员封禁/恢复、原因与审计、CSRF、会话/令牌/验证码撤销与配置分页 |
 | `admin_ai` | 7 | 管理员 AI 令牌、最近 Passkey、角色隔离及撤销复查 |
 | `auth_flows` | 10 | 邮箱登录、Cookie/CSRF、Google state、软件认证器 WebAuthn 注册和登录 |
@@ -17,6 +17,8 @@
 | `currency_pricing` | 8 | 多币种精度、三种收费模式、冻结历史条款、网关子集、旧库迁移及限额 |
 | `headcount_admin_mcp` | 5 | 免费人数、管理员审计、MCP 和 Webhook 一致性 |
 | `headcount_flows` | 6 | 招聘人数边界、配置限额、暂停/恢复与权益 |
+| `humangrant_flows` | 17 | 真实邮箱登录、明确缩减权限、签名/密钥绑定、防重放、单次领取、到期、撤销、封禁恢复、写入回执与来源规范化 |
+| `humangrant_migration` | 2 | schema 7、幂等迁移、封禁撤销的事务原子性与永久性 |
 | `job_lifecycle` | 10 | 首次删除、一次恢复、永久删除、版本竞态和账务保留 |
 | `legal_documents` | 6 | 政策模板、配置变量、多币种费用、HTML 清洗及公开接口 |
 | `privacy_mcp` | 11 | 不可枚举资料、匹配访问、AI 资格、撤销和内容清洗 |
@@ -24,20 +26,22 @@
 | `webhooks` | 10 | 签名、重试、DNS/SSRF、当前权限、封禁中的在途响应、保留与队列限额 |
 | `workbench` | 9 | 索引/FTS、游标、筛选、币种隔离及摘要/详情边界 |
 | `workbench_access` | 8 | 工作台管理员权限、严格 MCP 参数、批量事务和并发重试 |
-| **常规合计** | **146** | **0 失败** |
+| **常规合计** | **166** | **0 失败** |
 
-十万候选人测试在普通测试中标为 ignored，随后使用 `--ignored --nocapture` 显式执行并通过，额外计 1 项。各套件使用临时 SQLite、合成账户、受控传输及软件认证器，不连接真实付款、邮件或外部招聘渠道。
+十万候选人测试在普通测试中标为 ignored，上一轮使用 `--ignored --nocapture` 显式执行并通过；本轮 HumanGrant 回归没有重复该规模测试，不计入上述 277 项。各套件使用临时 SQLite、合成账户、受控传输及软件认证器，不连接真实付款、邮件或外部招聘渠道。
 
 | JavaScript 套件 | 通过数 |
 | --- | ---: |
 | `home-story.test.mjs` | 3 |
+| `humangrant-client.test.mjs` | 11 |
+| `humangrant-ui.test.mjs` | 12 |
 | `legal-content.test.mjs` | 2 |
 | `money.test.mjs` | 4 |
 | `navigation.test.mjs` | 5 |
 | `sculpture.test.mjs` | 3 |
 | `service-ui.test.mjs` | 68 |
 | `theme.test.mjs` | 3 |
-| **合计** | **88** |
+| **合计** | **111** |
 
 前端验证包含按币种精确金额、历史费用、免费操作、网关选择、管理员统计、批量介绍、权限变化、聊天轮询、暗色主题，以及公共 DOM 与输入内容的保留/清理。DOM 回归与浏览器视觉验收分别记录，不能相互替代。
 
@@ -114,3 +118,21 @@ cargo build --locked --release
 ```
 
 本轮本地因磁盘限制使用离线缓存及专用临时构建目录，Rust 套件顺序运行；CI 使用标准环境完整执行。接口与配置细节见 [API](api.md)、[岗位](jobs.md)、[支付](payments.md)、[认证](auth.md)、[Webhook](webhooks.md)、[政策配置](legal-policies.md) 和 [部署交接](deployment-handoff.md)。
+
+## 8. HumanGrant 增量验收
+
+登录页、接入说明、权限确认页及 AI 连接中的授权列表已接入现有导航和主题系统。人形加确认勾的标记、按钮展示图和确认插画共六份 SVG 已重新绘制，浅色／深色素材已实际渲染检查。不同申请和账户使用不同页面标识，不会在 DOM 复用时带入旧权限勾选；过期的确认页或授权列表响应不能覆盖当前操作。
+
+在独立开发数据库、关闭 SMTP 的回环地址运行最终 Rust 服务，使用交付的 Node 示例客户端实际验签，完成以下 HTTP 联调：
+
+1. 真实邮箱挑战、开发验证码验证、Cookie 会话与求职者身份选择成功。
+2. 重复 GET 确认详情保持待授权；批准前，示例客户端领取返回 `409`。
+3. 请求读写两项权限，只批准 `profile.read`；示例客户端领取、读取会话、调用 `get_profile` 成功。
+4. `update_profile` 被权限工具列表裁剪为 `Unknown tool`，资料没有改变。
+5. 通过授权列表的真实 Cookie、Origin 与 `X-HG-CSRF` 撤销后，示例客户端立即无法读取；本人的 Cookie 会话仍可读取资料。
+
+上述联调使用的两条测试授权均已撤销，私钥、凭据和验证码未加入源码或验收输出。未使用模拟签名或绕过批准的服务端入口。
+
+**浏览器整页验收尚未完成。** 当前连接的 Browser 插件无法访问构建环境的 `localhost:3097`，返回连接拒绝；同期示例客户端可正常访问该服务。因此没有把实际浏览器点击、窄屏整页或真实 Google 回跳计为通过。已通过的前端 DOM 回归和素材渲染不替代这些检查。实际生产 SMTP、Google、外部 AI 客户端环境与 HTTPS 代理仍按原上线验收要求检查。
+
+接入说明、权限表、配置限额、单服务实例部署边界与客户端命令见 [HumanGrant 文档](humangrant.md)。

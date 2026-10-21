@@ -14,13 +14,13 @@
 
 ## 服务流程与隐私
 
-1. 使用 Google 或邮箱验证码注册登录，首次选择求职者或招聘方；不要求手机号。
+1. 本人使用 Google 或邮箱验证码注册登录，首次选择求职者或招聘方；不要求手机号。AI 可通过 HumanGrant 发起访问申请，由本人确认权限和期限。
 2. 求职者免费填写图片或安全 SVG 头像、联系邮箱和 Markdown 简历，并提交目标行业、岗位、薪资范围、地点及偏好。招聘方支付一次性开通费，再为岗位支付发布费。
 3. 每个用户都有自己的平台私聊。平台管理员及其已授权 AI 可以读取业务资料、沟通需求、整理委托和推进匹配；其他用户没有全站人才或岗位浏览权限。
 4. 平台把具有有效委托的求职者与已付费、招聘人数大于 0 的已发布岗位匹配。该求职者只能访问具体被介绍的岗位，招聘方只能访问被介绍的求职者。
 5. 匹配产生独立的双方会话。此前各自与平台的私聊历史仍留在原会话中，不会复制给对方。平台可以在匹配会话中协调，并更新面试、录用或终止状态。
 
-资料始终对平台可见，对无关用户保持私密。字段 `public_email` 保留兼容命名，表示供平台及匹配对象使用的联系邮箱；登录邮箱仅本人和平台管理员可见。旧 `visible` 字段不再授予公开访问权，没有公开简历或招聘目录。
+资料始终对平台可见，对无关用户保持私密。字段 `public_email` 保留兼容命名，表示供平台及匹配对象使用的联系邮箱；登录邮箱仅本人、获准读取本人资料的 AI 及平台管理员可见。旧 `visible` 字段不再授予公开访问权，没有公开简历或招聘目录。
 
 将匹配改为 `declined`、删除岗位或封禁任一方，会撤销普通用户对相关匹配资料与会话的访问。首次删除期间也会隐藏双方匹配访问；恢复后按当前权限重新显示原匹配历史。招聘人数为 0 或单纯关闭岗位会停止新的介绍，已有匹配会话可继续。管理员保留业务历史的读取权；归档会话返回 `writable: false`，包括管理员 AI 在内都不能继续发送。
 
@@ -32,6 +32,7 @@
 - 管理员总控台：完整用户/岗位资料、封禁与内容处理、委托、以岗位为入口的候选筛选与分页、单人详情、匹配跟进列表、平台私聊和历史会话、外部进展、订单、审计及按日期/历史累计的原实收、已退款和净收入图表。正式和测试流水分开。
 - 首次通过服务器命令行一次性口令绑定 Passkey，后续仅 Passkey 登录，支持多把密钥。
 - 普通用户和平台管理员使用独立 MCP 身份；浏览器 WebMCP 绑定当前身份，AI 代发消息带标记。
+- [HumanGrant](docs/humangrant.md) 提供「Continue with human beings」入口：本人逐项确认权限，AI 使用独立签名凭据，可在「AI 连接」中撤销。
 - 用户可配置自己的公网 HTTPS Webhook，接收已获授权的业务事件通知，查看投递历史、暂停、撤销及重试失败投递。
 - 所有系统设置通过 TOML 修改并重启生效，没有系统设置页面。
 
@@ -43,7 +44,7 @@
 匹配跟进使用可搜索、按阶段筛选的列表，阶段数量随当前筛选计算，按最近更新时间排列。
 
 搜索只向管理员及独立管理员 AI 开放。它不创建匹配，不扩大求职委托或外部联系同意，
-也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，当前 schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；
+也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；
 较短关键词仍采用受筛选条件约束的字面匹配。规模测试与实测结果见 [验收记录](docs/acceptance.md)，
 接口和分页规则见 [工作台 API](docs/api.md#岗位中心匹配工作台)。
 
@@ -227,7 +228,7 @@ docker run -d --name hireferry --restart unless-stopped \
 
 求职者选择身份后可免费使用 AI 连接。招聘方需要已开通，并且至少有一个**发布订单已完成、状态为 `published`、底薪达到该岗位保存的币种薪资门槛**的岗位。门槛在 `[pricing]` 和各币种金额配置中设置；默认模板为 CNY 3,000，新岗位可配置为零。免费发布的已完成订单也可满足发布条件；未支付草稿不能满足资格。旧岗位保留原门槛，每次 AI 请求仍重新检查当前状态和权限。
 
-创建个人令牌和每一次 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。**招聘人数为 0 不影响已发布广告的 AI 资格**，可继续通过 AI 调整人数；关闭或删除最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用，此时可用人工浏览器工作台恢复符合规则的回收站内容。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
+创建个人令牌和每一次 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。HumanGrant 的批准、领取凭据和每次业务调用也检查当前资格。**招聘人数为 0 不影响已发布广告的 AI 资格**，可继续通过 AI 调整人数；关闭或删除最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用，此时可用人工浏览器工作台恢复符合规则的回收站内容。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
 
 在工作台「AI 连接」创建个人令牌，配置兼容客户端：
 
@@ -238,11 +239,19 @@ Authorization: Bearer <your-personal-token>
 Protocol version: 2025-11-25
 ```
 
-普通用户有 32 个远程 MCP 工具：公开配置、本人资料/头像、岗位与招聘人数、回收站、匹配、订单/结账、委托/进展和会话。`get_site_config` 返回币种精度、可用支付方式、费用和业务限额，不返回系统密钥。能发现某工具不代表能越过角色规则；例如招聘方不能修改求职者委托。令牌只显示一次，30 天有效，每个账户最多 10 个有效令牌，可撤销。
+使用个人 Bearer 的普通用户有 32 个远程 MCP 工具：公开配置、本人资料/头像、岗位与招聘人数、回收站、匹配、订单/结账、委托/进展和会话。`get_site_config` 返回币种精度、可用支付方式、费用和业务限额，不返回系统密钥。能发现某工具不代表能越过角色规则；例如招聘方不能修改求职者委托。令牌只显示一次，30 天有效，每个账户最多 10 个有效令牌，可撤销。
+
+### HumanGrant：本人确认后连接 AI
+
+登录页新增 **Continue with human beings** 入口，说明页为 `/humangrant`。AI 使用自己的密钥发起申请，并将 `/human/{link}` 确认链接交给本人。已登录的用户直接查看申请；未登录的用户先完成原有 Google 或邮箱登录，再返回同一申请。打开链接不会自动授权。
+
+确认页展示实际账户、AI 身份、用途、具体权限、资源和到期时间。权限默认全部不选；用户选择允许的范围并明确同意后，原申请 AI 才能单次领取独立凭据。浏览器登录 Cookie 不会交给 AI。用户可以在「AI 连接」查看和撤销授权，过期、封禁或当前业务权限变化也会限制后续操作。
+
+HumanGrant 使用同一 `/mcp` 端点，凭据为 `Authorization: HumanGrant <access_token>`，每次请求还必须由原申请密钥签名。现有个人 Bearer 连接继续保留。HumanGrant 只授予普通用户的获批业务权限，不提供管理员访问、角色变更、结账或求职委托同意变更。配置、请求格式、签名方式和接入示例见 [HumanGrant 说明](docs/humangrant.md)。
 
 ### 平台管理员
 
-管理员通过真实 Passkey 会话在控制台「平台 AI」中签发独立 `hf_admin_` 令牌。创建要求最近 10 分钟内完成 Passkey 认证并通过 CSRF；令牌 30 天有效，平台最多保留 10 个有效令牌。令牌的列出、创建、撤销只允许管理员浏览器会话，Bearer 不能自行扩增凭证。
+管理员不使用 HumanGrant。管理员通过真实 Passkey 会话在控制台「平台 AI」中签发独立 `hf_admin_` 令牌。创建要求最近 10 分钟内完成 Passkey 认证并通过 CSRF；令牌 30 天有效，平台最多保留 10 个有效令牌。令牌的列出、创建、撤销只允许管理员浏览器会话，Bearer 不能自行扩增凭证。
 
 管理员使用相同 `/mcp` 地址，发现 32 个工具，可读取公开配置并管理全平台业务资料、岗位与恢复、委托、匹配、会话、外部进展、订单及统计。`admin_search_jobs`、`admin_search_candidates`、`admin_search_matches` 提供工作台摘要、筛选和游标分页；`admin_introduce_candidates` 将最多 100 位有效候选人加入同一岗位，整批在同一事务内校验。普通管理列表支持配置页大小，审计和匹配列表也可翻页。每项写入通过与管理页面相同的业务函数，记录具体管理员 AI 的审计身份。管理员令牌不能冒充普通用户、操作 Passkey、修改系统密钥，或把未支付订单伪造为已支付。
 
@@ -252,7 +261,7 @@ Protocol version: 2025-11-25
 
 浏览器 WebMCP 在支持 `modelContext.registerTool` 时按登录角色注册工具，沿用当前 Cookie/CSRF。管理员和普通用户拥有不同工具集合，未登录或不具备资格时不注册；不支持该草案接口的浏览器仍能使用普通网页。WebMCP 不注册 Passkey、令牌签发或系统设置操作。
 
-远程 MCP 为无状态 `POST /mcp` JSON-RPC；采用手动 Bearer 请求头，没有 OAuth 自动发现，也没有 SSE 推送。协议、全部 HTTP 接口、两组远程工具 schema 和 WebMCP 名称差异见 [API 文档](docs/api.md)。
+远程 MCP 为无状态 `POST /mcp` JSON-RPC；接受现有 Bearer 令牌，或独立凭据与签名齐全的 HumanGrant 请求。Cookie 不能代替这两类远程凭据。没有 OAuth 自动发现，也没有 SSE 推送。协议、全部 HTTP 接口、两组远程工具 schema 和 WebMCP 名称差异见 [API 文档](docs/api.md)。
 
 ## 用户 Webhook
 
@@ -273,11 +282,12 @@ done
 node tests/home-story.test.mjs
 node tests/sculpture.test.mjs
 node tests/service-ui.test.mjs
+node tests/humangrant-ui.test.mjs
 node tests/theme.test.mjs
 cargo build --locked --release
 ```
 
-上述脚本覆盖服务界面和全站外观模块。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型、服务界面与系统/浅色/深色外观测试，并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费/退款事务、免费招聘人数、删除/恢复及版本竞态、角色/匹配/聊天权限、管理员令牌、委托授权、工作台分页与访问边界、撤销、重试幂等、输入清洗、Webhook 权限/投递和支付返回页。
+上述脚本覆盖服务界面、HumanGrant 确认流程和全站外观模块。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型、服务界面与系统/浅色/深色外观测试，并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费/退款事务、免费招聘人数、删除/恢复及版本竞态、角色/匹配/聊天权限、管理员令牌、委托授权、工作台分页与访问边界、撤销、重试幂等、输入清洗、Webhook 权限/投递和支付返回页。
 
 大数据量工作台回归使用独立合成资料，单独运行，不包含在普通 `cargo test` 中；CI 会显式执行：
 
@@ -299,13 +309,15 @@ Planned headcount defaults to 1 and accepts integers from 0 to 1,000,000. Update
 
 The server records job-search mandates and explicit consent for external outreach. Platform staff or a separately configured AI may poll messages, reply, manage introductions and record factual progress through MCP. The application does not include an LLM, crawler, external job-board integration or automatic outreach service. Administrators can read all business history, including archived conversations, but cannot send to archived rooms.
 
-The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; the current schema 6 adds recorded currencies, job AI thresholds and zero-value orders. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
+The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
 
-One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The CLI provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers; browser WebMCP is feature-detected and uses the current authorized session.
+One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The CLI provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
+
+HumanGrant lets a member review the AI identity, choose permissions and expiry, and revoke access later; the AI gets a separate credential bound to its own signing key. Administrator access still uses Passkeys and separate administrator tokens. Cookie sessions cannot replace remote MCP credentials.
 
 The production origin is `https://hireferry.lmm.best`, with support at `support@lmm.best`. Both gateways return to `/billing/return`; a redirect never confirms payment. Waffo payment and refund events are verified and settled transactionally, with successful refunds deducted by their own cash-flow date. The application does not initiate refunds or process Stripe refund/dispute notifications. Member-owned outbound HTTPS webhooks provide permission-checked event notifications; only the member's signed-in browser can manage their destinations and signing secrets.
 
-Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refunds, native browser WebMCP and independently operated webhook/AI integrations require deployment-specific acceptance tests. The referenced external production handoff files were not available in this environment; no merchant IDs, products or credentials were inferred. Copy verified values into the protected TOML on the deployment machine. See [deployment handoff](docs/deployment-handoff.md), [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [payments](docs/payments.md) and [member webhooks](docs/webhooks.md).
+Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refunds, native browser WebMCP and independently operated webhook/AI integrations require deployment-specific acceptance tests. The referenced external production handoff files were not available in this environment; no merchant IDs, products or credentials were inferred. Copy verified values into the protected TOML on the deployment machine. See [deployment handoff](docs/deployment-handoff.md), [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [HumanGrant](docs/humangrant.md), [payments](docs/payments.md) and [member webhooks](docs/webhooks.md).
 
 ## 许可与致谢 / License and credits
 

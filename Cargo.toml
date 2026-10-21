@@ -26,6 +26,7 @@ hex = "0.4"
 base64 = "0.22"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
 signature = "2"
+ed25519-dalek = "2.2"
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 subtle = "2"
