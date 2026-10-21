@@ -1,27 +1,24 @@
-/* Apply the saved appearance before loading styles to avoid a light flash. */
+/* Apply saved appearance before first paint; preferences stay in this browser. */
 (() => {
   'use strict';
-  const key = 'hireferry-theme';
-  const paletteKey = 'hireferry-palette';
+  const key = 'hireferry-theme', paletteKey = 'hireferry-palette';
   const root = document.documentElement;
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const valid = value => ['system', 'light', 'dark'].includes(value);
-  const palettes = ['blue', 'violet', 'rose'];
-  const surfaces = {"blue": {"light": "#f9f9ff", "dark": "#0f131c"}, "violet": {"light": "#fef7ff", "dark": "#15121c"}, "rose": {"light": "#fff8f7", "dark": "#1d1012"}};
+  const palettes = ['blue', 'violet', 'rose', 'amber', 'teal'];
   let preference = 'light', palette = 'blue';
   try {
-    const saved = localStorage.getItem(key);
+    const saved = localStorage.getItem(key), savedPalette = localStorage.getItem(paletteKey);
     if (valid(saved)) preference = saved;
-    const savedPalette = localStorage.getItem(paletteKey);
     if (palettes.includes(savedPalette)) palette = savedPalette;
-  } catch { /* A browser may deny storage; appearance still works this visit. */ }
-
+  } catch { /* Storage may be unavailable; controls still work for this visit. */ }
   function syncControls() {
-    document.querySelectorAll('[data-theme-select]').forEach(select => {
-      if (select.value !== preference) select.value = preference;
-    });
-    document.querySelectorAll('[data-palette-select]').forEach(select => {
-      if (select.value !== palette) select.value = palette;
+    for (const [selector, property, selected] of [
+      ['[data-theme-choice]', 'themeChoice', preference],
+      ['[data-palette-choice]', 'paletteChoice', palette],
+    ]) document.querySelectorAll(selector).forEach(button => {
+      const pressed = String(button.dataset[property] === selected);
+      if (button.getAttribute('aria-pressed') !== pressed) button.setAttribute('aria-pressed', pressed);
     });
   }
   function apply() {
@@ -31,29 +28,33 @@
     root.dataset.palette = palette;
     root.classList.toggle('dark', theme === 'dark');
     root.classList.toggle('light', theme === 'light');
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', surfaces[palette][theme]);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#131313' : '#f9f9f9');
     syncControls();
   }
+  function closeMenus(restoreFocus = false) {
+    document.querySelectorAll('.theme-menu[open]').forEach(menu => {
+      menu.open = false;
+      if (restoreFocus) menu.querySelector('summary')?.focus();
+    });
+  }
   apply();
-  document.addEventListener('change', event => {
-    const paletteSelect = event.target.closest?.('[data-palette-select]');
-    if (paletteSelect) {
-      if (!palettes.includes(paletteSelect.value)) return;
-      palette = paletteSelect.value;
+  document.addEventListener('click', event => {
+    const color = event.target.closest?.('[data-palette-choice]');
+    const mode = event.target.closest?.('[data-theme-choice]');
+    if (color && palettes.includes(color.dataset.paletteChoice)) {
+      palette = color.dataset.paletteChoice;
       try { localStorage.setItem(paletteKey, palette); } catch { /* This visit still works. */ }
       apply();
-      return;
-    }
-    const select = event.target.closest?.('[data-theme-select]');
-    if (!select || !valid(select.value)) return;
-    preference = select.value;
-    try { localStorage.setItem(key, preference); } catch { /* See above. */ }
-    apply();
+    } else if (mode && valid(mode.dataset.themeChoice)) {
+      preference = mode.dataset.themeChoice;
+      try { localStorage.setItem(key, preference); } catch { /* This visit still works. */ }
+      apply();
+    } else if (!event.target.closest?.('.theme-menu')) closeMenus();
   });
-  media.addEventListener('change', () => {
-    if (preference === 'system') apply();
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeMenus(true);
   });
+  media.addEventListener('change', () => { if (preference === 'system') apply(); });
   window.addEventListener('storage', event => {
     if (![key, paletteKey, null].includes(event.key)) return;
     if (event.key === key) preference = valid(event.newValue) ? event.newValue : 'light';
@@ -61,6 +62,5 @@
     if (event.key === null) { preference = 'light'; palette = 'blue'; }
     apply();
   });
-  // The navigation is rendered again after a route or language change.
   new MutationObserver(syncControls).observe(root, {childList: true, subtree: true});
 })();

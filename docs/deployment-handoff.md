@@ -81,7 +81,7 @@ source_url = "https://github.com/TokenNotIncluded/hireferry"
 
 服务条款和隐私政策由 `/api/legal/{terms|privacy}?lang={zh|en}` 提供清洗后的 HTML、版本和生效日期。部署前按 [政策配置](legal-policies.md) 核实运营方与承诺值，并回读两个语言版本；外部 Markdown 文件相对 TOML 所在目录解析。未识别变量或无效文档会阻止配置加载。默认价格段落会区分免费、固定金额和按底薪比例，按币种精度显示并说明旧岗位条款保留。保留期、退款响应和注销时限是运营承诺，配置不会自动创建相应后台流程。
 
-`[pricing].allowed_currencies` 控制新岗位和新委托的币种选择，`currency` 决定默认值及招聘方开通费币种。发布、修改分别支持 `salary_percent`、`fixed`、`free`；每个额外币种须配置固定价格及 `employer_ai_min_salary_minor`，这些是独立业务金额，不是汇率。费用字段均使用整数最小货币单位；USD 12.34 为 1234，JPY 1234 也为 1234。不要对所有币种统一乘除 100。
+`[pricing].allowed_currencies` 控制新岗位和新委托的币种选择，`currency` 决定默认值及默认招聘方开通费币种；`onboarding_amounts` 可单独配置其他付款币种的开通价格。发布、修改分别支持 `salary_percent`、`fixed`、`free`；每个额外币种须配置固定价格及 `employer_ai_min_salary_minor`，这些是独立业务金额，不是汇率。费用字段均使用整数最小货币单位；USD 12.34 为 1234，JPY 1234 也为 1234。不要对所有币种统一乘除 100。
 
 两个网关各有 `allowed_currencies` 子集，空数组表示该集成已实现的支持集；它不证明实际商户或商品已经开通全部币种。Stripe 当前实现 32 种币种，Waffo 为 CNY/EUR/GBP/HKD/JPY/USD 六种。按实际账户/商品收窄后，前端和后端都会限制支付方式。旧订单不改价、不换币；后续限制结账不会丢弃历史有效付款回调。原岗位继续使用创建时保存的编辑规则和 AI 薪资门槛。支持范围和外部约束见 [支付说明](payments.md)。
 

@@ -165,6 +165,16 @@ pub fn choose_role(
     role: &str,
     provider: Option<&str>,
 ) -> AppResult<(User, Option<Order>)> {
+    choose_role_with_currency(state, uid, role, provider, None)
+}
+
+pub fn choose_role_with_currency(
+    state: &AppState,
+    uid: &str,
+    role: &str,
+    provider: Option<&str>,
+    currency: Option<&str>,
+) -> AppResult<(User, Option<Order>)> {
     if !matches!(role, "seeker" | "employer") {
         return Err(AppError::bad_request("Choose seeker or employer"));
     }
@@ -189,22 +199,32 @@ pub fn choose_role(
                 models::order_row,
             )
             .optional()?;
-        if existing.is_some() {
-            existing
-        } else if state.cfg.pricing.onboarding_cents == 0 {
+        let requested_currency = currency;
+        let currency = currency.unwrap_or(&state.cfg.pricing.currency);
+        let amount = state.cfg.pricing.onboarding_amount(currency)?;
+        if let Some(existing) = existing {
+            if requested_currency.is_some_and(|code| existing.currency != code)
+                || provider.is_some_and(|p| p != existing.provider)
+            {
+                return Err(AppError::conflict(
+                    "An activation order already exists in another currency or provider. Continue it from Orders or contact support.",
+                ));
+            }
+            Some(existing)
+        } else if amount == 0 {
             tx.execute("UPDATE users SET employer_paid=1 WHERE id=?1", [uid])?;
             None
         } else if let Some(provider) = provider {
-            provider_currency_enabled(state, provider, &state.cfg.pricing.currency)?;
+            provider_currency_enabled(state, provider, currency)?;
             Some(insert_order(
                 &tx,
                 uid,
                 "onboarding",
                 None,
-                state.cfg.pricing.onboarding_cents,
+                amount,
                 provider,
                 provider_live(state, provider),
-                &state.cfg.pricing.currency,
+                currency,
                 json!({}),
             )?)
         } else {
@@ -675,21 +695,54 @@ pub fn restore_job_record(
 }
 
 pub async fn checkout(state: &AppState, uid: &str, id: &str) -> AppResult<Order> {
+    checkout_with_region(state, uid, id, None).await
+}
+
+pub async fn checkout_with_region(
+    state: &AppState,
+    uid: &str,
+    id: &str,
+    requested_region: Option<&str>,
+) -> AppResult<Order> {
     let (order, email) = {
-        let db = state.conn()?;
-        let order = models::load_order(&db, id)?;
+        let mut db = state.conn()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let order = models::load_order(&tx, id)?;
         if order.user_id != uid {
             return Err(AppError::forbidden("This order belongs to another account"));
         }
-        let user = models::load_user(&db, uid)?;
+        let user = models::load_user(&tx, uid)?;
         if user.banned {
             return Err(AppError::forbidden("Account is suspended"));
         }
         if order.status != "pending" {
             return Err(AppError::conflict("This order is not pending"));
         }
-        ensure_checkout_job(&db, &order)?;
+        ensure_checkout_job(&tx, &order)?;
         provider_currency_enabled(state, &order.provider, &order.currency)?;
+        let mut snapshot: Value =
+            serde_json::from_str(&order.snapshot_json).map_err(AppError::internal)?;
+        if order.provider == "waffo" {
+            let saved_region = snapshot["payment_region"].as_str();
+            if requested_region.is_some()
+                && saved_region.is_some()
+                && requested_region != saved_region
+            {
+                return Err(AppError::conflict(
+                    "This checkout already uses another Waffo region. Continue the existing checkout.",
+                ));
+            }
+            let (region, _) = state
+                .cfg
+                .payments
+                .waffo
+                .checkout_region(&order.currency, saved_region.or(requested_region))?;
+            snapshot["payment_region"] = json!(region);
+        } else if requested_region.is_some() {
+            return Err(AppError::bad_request(
+                "Payment region is only available for Waffo",
+            ));
+        }
         if order.checkout_url.is_some() {
             return Ok(order);
         }
@@ -698,12 +751,14 @@ pub async fn checkout(state: &AppState, uid: &str, id: &str) -> AppResult<Order>
                 "This checkout is too old to retry safely. Please contact support.",
             ));
         }
-        let claimed=db.execute("UPDATE orders SET checkout_started_at=?2 WHERE id=?1 AND (checkout_started_at IS NULL OR checkout_started_at<?3) AND status='pending'",params![id,now(),now()-30])?;
+        let claimed=tx.execute("UPDATE orders SET checkout_started_at=?2,snapshot_json=?4 WHERE id=?1 AND (checkout_started_at IS NULL OR checkout_started_at<?3) AND status='pending'",params![id,now(),now()-30,snapshot.to_string()])?;
         if claimed != 1 {
             return Err(AppError::conflict(
                 "Checkout creation is still in progress. Wait 30 seconds before retrying this same order.",
             ));
         }
+        let order = models::load_order(&tx, id)?;
+        tx.commit()?;
         (order, user.email)
     };
     let checkout = crate::payments::create_checkout(state, &order, &email).await?;

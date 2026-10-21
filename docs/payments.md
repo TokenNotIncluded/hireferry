@@ -33,8 +33,11 @@ The server can also report `paid`, `paid_needs_review`, `partially_refunded` or
 
 `[pricing]` selects `currency` and `allowed_currencies`. The default template
 keeps CNY for compatibility; the operator can select another supported currency.
-New jobs may choose an enabled currency. Recruiter activation uses the configured
-default currency. Existing jobs, orders, refunds and ledgers retain their own
+New jobs may choose an enabled currency. Recruiter activation defaults to the configured
+currency; `pricing.onboarding_amounts` adds explicit fixed prices in other currencies,
+independent of job currencies. `POST /api/role` accepts the selected `currency`.
+An existing activation order cannot be silently repriced or replaced by another
+currency. Existing jobs, orders, refunds and ledgers retain their own
 currency after configuration changes. No exchange rate is inferred.
 
 The integration currently implements these charge currencies:
@@ -343,3 +346,33 @@ count per account, member-list page size and maximum page number.
 `session_hours` and `[webhooks]` already configure their corresponding durations
 and delivery limits. Protocol signature windows, amount overflow checks and
 public-HTTPS destination checks remain fixed validation rules.
+
+## Waffo regions and test mode
+
+`payments.waffo.checkout_regions` controls the UI's Global / China choices.
+Each region declares `currencies` and `payment_methods`. These are payment
+preferences on the same Waffo API, not separate API origins or a declaration of
+billing residency. Waffo collects the actual billing country in its cashier.
+The defaults offer card / Apple Pay / Google Pay for USD, EUR, GBP, HKD and JPY
+in Global, and WeChat Pay / Alipay for CNY / USD in China. The server signs
+`includePaymentMethods`, and rejects region/currency combinations absent from the configuration. New method codes can be enabled in configuration without a code change; the upstream API validates availability.
+See [Waffo's current payment matrix](https://docs.waffo.ai/dashboard/payments)
+and [checkout parameters](https://docs.waffo.ai/api-reference/endpoints/orders/create-checkout-session).
+
+`POST /api/orders/{id}/checkout` accepts optional `payment_region`. The first
+checkout attempt freezes it into the order snapshot; retries reuse it. Currency
+and amount are always loaded from the server's order, never from the checkout
+request. Paid or already-started activation orders cannot be replaced with a
+second currency while an earlier cashier may still receive payment.
+
+For test mode, set `mode = "test"`, `enabled = true`, a **test** API private key,
+a product active in **test**, and the platform's **test** webhook public key.
+Register a separate webhook with `testMode: true`, the same callback URL, and
+`order.completed`, `refund.succeeded`, `refund.failed`. The hosted URL receives
+`test=true`; the activation form displays “Test mode · No real charges”. Test
+receipts remain `live_mode=false` and are excluded from live revenue. Switching
+to production requires the production key, active production product and
+production verification key together, after store approval. Preserve the previous
+credentials outside Git; never change a test order into a live order.
+
+On 2026-10-22 the live **test API** accepted `includePaymentMethods: ["wechat", "alipay"]` for both CNY and USD, although the published payment matrix still listed only WeChat Pay. This verifies session creation, not a real charge or production approval.

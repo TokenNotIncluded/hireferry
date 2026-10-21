@@ -57,6 +57,94 @@ fn display_amounts_use_currency_precision_without_float_rounding() {
 }
 
 #[test]
+fn activation_currency_uses_configured_prices_and_never_reprices_an_existing_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.onboarding_amounts.insert("USD".into(), 1498);
+    cfg.pricing.onboarding_amounts.insert("JPY".into(), 2368);
+    cfg.validate().unwrap();
+    let state = AppState::new(cfg).unwrap();
+    state.conn().unwrap().execute("INSERT INTO users(id,email,created_at,updated_at) VALUES('new','test@example.invalid',1,1)", []).unwrap();
+    let (_, order) =
+        commerce::choose_role_with_currency(&state, "new", "employer", Some("stripe"), Some("JPY"))
+            .unwrap();
+    let order = order.unwrap();
+    assert_eq!(
+        (
+            order.currency.as_str(),
+            order.amount_cents,
+            order.currency_decimals
+        ),
+        ("JPY", 2368, 0)
+    );
+    assert!(
+        !state.cfg.pricing.permits_currency("JPY"),
+        "activation prices do not enable salary currencies"
+    );
+    assert!(
+        commerce::choose_role_with_currency(&state, "new", "employer", Some("stripe"), Some("USD"))
+            .is_err()
+    );
+    let (_, same) = commerce::choose_role(&state, "new", "employer", None).unwrap();
+    assert_eq!(same.unwrap().id, order.id);
+    assert_eq!(
+        models::load_order(&state.conn().unwrap(), &order.id)
+            .unwrap()
+            .amount_cents,
+        2368
+    );
+    assert!(state.cfg.pricing.onboarding_amount("EUR").is_err());
+    let public = api::public_config(&state);
+    assert_eq!(
+        public["pricing"]["activation_currency_options"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn waffo_regions_are_configured_independently_and_accept_new_method_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.payments
+        .waffo
+        .checkout_regions
+        .get_mut("china")
+        .unwrap()
+        .payment_methods = vec!["wechat".into(), "alipay".into(), "future_wallet".into()];
+    cfg.validate().unwrap();
+    assert_eq!(
+        cfg.payments.waffo.checkout_region("CNY", None).unwrap().0,
+        "china"
+    );
+    assert_eq!(
+        cfg.payments
+            .waffo
+            .checkout_region("USD", Some("china"))
+            .unwrap()
+            .1
+            .payment_methods[1],
+        "alipay"
+    );
+    assert!(
+        cfg.payments
+            .waffo
+            .checkout_region("JPY", Some("china"))
+            .is_err()
+    );
+    cfg.payments
+        .waffo
+        .checkout_regions
+        .get_mut("china")
+        .unwrap()
+        .payment_methods
+        .push("invalid method".into());
+    assert!(cfg.validate().is_err());
+}
+
+#[test]
 fn currency_and_fee_configuration_rejects_ambiguous_or_invalid_values() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(&dir);

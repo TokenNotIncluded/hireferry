@@ -53,7 +53,7 @@ pub fn public_config(s: &AppState) -> Value {
     if s.cfg.payments.waffo.enabled {
         providers.push("waffo");
     }
-    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
+    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"payment_modes":{"waffo":s.cfg.payments.waffo.mode,"stripe":if s.cfg.payments.stripe.live_mode {"prod"} else {"test"}},"waffo_regions":s.cfg.payments.waffo.checkout_regions,"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
 }
 async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<User>> {
     let id = user_id(&s, &h, false)?;
@@ -253,6 +253,7 @@ async fn avatar(
 pub struct RoleInput {
     pub role: String,
     pub provider: Option<String>,
+    pub currency: Option<String>,
 }
 async fn role(
     State(s): State<AppState>,
@@ -260,7 +261,13 @@ async fn role(
     Json(i): Json<RoleInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (user, order) = commerce::choose_role(&s, &uid, &i.role, i.provider.as_deref())?;
+    let (user, order) = commerce::choose_role_with_currency(
+        &s,
+        &uid,
+        &i.role,
+        i.provider.as_deref(),
+        i.currency.as_deref(),
+    )?;
     Ok(Json(json!({"user":user,"order":order})))
 }
 
@@ -634,13 +641,22 @@ async fn order(
     let uid = user_id(&s, &h, false)?;
     Ok(Json(user_order(&s, &uid, &id)?))
 }
+#[derive(Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+struct CheckoutInput {
+    payment_region: Option<String>,
+}
 async fn checkout(
     State(s): State<AppState>,
     h: HeaderMap,
     Path(id): Path<String>,
+    input: Option<Json<CheckoutInput>>,
 ) -> AppResult<Json<models::Order>> {
     let uid = user_id(&s, &h, true)?;
-    Ok(Json(commerce::checkout(&s, &uid, &id).await?))
+    let input = input.map(|Json(value)| value).unwrap_or_default();
+    Ok(Json(
+        commerce::checkout_with_region(&s, &uid, &id, input.payment_region.as_deref()).await?,
+    ))
 }
 
 async fn tokens(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {

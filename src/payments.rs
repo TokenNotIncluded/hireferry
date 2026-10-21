@@ -245,21 +245,8 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
         ));
     }
     endpoint.set_path(WAFFO_CHECKOUT_PATH);
-    let body = serde_json::to_vec(&json!({
-        "productId": cfg.product_id,
-        "currency": order.currency,
-        "buyerEmail": email,
-        "priceSnapshot": {
-            "amount": minor_to_decimal(order.amount_cents, &order.currency).ok_or_else(|| AppError::bad_request("Unsupported payment currency"))?,
-            "taxIncluded": true,
-            "taxCategory": cfg.tax_category,
-        },
-        "orderMerchantExternalId": order.id,
-        "metadata": { "hireferry_order_id": order.id },
-        "successUrl": return_url(&state.cfg.public_url, &order.id, "waffo", false)?,
-        "expiresInSeconds": 1800,
-    }))
-    .map_err(AppError::internal)?;
+    let body = serde_json::to_vec(&waffo_checkout_body(state, order, email)?)
+        .map_err(AppError::internal)?;
     let timestamp = unix_milliseconds() / 1_000;
     let signature = sign_waffo_request(&cfg.private_key_pem, timestamp, &body)
         .map_err(|_| AppError::unavailable("Waffo signing key is invalid"))?;
@@ -291,9 +278,42 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
         .get("data")
         .ok_or_else(|| AppError::unavailable("Invalid Waffo response"))?;
     let session_id = required_string(data, "sessionId")?;
-    let url = required_text(data, "checkoutUrl", 8192)?;
-    validate_checkout_url(&url, "checkout.waffo.ai")?;
+    let mut url = required_text(data, "checkoutUrl", 8192)?;
+    let host = reqwest::Url::parse(&url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .unwrap_or_default();
+    if !matches!(host.as_str(), "checkout.waffo.ai" | "pancake.waffo.ai") {
+        return Err(AppError::unavailable("Untrusted checkout URL"));
+    }
+    validate_checkout_url(&url, &host)?;
+    if cfg.mode == "test" {
+        let mut parsed = reqwest::Url::parse(&url).map_err(AppError::internal)?;
+        parsed.query_pairs_mut().append_pair("test", "true");
+        url = parsed.into();
+    }
     Ok(Checkout { session_id, url })
+}
+
+fn waffo_checkout_body(state: &AppState, order: &Order, email: &str) -> AppResult<Value> {
+    let cfg = &state.cfg.payments.waffo;
+    let snapshot: Value = serde_json::from_str(&order.snapshot_json).map_err(AppError::internal)?;
+    let (_, region) = cfg.checkout_region(&order.currency, snapshot["payment_region"].as_str())?;
+    Ok(json!({
+        "productId": cfg.product_id,
+        "currency": order.currency,
+        "buyerEmail": email,
+        "priceSnapshot": {
+            "amount": minor_to_decimal(order.amount_cents, &order.currency).ok_or_else(|| AppError::bad_request("Unsupported payment currency"))?,
+            "taxIncluded": true,
+            "taxCategory": cfg.tax_category,
+        },
+        "orderMerchantExternalId": order.id,
+        "metadata": { "hireferry_order_id": order.id },
+        "successUrl": return_url(&state.cfg.public_url, &order.id, "waffo", false)?,
+        "expiresInSeconds": 1800,
+        "includePaymentMethods": region.payment_methods,
+    }))
 }
 
 async fn gateway_json(mut response: reqwest::Response, provider: &str) -> AppResult<Value> {

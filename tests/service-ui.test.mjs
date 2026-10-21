@@ -289,7 +289,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment};')(
     document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -692,14 +692,17 @@ test('appearance control and workbench failures are bilingual and do not trap in
   const { app } = webmcp({ admin: true });
   app.state.lang = 'zh';
   const zh = app.header();
-  assert.match(zh, /data-theme-select aria-label="外观"/);
+  assert.match(zh, /class="mode-options" role="group" aria-label="外观"/);
+  assert.match(zh, /class="palette-options" role="group" aria-label="配色"/);
+  assert.equal((zh.match(/data-palette-choice=/g)||[]).length,5);
   for (const label of ['跟随系统', '浅色', '深色']) assert.ok(zh.includes(label));
   assert.match(app.requestErrorText('Invalid cursor or changed search filters; restart from the first page'), /第一页/);
   assert.match(app.requestErrorText('This job is no longer available for new matches; choose another job'), /新匹配/);
   app.state.lang = 'en';
   const en = app.header();
-  assert.match(en, /data-theme-select aria-label="Appearance"/);
-  for (const label of ['System', 'Light', 'Dark']) assert.ok(en.includes(`>${label}</option>`));
+  assert.match(en, /class="mode-options" role="group" aria-label="Appearance"/);
+  for (const label of ['System', 'Light', 'Dark']) assert.ok(en.includes(`aria-label="${label}"`));
+  assert.doesNotMatch(en, /data-theme-select|data-palette-select/);
   const service = ui(async path => {
     if (path.startsWith('/api/admin/workbench/jobs?')) return workbenchResult([]);
     throw Object.assign(new Error('This role is unavailable.'), { status: 404 });
@@ -1569,4 +1572,27 @@ test('a denied send erases the same conversation after it remounts', async () =>
     assert.doesNotMatch(await service.messagesPage(), /Private unsent draft/);
     service.stopChat();
   } finally { dom.restore(); }
+});
+
+
+test('activation currency and region controls read configured prices, filter choices and show test mode',()=>{
+  const {app}=webmcp({role:'employer'});app.state.lang='en';
+  app.state.config.providers=['waffo'];app.state.config.payment_currencies={waffo:['CNY','USD','JPY']};
+  app.state.config.payment_modes={waffo:'test'};
+  app.state.config.waffo_regions={global:{currencies:['USD','JPY'],payment_methods:['card']},china:{currencies:['CNY','USD'],payment_methods:['wechat','alipay']}};
+  app.state.config.pricing.activation_currency_options=[{currency:'CNY',currency_decimals:2,onboarding_minor:10000},{currency:'USD',currency_decimals:2,onboarding_minor:1498},{currency:'JPY',currency_decimals:0,onboarding_minor:2368}];
+  assert.deepEqual(app.activationOptions('china').map(x=>x.currency),['CNY','USD']);
+  const nodes={'[data-activation-total]':{},'[data-activation-gateway]':{},'[data-activation-rule]':{},'[type="submit"]':{},'[data-activation-submit]':{}};
+  const form={elements:{currency:{value:'CNY'},payment_region:{value:'global'}},querySelector:selector=>nodes[selector]};
+  app.refreshActivationPayment(form);
+  assert.match(form.elements.currency.innerHTML,/value="USD" selected/);
+  assert.doesNotMatch(form.elements.currency.innerHTML,/CNY/);
+  assert.match(nodes['[data-activation-total]'].textContent,/USD.*14.98/);
+  assert.match(nodes['[data-activation-gateway]'].innerHTML,/No real charges/);
+  form.elements.currency.value='JPY';app.refreshActivationPayment(form);
+  assert.match(nodes['[data-activation-total]'].textContent,/JPY.*2,368/);
+  assert.doesNotMatch(nodes['[data-activation-total]'].textContent,/2,368.00/);
+  app.state.config.pricing.activation_currency_options[2].onboarding_minor=999;
+  app.refreshActivationPayment(form);assert.match(nodes['[data-activation-total]'].textContent,/999/);
+  app.state.config.payment_modes.waffo='prod';assert.doesNotMatch(app.gatewayInputs('JPY'),/No real charges/);
 });

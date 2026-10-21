@@ -182,6 +182,14 @@ pub struct Waffo {
     pub webhook_public_key_pem: String,
     pub tax_category: String,
     pub mode: String,
+    pub checkout_regions: BTreeMap<String, WaffoRegion>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaffoRegion {
+    pub currencies: Vec<String>,
+    pub payment_methods: Vec<String>,
 }
 impl Default for Waffo {
     fn default() -> Self {
@@ -196,7 +204,45 @@ impl Default for Waffo {
             webhook_public_key_pem: "".into(),
             tax_category: "".into(),
             mode: "test".into(),
+            checkout_regions: BTreeMap::from([
+                (
+                    "global".into(),
+                    WaffoRegion {
+                        currencies: ["USD", "EUR", "GBP", "HKD", "JPY"]
+                            .map(str::to_owned)
+                            .into(),
+                        payment_methods: ["card", "applepay", "googlepay"]
+                            .map(str::to_owned)
+                            .into(),
+                    },
+                ),
+                (
+                    "china".into(),
+                    WaffoRegion {
+                        currencies: ["CNY", "USD"].map(str::to_owned).into(),
+                        payment_methods: vec!["wechat".into(), "alipay".into()],
+                    },
+                ),
+            ]),
         }
+    }
+}
+
+impl Waffo {
+    pub fn checkout_region(
+        &self,
+        currency: &str,
+        requested: Option<&str>,
+    ) -> AppResult<(&str, &WaffoRegion)> {
+        let preferred = if currency == "CNY" { "china" } else { "global" };
+        let name = requested.unwrap_or(preferred);
+        self.checkout_regions
+            .get_key_value(name)
+            .filter(|(_, region)| region.currencies.iter().any(|code| code == currency))
+            .map(|(name, region)| (name.as_str(), region))
+            .ok_or_else(|| {
+                AppError::bad_request("This Waffo region does not support the order currency")
+            })
     }
 }
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -205,6 +251,7 @@ pub struct Pricing {
     pub currency: String,
     pub allowed_currencies: Vec<String>,
     pub onboarding_cents: i64,
+    pub onboarding_amounts: BTreeMap<String, i64>,
     pub publish_mode: String,
     pub edit_mode: String,
     pub publish_bps: i64,
@@ -221,6 +268,7 @@ impl Default for Pricing {
             currency: "CNY".into(),
             allowed_currencies: Vec::new(),
             onboarding_cents: 10000,
+            onboarding_amounts: BTreeMap::new(),
             publish_mode: "salary_percent".into(),
             edit_mode: "salary_percent".into(),
             publish_bps: 1000,
@@ -317,6 +365,16 @@ pub fn currency_decimals(currency: &str) -> Option<u32> {
 }
 
 impl Pricing {
+    pub fn onboarding_amount(&self, currency: &str) -> AppResult<i64> {
+        if currency == self.currency {
+            return Ok(self.onboarding_cents);
+        }
+        self.onboarding_amounts
+            .get(currency)
+            .copied()
+            .ok_or_else(|| AppError::bad_request("Choose a configured activation currency"))
+    }
+
     pub fn currencies(&self) -> Vec<String> {
         if self.allowed_currencies.is_empty() {
             vec![self.currency.clone()]
@@ -344,6 +402,11 @@ impl Pricing {
         let mut value = serde_json::to_value(self).expect("pricing serialization");
         value["allowed_currencies"] = serde_json::json!(self.currencies());
         value["currency_decimals"] = serde_json::json!(currency_decimals(&self.currency));
+        let mut activation = vec![
+            serde_json::json!({"currency": self.currency, "currency_decimals": currency_decimals(&self.currency), "onboarding_minor": self.onboarding_cents}),
+        ];
+        activation.extend(self.onboarding_amounts.iter().map(|(currency, amount)| serde_json::json!({"currency": currency, "currency_decimals": currency_decimals(currency), "onboarding_minor": amount})));
+        value["activation_currency_options"] = serde_json::json!(activation);
         value["currency_options"] = serde_json::json!(self.currencies().iter().filter_map(|currency| {
             let amounts = self.amounts(currency).ok()?;
             Some(serde_json::json!({"currency":currency,"currency_decimals":currency_decimals(currency),
@@ -554,6 +617,58 @@ impl Config {
             }
         }
         let w = &self.payments.waffo;
+        for (region, settings) in &w.checkout_regions {
+            let methods = &settings.payment_methods;
+            if !matches!(region.as_str(), "global" | "china")
+                || settings.currencies.is_empty()
+                || methods.is_empty()
+                || settings
+                    .currencies
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != settings.currencies.len()
+                || methods
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != methods.len()
+                || methods.iter().any(|method| {
+                    method.is_empty()
+                        || method.len() > 32
+                        || !method.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        })
+                })
+                || settings
+                    .currencies
+                    .iter()
+                    .any(|code| !WAFFO_CURRENCIES.contains(&code.as_str()))
+            {
+                return Err(AppError::bad_request(
+                    "Invalid Waffo checkout region currencies or payment methods",
+                ));
+            }
+        }
+        if w.enabled && w.checkout_regions.is_empty() {
+            return Err(AppError::bad_request(
+                "Configure at least one Waffo checkout region",
+            ));
+        }
+        if self
+            .pricing
+            .onboarding_amounts
+            .iter()
+            .any(|(code, amount)| {
+                code == &self.pricing.currency
+                    || currency_decimals(code).is_none()
+                    || !(1..=100000000).contains(amount)
+            })
+        {
+            return Err(AppError::bad_request(
+                "Activation amounts must be positive minor units of an additional supported currency",
+            ));
+        }
         if w.enabled
             && ([
                 &w.merchant_id,

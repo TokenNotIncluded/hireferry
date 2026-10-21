@@ -55,19 +55,54 @@
 .chart text {fill:var(--muted);}.chart .chart-grid,.chart .chart-zero {stroke:var(--line);}
 .chart .chart-area {fill:var(--accent-soft);}.chart .chart-line {stroke:var(--accent);}.chart circle {fill:var(--accent);}
 .home-flow .pricing-card {background:none;border:0;}
-.theme-menu {position:relative;flex:none;font-size:12px;}
-.theme-menu>summary {display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;min-height:38px;padding:8px 13px;border:1px solid var(--line);border-radius:24px;color:var(--ink);background:var(--surface);}
+.theme-menu {position:relative;flex:none;}
+.theme-menu>summary {display:grid;place-items:center;width:36px;height:36px;list-style:none;cursor:pointer;border:0;border-radius:50%;color:var(--accent);background:transparent;transition:background .15s;}
 .theme-menu>summary::-webkit-details-marker {display:none;}
-.theme-menu[open]>summary {border-color:var(--accent);color:var(--accent);}
-.theme-dot {width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:inset 0 0 0 1px #0001;}
-.theme-panel {position:absolute;right:0;top:calc(100% + 10px);z-index:100;width:244px;padding:20px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 12px 36px #0002;}
-.theme-panel label {display:grid;gap:8px;margin-bottom:16px;color:var(--ink);font-size:12px;font-weight:550;}
-.theme-panel select {width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:inherit;cursor:pointer;}
-.theme-panel option {background:var(--surface);color:var(--ink);}
-.theme-panel small {font-size:10px;color:var(--muted);line-height:1.6;}
+.theme-menu>summary>svg {width:21px;height:21px;}
+.theme-menu>summary:hover,.theme-menu[open]>summary {background:var(--raised);}
+.theme-panel {position:absolute;right:0;top:calc(100% + 9px);z-index:100;width:244px;padding:14px;border:1px solid color-mix(in srgb,var(--line) 70%,transparent);border-radius:16px;background:var(--surface);box-shadow:0 8px 32px #0002;}
+.theme-menu[open] .theme-panel {animation:theme-appear .12s ease-out;}
+.palette-options {display:flex;align-items:center;justify-content:space-between;gap:9px;}
+.palette-swatch {display:grid;place-items:center;width:36px;height:36px;flex:none;border:0;padding:0;border-radius:50%;background:transparent;cursor:pointer;}
+[data-palette-choice="blue"] {--swatch:var(--palette-blue);}
+[data-palette-choice="violet"] {--swatch:var(--palette-violet);}
+[data-palette-choice="rose"] {--swatch:var(--palette-rose);}
+[data-palette-choice="amber"] {--swatch:var(--palette-amber);}
+[data-palette-choice="teal"] {--swatch:var(--palette-teal);}
+.swatch-color {display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:var(--swatch);color:#fff;transition:box-shadow .15s,transform .15s;}
+.swatch-color svg {width:14px;height:14px;opacity:0;stroke-width:2.5;}
+.palette-swatch:hover .swatch-color {transform:scale(1.08);}
+.palette-swatch[aria-pressed="true"] .swatch-color {box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--swatch);}
+.palette-swatch[aria-pressed="true"] svg {opacity:1;}
+.mode-options {display:flex;gap:3px;padding:3px;margin-top:14px;border-radius:10px;background:var(--raised);}
+.mode-options button {display:grid;place-items:center;flex:1;min-height:32px;padding:6px;border:0;border-radius:7px;color:var(--muted);background:transparent;cursor:pointer;transition:background .15s,color .15s;}
+.mode-options button>svg {width:17px;height:17px;}
+.mode-options button[aria-pressed="true"] {background:var(--surface);color:var(--ink);box-shadow:0 1px 4px #0002;}
+@keyframes theme-appear {from {opacity:0;transform:translateY(-4px);}to {opacity:1;transform:translateY(0);}}
+@media(prefers-reduced-motion:reduce) {.theme-menu[open] .theme-panel {animation:none;}.swatch-color {transition:none;}}
 @media(max-width:560px) {
   .site-header .brand-en,.site-header .brand-divider {display:none;}
   .site-header {gap:10px;}.nav-right {gap:8px;}
-  .theme-menu>summary {font-size:11px;min-height:34px;padding:7px 10px;gap:6px;}
-  .theme-panel {right:-60px;width:min(244px,calc(100vw - 40px));}
+  .theme-panel {right:-48px;width:min(244px,calc(100vw - 40px));}
 }
+
+/* Payment choices use the same neutral surfaces as the rest of the site. */
+.payment-region-choice {border:0;padding:0;margin:0 0 24px;min-width:0}
+.payment-region-choice legend {font-size:13px;font-weight:500;margin-bottom:10px;color:var(--muted)}
+.payment-region-options {display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.payment-region-options label {position:relative;cursor:pointer}
+.payment-region-options input {position:absolute;opacity:0;width:1px;height:1px}
+.payment-region-options label>span {display:grid;grid-template-columns:20px 1fr;gap:4px 9px;padding:14px;border:1px solid var(--line);border-radius:12px;transition:border-color .15s,background .15s}
+.payment-region-options svg {width:19px;height:19px;grid-row:1 / 3;color:var(--muted)}
+.payment-region-options strong {font-size:15px;font-weight:500}
+.payment-region-options small {font-size:11px;color:var(--muted);line-height:1.5}
+.payment-region-options input:checked+span {border-color:var(--accent);background:var(--raised)}
+.payment-region-options input:checked+span svg {color:var(--accent)}
+.payment-region-options input:focus-visible+span {outline:2px solid var(--accent);outline-offset:3px}
+.activation-total {background:none;padding:20px 0;margin:6px 0 16px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0}
+.activation-total .cost-row.total {border:0;padding:0;margin:0;align-items:center;gap:12px}
+.activation-total strong {font-size:27px;white-space:nowrap;letter-spacing:-1px}
+.activation-total .cost-row.total>span {font-size:13px;color:var(--muted)}
+.payment-test-notice {display:flex;align-items:center;gap:8px;color:var(--muted);background:var(--raised);border-radius:8px;padding:10px 12px;font-size:12px;margin:12px 0}
+.payment-test-notice svg {color:var(--accent);width:16px;height:16px;flex-shrink:0}
+@media(max-width:420px){.activation-total strong{font-size:23px}.payment-region-options label>span{padding:11px;gap:3px 6px}.payment-region-options small{font-size:10px}}

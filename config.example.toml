@@ -71,6 +71,14 @@ mode = "test" # Exactly "test" or "prod".
 # Checkout return: https://hireferry.lmm.best/billing/return
 # See docs/payments.md for provider setup, signatures and environment checks.
 
+# These select payment methods, not separate API servers or billing countries.
+[payments.waffo.checkout_regions.global]
+currencies = ["USD", "EUR", "GBP", "HKD", "JPY"]
+payment_methods = ["card", "applepay", "googlepay"]
+[payments.waffo.checkout_regions.china]
+currencies = ["CNY", "USD"]
+payment_methods = ["wechat", "alipay"]
+
 [pricing]
 # Currency codes are explicit. Existing jobs/orders keep their original currency.
 # Empty allowed_currencies means only currency; add per-currency amounts below
@@ -78,6 +86,9 @@ mode = "test" # Exactly "test" or "prod".
 currency = "CNY"
 allowed_currencies = ["CNY"]
 onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+# Additional activation prices are independent of job/salary currencies.
+# Example fixed prices; the server never infers exchange rates.
+# onboarding_amounts = { USD = 1498, EUR = 1333, GBP = 1118, HKD = 11752, JPY = 2368 }
 publish_mode = "salary_percent" # salary_percent, fixed, or free
 publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
 publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
