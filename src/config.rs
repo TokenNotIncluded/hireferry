@@ -15,6 +15,7 @@ pub struct Config {
     pub smtp: Smtp,
     pub payments: Payments,
     pub pricing: Pricing,
+    pub legal: crate::legal::Legal,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -30,6 +31,7 @@ impl Default for Config {
             smtp: Smtp::default(),
             payments: Payments::default(),
             pricing: Pricing::default(),
+            legal: crate::legal::Legal::default(),
         }
     }
 }
@@ -145,12 +147,20 @@ impl Default for Pricing {
 impl Config {
     pub fn load(path: &std::path::Path) -> AppResult<Self> {
         let text = std::fs::read_to_string(path).map_err(AppError::internal)?;
-        let cfg: Self = toml::from_str(&text)
+        let mut cfg: Self = toml::from_str(&text)
             .map_err(|e| AppError::bad_request(format!("Invalid TOML: {e}")))?;
+        cfg.legal
+            .load_documents(path.parent().unwrap_or_else(|| std::path::Path::new(".")))?;
         cfg.validate()?;
         Ok(cfg)
     }
     pub fn validate(&self) -> AppResult<()> {
+        self.legal.validate()?;
+        for kind in ["terms", "privacy"] {
+            for language in ["zh", "en"] {
+                crate::legal::document(self, kind, language)?;
+            }
+        }
         let url = url::Url::parse(&self.public_url).map_err(AppError::bad_request)?;
         let bind: std::net::SocketAddr = self.bind.parse().map_err(AppError::bad_request)?;
         if url.path() != "/"

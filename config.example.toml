@@ -58,3 +58,34 @@ onboarding_cents = 10000 # ¥100, charged once to activate an employer account.
 publish_bps = 1000 # 10% of monthly base salary; 10000 basis points = 100%.
 edit_bps = 100 # 1% of the ORIGINAL monthly base salary for each paid JD edit.
 max_edits = 3
+
+# Public policy values. These are operating commitments, not automatic cleanup jobs.
+# Fees, website origin and support email are always taken from pricing/public_url/site.
+[legal.values]
+operator_name = "Your operating team"
+operator_identity = "" # Public legal name and country/region, once confirmed.
+version = "1"
+effective_date = "" # Set the actual published version's effective date.
+refund_days = "7"
+minimum_age = "18"
+change_notice_days = "15"
+refund_ack_business_days = "2"
+refund_processing_business_days = "5–10"
+deletion_days = "30"
+support_retention_years = "2"
+transaction_retention_years = "5"
+access_log_days = "14"
+privacy_response_days = "30"
+hosting_provider = "DMIT"
+email_provider = "Sequenzy"
+login_provider = "Google"
+payment_provider = "Waffo Pancake"
+
+# Optional complete Markdown overrides. Paths are relative to this config file.
+# Copy the four templates from legal/, edit, run check-config, then restart.
+# Without an override, the embedded default template is used.
+[legal.document_files]
+# "terms.zh" = "legal/terms.zh.md"
+# "terms.en" = "legal/terms.en.md"
+# "privacy.zh" = "legal/privacy.zh.md"
+# "privacy.en" = "legal/privacy.en.md"

@@ -8,6 +8,7 @@ pub mod commerce;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod legal;
 pub mod mcp;
 pub mod models;
 pub mod payments;
@@ -61,6 +62,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(auth::routes())
         .merge(api::routes())
+        .merge(legal::routes())
         .merge(admin::routes())
         .merge(admin_ai::routes())
         .merge(chat::routes())

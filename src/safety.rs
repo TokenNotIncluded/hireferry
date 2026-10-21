@@ -21,9 +21,16 @@ pub fn email(value: &str) -> AppResult<String> {
     Ok(email)
 }
 pub fn markdown(text: &str) -> String {
+    markdown_options(text, pulldown_cmark::Options::empty())
+}
+pub fn legal_markdown(text: &str) -> String {
+    markdown_options(text, pulldown_cmark::Options::ENABLE_HEADING_ATTRIBUTES)
+}
+fn markdown_options(text: &str, extra: pulldown_cmark::Options) -> String {
     let options = pulldown_cmark::Options::ENABLE_TABLES
         | pulldown_cmark::Options::ENABLE_STRIKETHROUGH
-        | pulldown_cmark::Options::ENABLE_TASKLISTS;
+        | pulldown_cmark::Options::ENABLE_TASKLISTS
+        | extra;
     let parser = pulldown_cmark::Parser::new_ext(text, options).filter(|event| {
         !matches!(
             event,
@@ -34,6 +41,7 @@ pub fn markdown(text: &str) -> String {
     pulldown_cmark::html::push_html(&mut html, parser);
     ammonia::Builder::default()
         .rm_tags(&["img"])
+        .add_tag_attributes("h2", &["id"])
         .link_rel(Some("noopener noreferrer nofollow"))
         .clean(&html)
         .to_string()
