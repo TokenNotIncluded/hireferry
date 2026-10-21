@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 2 {
+    if version > 6 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -40,9 +40,9 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  CREATE TABLE IF NOT EXISTS users(
  id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
  employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,jd_md TEXT NOT NULL,salary_cents INTEGER NOT NULL CHECK(salary_cents>0),status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','closed','deleted')),edits_used INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,jd_md TEXT NOT NULL,salary_cents INTEGER NOT NULL CHECK(salary_cents>0),headcount INTEGER NOT NULL DEFAULT 1 CHECK(headcount>=0 AND headcount<=1000000),status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','closed','deleted')),delete_count INTEGER NOT NULL DEFAULT 0 CHECK(delete_count>=0 AND delete_count<=2),deleted_from_status TEXT CHECK(deleted_from_status IN ('draft','published','closed')),deleted_headcount INTEGER CHECK(deleted_headcount>=0 AND deleted_headcount<=1000000),edits_used INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner_id,created_at);
- CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
+ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
  CREATE UNIQUE INDEX IF NOT EXISTS one_job_pending ON orders(job_id) WHERE status='pending';
  CREATE UNIQUE INDEX IF NOT EXISTS one_onboarding_pending ON orders(user_id) WHERE kind='onboarding' AND status='pending';
  CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id,created_at);
@@ -52,10 +52,69 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS matches(id TEXT PRIMARY KEY,seeker_id TEXT NOT NULL REFERENCES users(id),job_id TEXT NOT NULL REFERENCES jobs(id),status TEXT NOT NULL DEFAULT 'introduced',note TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(seeker_id,job_id));
  "#)?;
+    // Upgrade before webhook trigger creation: the job update predicate reads
+    // headcount. Existing live/draft adverts keep one planned opening; archives
+    // must never acquire openings simply because the new column defaults to one.
+    let job_columns = {
+        let mut query = db.prepare("PRAGMA table_info(jobs)")?;
+        query
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let added_headcount = !job_columns.iter().any(|column| column == "headcount");
+    if !job_columns.iter().any(|column| column == "currency") {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN currency TEXT NOT NULL DEFAULT 'CNY';")?;
+    }
+    if !job_columns
+        .iter()
+        .any(|column| column == "ai_min_salary_cents")
+    {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN ai_min_salary_cents INTEGER NOT NULL DEFAULT 300000 CHECK(ai_min_salary_cents>=0);")?;
+    }
+    if added_headcount {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN headcount INTEGER NOT NULL DEFAULT 1 CHECK(headcount>=0 AND headcount<=1000000);")?;
+    }
+    let added_lifecycle = !job_columns.iter().any(|column| column == "delete_count");
+    if added_lifecycle {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN delete_count INTEGER NOT NULL DEFAULT 0 CHECK(delete_count>=0 AND delete_count<=2);")?;
+    }
+    if !job_columns
+        .iter()
+        .any(|column| column == "deleted_from_status")
+    {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN deleted_from_status TEXT CHECK(deleted_from_status IN ('draft','published','closed'));")?;
+    }
+    if !job_columns
+        .iter()
+        .any(|column| column == "deleted_headcount")
+    {
+        db.execute_batch("ALTER TABLE jobs ADD COLUMN deleted_headcount INTEGER CHECK(deleted_headcount>=0 AND deleted_headcount<=1000000);")?;
+    }
+    if version < 4 || added_headcount {
+        db.execute(
+            "UPDATE jobs SET headcount=0 WHERE status IN ('closed','deleted') AND headcount<>0",
+            [],
+        )?;
+    }
+    if version < 4 || added_lifecycle {
+        // Older deleted adverts were administrator removals, not recoverable
+        // trash. Migration must never bring their removed content back.
+        db.execute(
+            "UPDATE jobs SET delete_count=2,deleted_from_status=NULL,deleted_headcount=NULL,headcount=0,title='',jd_md='' WHERE status='deleted'",
+            [],
+        )?;
+        db.execute(
+            "UPDATE orders SET snapshot_json='{}',checkout_url=NULL,status=CASE WHEN status='pending' THEN 'cancelled' ELSE status END WHERE job_id IN (SELECT id FROM jobs WHERE status='deleted' AND delete_count=2)",
+            [],
+        )?;
+    }
     crate::auth::migrate(db)?;
     crate::admin_ai::migrate(db)?;
     crate::chat::migrate(db)?;
-    db.pragma_update(None, "user_version", 2)?;
+    crate::commerce::migrate(db)?;
+    crate::webhooks::migrate(db)?;
+    crate::workbench::migrate(db)?;
+    db.pragma_update(None, "user_version", 6)?;
     Ok(())
 }
 pub fn audit(

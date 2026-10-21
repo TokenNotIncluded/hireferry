@@ -8,29 +8,44 @@
 
 聘渡由人类 HR 与 AI HR 居中服务：求职者提交资料与求职委托，招聘方提交岗位，双方分别与平台私聊。平台建立明确匹配后，双方才可查看对应资料、岗位和联系邮箱，并进入一段新的独立会话。
 
-这是一个面向 Linux 自托管的小型 Rust 应用：单个服务、内嵌网页资源、SQLite 数据库、纯文本 TOML 配置。生产运行无需 Node.js 服务或外部数据库。界面支持中文与英文。
+这是一个面向 Linux 自托管的小型 Rust 应用：单个服务、内嵌网页资源、SQLite 数据库、纯文本 TOML 配置。生产运行无需 Node.js 服务或外部数据库。界面支持中文与英文，以及跟随系统、浅色、深色三种外观；外观偏好保存在当前浏览器。
+
+正式部署域名为 **https://hireferry.lmm.best**，支持邮箱为 **support@lmm.best**。生产接入与运维步骤见 [部署交接](docs/deployment-handoff.md)；本文中的正式地址不代表已完成线上部署或真实商户联调。
 
 ## 服务流程与隐私
 
 1. 使用 Google 或邮箱验证码注册登录，首次选择求职者或招聘方；不要求手机号。
 2. 求职者免费填写图片或安全 SVG 头像、联系邮箱和 Markdown 简历，并提交目标行业、岗位、薪资范围、地点及偏好。招聘方支付一次性开通费，再为岗位支付发布费。
 3. 每个用户都有自己的平台私聊。平台管理员及其已授权 AI 可以读取业务资料、沟通需求、整理委托和推进匹配；其他用户没有全站人才或岗位浏览权限。
-4. 平台把具有有效委托的求职者与已付费、正在招聘的岗位匹配。该求职者只能访问具体被介绍的岗位，招聘方只能访问被介绍的求职者。
+4. 平台把具有有效委托的求职者与已付费、招聘人数大于 0 的已发布岗位匹配。该求职者只能访问具体被介绍的岗位，招聘方只能访问被介绍的求职者。
 5. 匹配产生独立的双方会话。此前各自与平台的私聊历史仍留在原会话中，不会复制给对方。平台可以在匹配会话中协调，并更新面试、录用或终止状态。
 
 资料始终对平台可见，对无关用户保持私密。字段 `public_email` 保留兼容命名，表示供平台及匹配对象使用的联系邮箱；登录邮箱仅本人和平台管理员可见。旧 `visible` 字段不再授予公开访问权，没有公开简历或招聘目录。
 
-将匹配改为 `declined`、删除岗位或封禁任一方，会撤销普通用户对相关匹配资料与会话的访问。单纯关闭岗位停止新的介绍，已有匹配会话可继续。管理员保留全部业务历史的读取权；归档会话返回 `writable: false`，包括管理员 AI 在内都不能继续发送。
+将匹配改为 `declined`、删除岗位或封禁任一方，会撤销普通用户对相关匹配资料与会话的访问。首次删除期间也会隐藏双方匹配访问；恢复后按当前权限重新显示原匹配历史。招聘人数为 0 或单纯关闭岗位会停止新的介绍，已有匹配会话可继续。管理员保留业务历史的读取权；归档会话返回 `writable: false`，包括管理员 AI 在内都不能继续发送。
 
 ## 已实现的工作台
 
 - 首页以同一张开放画布呈现平台、初筛匹配和收费三段介绍。滚轮与手机纵向滑动先原地切换文案和渡船、桥梁、罗盘粒子，第三段结束后再进入下方内容流；支持倒退、章节按钮、暂停和减少动态效果偏好。
 - 求职者资料、本人委托、外部寻找进展、平台私聊、独立匹配会话与未读提醒。
-- 招聘方多个岗位、Markdown JD、固定月薪底薪、托管支付、自己的订单与匹配对象。
-- 管理员总控台：完整用户/岗位资料、封禁与内容处理、委托、可视化匹配流程、平台私聊和历史会话、外部进展、订单、审计及按日期/历史累计的流水图表。正式和测试流水分开。
+- 招聘方多个岗位、Markdown JD、固定月薪底薪、免费不限次数修改招聘人数、一次恢复的回收站、托管支付、自己的订单与匹配对象。
+- 管理员总控台：完整用户/岗位资料、封禁与内容处理、委托、以岗位为入口的候选筛选与分页、单人详情、匹配跟进列表、平台私聊和历史会话、外部进展、订单、审计及按日期/历史累计的原实收、已退款和净收入图表。正式和测试流水分开。
 - 首次通过服务器命令行一次性口令绑定 Passkey，后续仅 Passkey 登录，支持多把密钥。
 - 普通用户和平台管理员使用独立 MCP 身份；浏览器 WebMCP 绑定当前身份，AI 代发消息带标记。
+- 用户可配置自己的公网 HTTPS Webhook，接收已获授权的业务事件通知，查看投递历史、暂停、撤销及重试失败投递。
 - 所有系统设置通过 TOML 修改并重启生效，没有系统设置页面。
+
+### 平台匹配工作台
+
+先从当前可招聘的岗位队列选择岗位，再按关键词、行业、目标岗位、地点和薪资范围筛选候选人。
+列表使用游标分页，默认条数由 `[limits].workbench_page_size` 配置（模板为 25，单次范围 1–100）；列表只载入摘要，完整简历和单条匹配按需读取。
+该岗位已有有效匹配的候选人不重复列入待选名单，已终止的历史会明确显示，恢复须再次通过原业务检查。
+匹配跟进使用可搜索、按阶段筛选的列表，阶段数量随当前筛选计算，按最近更新时间排列。
+
+搜索只向管理员及独立管理员 AI 开放。它不创建匹配，不扩大求职委托或外部联系同意，
+也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，当前 schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；
+较短关键词仍采用受筛选条件约束的字面匹配。规模测试与实测结果见 [验收记录](docs/acceptance.md)，
+接口和分页规则见 [工作台 API](docs/api.md#岗位中心匹配工作台)。
 
 ## 求职委托与外部寻找
 
@@ -48,10 +63,32 @@
 | 招聘方开通 | 一次性 ¥100 | ¥100 |
 | 发布一个岗位，交由平台匹配 | 月薪底薪的 10% | ¥300 |
 | 修改该岗位的 JD | 每次按原月薪底薪的 1% | 每次 ¥30，最多 3 次 |
+| 修改招聘人数 | 免费，不限次数 | 设为 0 暂停，设正数恢复已发布岗位的招聘 |
+| 删除、一次恢复、永久删除 | 免费 | 不自动退款，也不增加 JD 修改次数 |
 
-底薪不含奖金、提成或补贴。岗位创建后标题与底薪固定；已验签付款回调确认后，岗位进入平台的可匹配岗位池。JD 修改先生成订单，付款确认后才替换现有内容。修改费按**原底薪**计算。金额使用人民币整数分，费率使用基点；规则在 `[pricing]` 配置，已有订单保留原金额和修改条款快照。
+上表为默认 CNY 模板示例，实际币种、费用和修改次数由 TOML 配置。`[pricing]` 的 `currency` 是默认币种，`allowed_currencies` 决定可选币种。发布和 JD 修改各自支持 `salary_percent`（基点费率）、`fixed`（固定金额）、`free`（免费）；开通费为零时直接开通。新增币种需显式配置它的固定价格和 AI 薪资门槛，不推算汇率。
+
+底薪不含奖金、提成或补贴。岗位创建后标题、币种与底薪固定。金额按记录币种的整数最小单位保存；兼容字段名 `_cents` 不表示所有币种均有两位小数，例如 USD 12.34 存为 1234，JPY 1234 也存为 1234。接口返回币种和精度，求职委托保存薪资币种，薪资筛选只比较相同币种，收入按币种分别统计。
+
+付费发布与 JD 修改在验签到账后生效；免费模式立即生效并记录零金额已完成订单，不调用网关、不写现金账本。按比例修改费以**原底薪**计算，人数不影响费用。原岗位保存创建时的币种、编辑计费方式、费率、固定费用、次数与 AI 薪资门槛；后续配置变化只影响新岗位。永久删除清除关联内容快照并保留必要账务字段。
+
+当前 Stripe 集成支持 32 个明确实现的币种，Waffo 支持 CNY/EUR/GBP/HKD/JPY/USD 六种一次性商品币种。每个网关的 `allowed_currencies` 可进一步收窄到实际商户或商品可用的集合；未指定时采用该集成的支持集。前端按币种筛选支付方式，后端在创建订单和结账时复核。范围、精度、Waffo 商品要求及未启用的特殊币种见 [支付说明](docs/payments.md)。
 
 支持 Stripe 与 Waffo Pancake 的真实托管收银台，网站不接收银行卡号。支付返回页不能把订单标记为成功；只有已验签回调与 SQLite 事务可落账。缺少网关凭证时保持不可支付，不启用模拟成功。具体商户配置、签名和回调要求见 [支付说明](docs/payments.md)。
+
+两个网关统一返回 `/billing/return?order_id=<本地订单ID>&provider=<stripe或waffo>`；Stripe 取消返回额外带 `canceled=1` 提示，页面仍以当前账户的订单记录为准。Waffo 支持 `order.completed`、`refund.succeeded`、`refund.failed` 三种通知。成功退款更新订单累计退款和净收入，失败退款只记录；部分退款保留服务权益，全额开通退款撤回相应开通、全额发布退款关闭对应岗位，JD 修改退款不回滚文本或恢复修改次数。本站不主动发起退款。
+
+## 招聘人数与回收站
+
+`headcount` 是人工维护的计划招聘人数，创建时默认 1，允许 0 到 `[limits].max_job_headcount`（默认 1,000,000）。已开通且未封禁的招聘方可以免费修改自己的草稿或已发布岗位人数，不限次数，不生成订单，不改变标题、底薪、JD 版本或已用修改次数。设为 0 保持 `published`，暂停新匹配；改为正数即可恢复这类已发布岗位的招聘。匹配、面试、入职不自动扣人数，正数也不限制候选匹配总数。人数为 0 时，已有匹配仍能聊天和推进阶段。`[limits]` 同时配置每人待付款订单上限、普通页码列表的页大小和最大页码、工作台默认页大小，以及最近订单/回收站/匹配/会话/外联记录的数量上限 `recent_list_limit`（模板为 200，范围 1–1000）。
+
+普通删除的第一次进入回收站，可免费恢复一次；恢复后再次删除就是永久删除，也可直接选择永久删除。删除与恢复请求必须带当前 `expected_version`，过期操作被拒绝，避免迟到的首次删除请求误变成永久删除。对仍处于已删除状态的普通删除重试不会增加删除次数。管理员的删除操作直接永久删除，恢复操作仍遵守同一次数与支付规则。
+
+恢复内容不会创建新订单或要求重新付费。原已发布岗位只有当前开通及原发布付款仍有效，才恢复原发布状态和人数；权益失效时恢复为 `closed`、人数 0。原本关闭或已全额退款的岗位不能靠人数或恢复操作重获招聘权益。永久删除清空岗位标题、JD 及关联订单的内容快照，取消尚未支付的相关订单，保留金额、付款/退款和审计等必要记录；它不会自动退款。完整状态、支付竞态和接口约定见 [岗位管理](docs/jobs.md)。
+
+## 公开政策
+
+服务条款与隐私政策使用独立的中英 Markdown 模板，经 `/api/legal/terms`、`/api/legal/privacy` 返回清洗后的 HTML 和版本元数据。`[legal.values]` 配置运营方、版本、生效日期、退款窗口及保留期限；`[legal.document_files]` 可加载相对配置文件的完整替代文档，修改后通过 `check-config` 并重启即可生效。当前币种、费用模式、金额精度、修改次数及 AI 门槛直接由业务配置生成，不能被政策变量覆盖；已有岗位仍保留原条款。默认文本保留运营方需实际履行的承诺，配置本身不会自动执行退款、账户注销或到期清理。详见 [政策配置](docs/legal-policies.md)。
 
 ## 本机运行
 
@@ -76,9 +113,27 @@ Google、SMTP、支付网关默认关闭。需要使用时编辑 TOML 并重启�
 
 ## Linux 生产部署
 
-下文统一使用示例域名 `https://hireferry.lmm.best`，部署时请替换为你的实际域名。
+生产模板已使用正式域名 `https://hireferry.lmm.best`。其余商户和邮件字段必须由部署方填入已验证值；本次交付没有取得所提及的 `production.env` 或另行提供的生产交接 README 内容，未读取或推测其中的 ID、账号、商品及密钥。程序只加载指定 TOML，不自动导入 `.env`。完整清单见 [部署交接](docs/deployment-handoff.md)。
+
+### 正式接入地址
+
+| 用途 | 方法与完整地址 |
+| --- | --- |
+| Google OAuth 回调 | GET `https://hireferry.lmm.best/auth/google/callback` |
+| 服务条款 | GET `https://hireferry.lmm.best/terms` |
+| 隐私政策 | GET `https://hireferry.lmm.best/privacy` |
+| 退款政策 | GET `https://hireferry.lmm.best/refunds` |
+| 联系支持 | GET `https://hireferry.lmm.best/contact` |
+| Waffo 三类支付/退款通知 | POST `https://hireferry.lmm.best/api/webhooks/waffo` |
+| 统一支付返回页面 | GET `https://hireferry.lmm.best/billing/return` |
+
+Stripe 回调为 `POST https://hireferry.lmm.best/api/webhooks/stripe`；远程 MCP 为 `POST https://hireferry.lmm.best/mcp`。首页为 `https://hireferry.lmm.best/`，管理员入口为 `/admin`。
 
 构建并安装单个二进制。网页与粒子运行时已经嵌入，不必另起静态资源服务。
+
+[GitHub CI](.github/workflows/ci.yml) 的预编译发布包在 **Ubuntu 24.04、x86_64** 环境构建。
+其他 Linux 发行版、旧运行库或不同架构应在目标环境从源码构建，或使用下文的 Docker 构建方式；
+该预编译包不承诺在任意 Linux 上直接兼容。
 
 ```sh
 cargo build --locked --release
@@ -91,7 +146,7 @@ sudo install -m 0600 -o hireferry -g hireferry config.example.toml /etc/hireferr
 sudoedit /etc/hireferry/config.toml
 ```
 
-将 `public_url` 改为实际 HTTPS 站点来源，例如 `https://hireferry.lmm.best`，`webauthn_rp_id` 改为相同主机名 `hireferry.lmm.best`。保留 `development = false`；使用本机反向代理时保持 `bind = "127.0.0.1:3000"`。`database` 相对于服务工作目录，模板对应 `/var/lib/hireferry/data/hireferry.sqlite3`。
+保持 `public_url = "https://hireferry.lmm.best"`、`webauthn_rp_id = "hireferry.lmm.best"` 和 `development = false`；使用本机反向代理时保持 `bind = "127.0.0.1:3000"`。`public_url` 只接受来源，不附加路径、查询、fragment 或账号密码。`database` 相对于服务工作目录，模板对应 `/var/lib/hireferry/data/hireferry.sqlite3`。
 
 配置文件权限保持 **600**，数据库与备份目录保持 **700**。配置、SMTP 密码、Google secret、支付密钥均不要提交 Git。修改配置后重启服务。先验证配置，再启用服务：
 
@@ -102,7 +157,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hireferry
 ```
 
-[Caddyfile](deploy/Caddyfile) 提供 HTTPS 反向代理模板。安装 [Caddy](https://caddyserver.com/docs/install)，配置域名 DNS，将模板主机名改为实际域名，放入 Caddy 配置后验证并重载。公网入口为 HTTPS 443，80 用于证书与重定向；应用端口 3000 保持在回环地址。服务日志可用 `journalctl -u hireferry` 查看。
+[Caddyfile](deploy/Caddyfile) 已配置该正式域名的 HTTPS 反向代理。安装 [Caddy](https://caddyserver.com/docs/install)，将域名 DNS 指向部署服务器，合入现有 Caddy 配置后验证并重载。公网入口为 HTTPS 443，80 用于证书与重定向；应用端口 3000 保持在回环地址。服务日志可用 `journalctl -u hireferry` 查看。`check-config` 只检查本地配置，不验证 DNS、邮件投递、Google 或支付商户可用性。
 
 ### Google 与邮箱
 
@@ -112,11 +167,11 @@ Google OAuth Web 应用的授权回调地址必须是：
 https://hireferry.lmm.best/auth/google/callback
 ```
 
-以上 `https://hireferry.lmm.best` 为示例域名，请替换为实际域名；条款与隐私说明分别位于 `/terms` 和 `/privacy`。Google 控制台中的应用首页、条款和隐私 URL 也应使用实际部署地址。
+Google 控制台中的应用首页为 `https://hireferry.lmm.best/`，条款和隐私 URL 分别为 `https://hireferry.lmm.best/terms`、`https://hireferry.lmm.best/privacy`，支持联系方式为 `support@lmm.best`。
 
 在 `[google]` 填写 `client_id`、`client_secret` 并启用。Google 邮箱若与已有邮箱账户相同，不会自动合并身份；请使用原邮箱验证码登录。当前没有账户合并或 Google 绑定页面。
 
-在 `[smtp]` 填写主机、端口、发件地址和凭证并启用。`starttls = true` 使用 STARTTLS，通常端口 587；`false` 使用隐式 TLS，通常端口 465，不是明文 SMTP。生产环境未配置 SMTP 时邮箱登录不可用。认证机制见 [认证与 Passkey](docs/auth.md)。
+在 `[smtp]` 填写已验证的主机、端口、认证用户名、密码及获准发件地址 `from`，将 `reply_to = "support@lmm.best"` 后启用。验证码邮件实际包含这个 Reply-To；`from` 仍必须使用邮件服务商允许的发件身份，不能仅凭支持邮箱推测。`[site].support_email` 控制页面联系方式，`[smtp].reply_to` 控制邮件回复地址，两者分别配置。`starttls = true` 使用 STARTTLS，通常端口 587；`false` 使用隐式 TLS，通常端口 465，不是明文 SMTP。生产环境未配置 SMTP 时邮箱登录不可用。认证机制见 [认证与 Passkey](docs/auth.md)。
 
 ### 初始化管理员
 
@@ -170,9 +225,9 @@ docker run -d --name hireferry --restart unless-stopped \
 
 ### 普通用户
 
-求职者选择身份后可免费使用 AI 连接。招聘方需要已开通，并且至少有一个**发布费已支付、状态为 `published`、月薪底薪 ≥ ¥3,000** 的岗位。不是只填写金额或生成未支付订单即可开通。
+求职者选择身份后可免费使用 AI 连接。招聘方需要已开通，并且至少有一个**发布订单已完成、状态为 `published`、底薪达到该岗位保存的币种薪资门槛**的岗位。门槛在 `[pricing]` 和各币种金额配置中设置；默认模板为 CNY 3,000，新岗位可配置为零。免费发布的已完成订单也可满足发布条件；未支付草稿不能满足资格。旧岗位保留原门槛，每次 AI 请求仍重新检查当前状态和权限。
 
-创建个人令牌和每一次 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。关闭最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用；人工浏览器工作台仍可正常管理账号、支付和继续已有会话。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
+创建个人令牌和每一次 Bearer 请求都会重新检查资格，包括直接请求 HTTP API。**招聘人数为 0 不影响已发布广告的 AI 资格**，可继续通过 AI 调整人数；关闭或删除最后一个符合条件的岗位后，既有招聘方 AI 令牌立即不可用，此时可用人工浏览器工作台恢复符合规则的回收站内容。WebMCP 的每次执行也检查资格，服务端对带 `X-HireFerry-AI: webmcp` 的请求再次验证。
 
 在工作台「AI 连接」创建个人令牌，配置兼容客户端：
 
@@ -183,13 +238,13 @@ Authorization: Bearer <your-personal-token>
 Protocol version: 2025-11-25
 ```
 
-普通用户有 26 个远程 MCP 工具：本人资料/头像、岗位与匹配、订单/结账、委托/进展和会话。能发现某工具不代表能越过角色规则；例如招聘方不能修改求职者委托。令牌只显示一次，30 天有效，每个账户最多 10 个有效令牌，可撤销。
+普通用户有 32 个远程 MCP 工具：公开配置、本人资料/头像、岗位与招聘人数、回收站、匹配、订单/结账、委托/进展和会话。`get_site_config` 返回币种精度、可用支付方式、费用和业务限额，不返回系统密钥。能发现某工具不代表能越过角色规则；例如招聘方不能修改求职者委托。令牌只显示一次，30 天有效，每个账户最多 10 个有效令牌，可撤销。
 
 ### 平台管理员
 
 管理员通过真实 Passkey 会话在控制台「平台 AI」中签发独立 `hf_admin_` 令牌。创建要求最近 10 分钟内完成 Passkey 认证并通过 CSRF；令牌 30 天有效，平台最多保留 10 个有效令牌。令牌的列出、创建、撤销只允许管理员浏览器会话，Bearer 不能自行扩增凭证。
 
-管理员使用相同 `/mcp` 地址，但发现的是另一组 26 个工具，可读取和管理全平台业务资料、委托、匹配、会话、外部进展、订单及统计。每项写入通过与管理页面相同的业务函数，记录具体管理员 AI 的审计身份。管理员令牌不能冒充普通用户、操作 Passkey、修改系统密钥，或把未支付订单伪造为已支付。
+管理员使用相同 `/mcp` 地址，发现 32 个工具，可读取公开配置并管理全平台业务资料、岗位与恢复、委托、匹配、会话、外部进展、订单及统计。`admin_search_jobs`、`admin_search_candidates`、`admin_search_matches` 提供工作台摘要、筛选和游标分页；`admin_introduce_candidates` 将最多 100 位有效候选人加入同一岗位，整批在同一事务内校验。普通管理列表支持配置页大小，审计和匹配列表也可翻页。每项写入通过与管理页面相同的业务函数，记录具体管理员 AI 的审计身份。管理员令牌不能冒充普通用户、操作 Passkey、修改系统密钥，或把未支付订单伪造为已支付。
 
 ### 消息轮询与浏览器工具
 
@@ -198,6 +253,14 @@ Protocol version: 2025-11-25
 浏览器 WebMCP 在支持 `modelContext.registerTool` 时按登录角色注册工具，沿用当前 Cookie/CSRF。管理员和普通用户拥有不同工具集合，未登录或不具备资格时不注册；不支持该草案接口的浏览器仍能使用普通网页。WebMCP 不注册 Passkey、令牌签发或系统设置操作。
 
 远程 MCP 为无状态 `POST /mcp` JSON-RPC；采用手动 Bearer 请求头，没有 OAuth 自动发现，也没有 SSE 推送。协议、全部 HTTP 接口、两组远程工具 schema 和 WebMCP 名称差异见 [API 文档](docs/api.md)。
+
+## 用户 Webhook
+
+用户在自己的工作台「Webhook」页面登记公网 HTTPS 接收地址、选择事件，并保存只显示一次的签名密钥。支持 `message.created`、`match.updated`、`job.updated`、`order.updated`、`mandate.updated`、`outreach.updated`。通知携带资源标识及状态，不附带完整简历、聊天正文或登录邮箱；需要详细资料时，由接收方使用另行授权的 API/MCP 身份读取。
+
+端点管理仅接受本人普通浏览器 Cookie，写操作需要 CSRF；普通 Bearer、管理员身份和 WebMCP 均不能创建、读取管理页面或修改这些外发凭证。每次投递会重新检查当前权限，撤销、封禁或匹配失效不会继续发送原本排队的无权事件。接收方应验签并按事件 ID 去重；投递会重试，不是恰好一次保证。
+
+全站启停、端点/队列上限、超时与保留期限在 TOML 的 `[webhooks]` 中配置。默认每位用户最多 5 个端点，每次投递最多 5 次尝试，成功/取消记录保留 30 天，失败保留 90 天；没有自动创建的接收地址。服务内自带后台投递任务，不需额外消息队列。精确请求、签名、SSRF 防护与重试规则见 [用户 Webhook](docs/webhooks.md)。
 
 ## 测试与交付边界
 
@@ -210,26 +273,39 @@ done
 node tests/home-story.test.mjs
 node tests/sculpture.test.mjs
 node tests/service-ui.test.mjs
+node tests/theme.test.mjs
 cargo build --locked --release
 ```
 
-上述脚本包含 `static/service-ui.js`。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型与服务界面测试并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费事务、角色/匹配/聊天权限、管理员令牌、委托授权、撤销、重试幂等和输入清洗。
+上述脚本覆盖服务界面和全站外观模块。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型、服务界面与系统/浅色/深色外观测试，并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费/退款事务、免费招聘人数、删除/恢复及版本竞态、角色/匹配/聊天权限、管理员令牌、委托授权、工作台分页与访问边界、撤销、重试幂等、输入清洗、Webhook 权限/投递和支付返回页。
 
-已验证 62 项 Rust 测试、16 项 Node 测试（共 78 项）、8 个 JavaScript 模块语法、Rust 格式检查和本地开发构建。测试日志、真实浏览器与移动端截图、发布构建状态由 [验收记录](docs/acceptance.md) 分别记录。视觉 QA 使用临时独立数据库，测试账号、聊天、匹配和流水不作为默认数据随包。
+大数据量工作台回归使用独立合成资料，单独运行，不包含在普通 `cargo test` 中；CI 会显式执行：
 
-真实 Google OAuth、SMTP 投递、物理 Passkey 设备及两个网关的商户付款，仍需部署方凭证、域名和设备做端到端验收。密码学测试和软件认证器不能替代外部验收。自动退款与争议处理尚未实现；异常到账标记 `paid_needs_review`，由管理员核对并通过商户后台处理。外部 AI 的实际模型运行、第三方搜索与邮件投递也属于单独部署和授权范围。
+```sh
+cargo test --locked --test workbench -- --ignored --nocapture
+```
+
+最新测试数量、通过状态、各轮日志、浏览器与移动端截图、GitHub CI 和发布构建证据统一见 [验收记录](docs/acceptance.md)，以对应提交的已完成记录为准。视觉 QA 使用临时独立数据库，测试账号、聊天、匹配和流水不作为默认数据随包。
+
+真实 Google OAuth、SMTP 投递、物理 Passkey 设备、两个网关的商户付款和 Waffo 真实退款通知，仍需部署方凭证、域名和设备做端到端验收。密码学测试和软件认证器不能替代外部验收。本站不发起退款；Stripe 退款通知与争议处理尚未实现。异常到账标记 `paid_needs_review`，由管理员核对并通过商户后台处理。用户 Webhook 的真实接收站点与浏览器原生 WebMCP 执行也需单独验证；外部 AI 模型、第三方搜索与外部邮件属于独立部署和授权范围。
 
 ## English
 
-HireFerry is a private, platform-mediated recruiting service built with Rust, Axum and SQLite. People and employers each talk privately to the HR team. There is no public resume or job directory. A platform introduction grants a specific pair access to the relevant profile and job, and opens a separate conversation; earlier private HR conversations are never copied into it.
+HireFerry is a private, platform-mediated recruiting service built with Rust, Axum and SQLite. People and employers each talk privately to the HR team. There is no public resume or job directory. A platform introduction grants a specific pair access to the relevant profile and job, and opens a separate conversation; earlier private HR conversations are never copied into it. The bilingual interface supports system, light and dark appearance, with the preference saved in the browser.
 
-Job seekers are free. Employers pay CNY 100 once, then 10% of a role's fixed monthly base salary to activate it for matching. Each description update costs 1% of the original base salary, with at most three paid updates. Titles and salaries are immutable. Only verified payment callbacks settle orders. Employer AI access additionally requires at least one paid, currently published role with a monthly base salary of CNY 3,000 or more, checked on every AI request.
+Job seekers are free. TOML controls the default and selectable currencies, activation charge, publication and edit fee modes (`salary_percent`, `fixed`, `free`), edit allowance, and per-currency employer AI salary threshold. The CNY 100 activation, 10% publication, 1% edit and three-edit allowance are template defaults. Amounts are integer minor units with explicit currency precision. Titles, currencies and salaries are immutable; each job retains its original edit terms and AI threshold when configuration changes. Paid actions require verified receipts; free actions create fulfilled zero-value orders without gateway calls or cash ledger entries. Employer AI access checks current activation, publication and the job's recorded salary threshold on every request.
+
+Planned headcount defaults to 1 and accepts integers from 0 to 1,000,000. Updates are free and unlimited: zero pauses new introductions without closing the listing, consuming a paid edit, changing fees or removing otherwise valid AI eligibility. Existing matches and conversations continue, and headcount is never decremented automatically. The first deletion can be recovered once for free; deleting again after recovery is permanent. Version checks reject stale actions. Permanent deletion clears the title, description and associated order content snapshots while preserving necessary financial records. Recovery does not create a new bill or restore refunded hiring rights. See [job management](docs/jobs.md).
 
 The server records job-search mandates and explicit consent for external outreach. Platform staff or a separately configured AI may poll messages, reply, manage introductions and record factual progress through MCP. The application does not include an LLM, crawler, external job-board integration or automatic outreach service. Administrators can read all business history, including archived conversations, but cannot send to archived rooms.
 
-One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The CLI provides consistent online backups. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 26 tools per identity class with manual Bearer headers; browser WebMCP is feature-detected and uses the current authorized session.
+The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; the current schema 6 adds recorded currencies, job AI thresholds and zero-value orders. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
 
-Live Google, SMTP, physical authenticators, merchant checkout and any independently operated AI integrations require deployment-specific acceptance tests. See [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [payments](docs/payments.md), and the supplied deployment files.
+One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The CLI provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers; browser WebMCP is feature-detected and uses the current authorized session.
+
+The production origin is `https://hireferry.lmm.best`, with support at `support@lmm.best`. Both gateways return to `/billing/return`; a redirect never confirms payment. Waffo payment and refund events are verified and settled transactionally, with successful refunds deducted by their own cash-flow date. The application does not initiate refunds or process Stripe refund/dispute notifications. Member-owned outbound HTTPS webhooks provide permission-checked event notifications; only the member's signed-in browser can manage their destinations and signing secrets.
+
+Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refunds, native browser WebMCP and independently operated webhook/AI integrations require deployment-specific acceptance tests. The referenced external production handoff files were not available in this environment; no merchant IDs, products or credentials were inferred. Copy verified values into the protected TOML on the deployment machine. See [deployment handoff](docs/deployment-handoff.md), [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [payments](docs/payments.md) and [member webhooks](docs/webhooks.md).
 
 ## 许可与致谢 / License and credits
 

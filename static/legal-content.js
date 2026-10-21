@@ -4,6 +4,9 @@ export function renderLegal(documentContent, lang = 'zh') {
   const t = (zh, en) => lang === 'en' ? en : zh;
   const content = document.createElement('template');
   content.innerHTML = documentContent.html;
+  for (const link of content.content.querySelectorAll('a[href]')) {
+    if (/^\/(?![\\/])/.test(link.getAttribute('href') || '')) link.setAttribute('data-nav', '');
+  }
   const title = content.content.querySelector('h1');
   const heading = title?.textContent || t('服务说明', 'Service information');
   title?.remove();

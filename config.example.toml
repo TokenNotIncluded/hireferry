@@ -1,7 +1,6 @@
 # HireFerry production configuration / 生产配置模板
 # Copy to config.toml; keep it outside Git and chmod 600. Restart after changes.
-# The domain below is an example, not a live deployment claim.
-# Replace both host names with your actual HTTPS domain before starting.
+# Deployment origin provided by the operator. Keep the origin and RP ID aligned.
 bind = "127.0.0.1:3000"
 public_url = "https://hireferry.lmm.best"
 webauthn_rp_id = "hireferry.lmm.best"
@@ -11,7 +10,7 @@ session_hours = 24
 
 [site]
 name = "HireFerry · 聘渡"
-support_email = ""
+support_email = "support@lmm.best"
 default_language = "zh" # zh or en
 source_url = "https://github.com/TokenNotIncluded/hireferry"
 
@@ -19,9 +18,11 @@ source_url = "https://github.com/TokenNotIncluded/hireferry"
 enabled = false
 client_id = ""
 client_secret = ""
-# Example authorized redirect URI: https://hireferry.lmm.best/auth/google/callback
-# Example terms URL: https://hireferry.lmm.best/terms
-# Example privacy URL: https://hireferry.lmm.best/privacy
+# Authorized redirect URI: https://hireferry.lmm.best/auth/google/callback
+# Terms: https://hireferry.lmm.best/terms
+# Privacy: https://hireferry.lmm.best/privacy
+# Refunds: https://hireferry.lmm.best/refunds
+# Contact: https://hireferry.lmm.best/contact
 
 [smtp]
 enabled = false
@@ -29,35 +30,79 @@ host = ""
 port = 587
 username = ""
 password = ""
-from = "" # e.g. HireFerry <hello@YOUR-HOST>
+from = "" # Set the authenticated sender from the production handoff.
+reply_to = "support@lmm.best"
 starttls = true # true: STARTTLS (usually 587); false: implicit TLS (usually 465)
 # Production email login stays unavailable until SMTP is configured and enabled.
 
 [payments.stripe]
 enabled = false
+allowed_currencies = [] # Empty: integration-supported set; restrict to your merchant's currencies.
 secret_key = ""
 webhook_secret = ""
 live_mode = false # Test keys: false. Live keys: true.
-# Webhook: https://YOUR-HOST/api/webhooks/stripe
+# Webhook: https://hireferry.lmm.best/api/webhooks/stripe
 
 [payments.waffo]
 enabled = false
+allowed_currencies = [] # Empty: CNY/EUR/GBP/HKD/JPY/USD; configure your product's supported subset.
 base_url = "https://api.waffo.ai"
 merchant_id = ""
 store_id = ""
-product_id = "" # A one-time product supporting CNY and signed priceSnapshot.
+product_id = "" # A one-time product supporting each enabled currency and signed priceSnapshot.
 private_key_pem = "" # Store PEM text here using a TOML multiline literal string.
 webhook_public_key_pem = ""
 tax_category = "" # Use the category approved for your actual business.
 mode = "test" # Exactly "test" or "prod".
-# Webhook: https://YOUR-HOST/api/webhooks/waffo
+# Webhook: https://hireferry.lmm.best/api/webhooks/waffo
+# Events: order.completed, refund.succeeded, refund.failed
+# Checkout return: https://hireferry.lmm.best/billing/return
 # See docs/payments.md for provider setup, signatures and environment checks.
 
 [pricing]
-onboarding_cents = 10000 # ¥100, charged once to activate an employer account.
-publish_bps = 1000 # 10% of monthly base salary; 10000 basis points = 100%.
-edit_bps = 100 # 1% of the ORIGINAL monthly base salary for each paid JD edit.
-max_edits = 3
+# Currency codes are explicit. Existing jobs/orders keep their original currency.
+# Empty allowed_currencies means only currency; add per-currency amounts below
+# before enabling additional currencies. No automatic exchange conversion.
+currency = "CNY"
+allowed_currencies = ["CNY"]
+onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+publish_mode = "salary_percent" # salary_percent, fixed, or free
+publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
+publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
+edit_mode = "salary_percent" # Snapshot is retained for the lifetime of each job.
+edit_bps = 100 # Percentage of the original base salary, not the publication fee.
+edit_fixed_minor = 3000
+max_edits = 3 # Applies to JD edits; headcount changes and deletion stay free.
+employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new jobs.
+
+# Example: add USD to allowed_currencies, then set its independent amounts.
+# Values are business settings, not exchange rates; review before enabling.
+# [pricing.currency_amounts.USD]
+# publish_fixed_minor = 30000
+# edit_fixed_minor = 3000
+# employer_ai_min_salary_minor = 300000
+# For JPY/KRW, one minor unit is one yen/won (no multiplication by 100).
+
+[limits]
+max_job_headcount = 1000000 # Maximum value, not a limit on free modifications.
+max_pending_orders_per_user = 20
+list_page_size = 50
+list_max_page = 2000
+workbench_page_size = 25 # Default cursor page size; query limit may be 1..100.
+recent_list_limit = 200 # Recent/trash/history lists without explicit pagination.
+
+# Outbound member webhooks; separate from payment gateway callbacks.
+# No endpoints are created automatically. Destination URLs must be public HTTPS:443.
+[webhooks]
+enabled = true
+max_endpoints = 5
+max_attempts = 5
+max_pending_per_endpoint = 1000
+request_timeout_secs = 5
+max_response_bytes = 16384
+poll_interval_secs = 5
+delivered_retention_days = 30 # Includes cancelled deliveries.
+failed_retention_days = 90
 
 # Public policy values. These are operating commitments, not automatic cleanup jobs.
 # Fees, website origin and support email are always taken from pricing/public_url/site.

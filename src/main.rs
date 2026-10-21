@@ -42,12 +42,14 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .init();
             let listener = tokio::net::TcpListener::bind(&state.cfg.bind).await?;
+            let webhook_worker = hireferry::webhooks::spawn_worker(state.clone());
             tracing::info!(address=%state.cfg.bind,"HireFerry is ready");
             axum::serve(listener, hireferry::app(state))
                 .with_graceful_shutdown(async {
                     let _ = tokio::signal::ctrl_c().await;
                 })
                 .await?;
+            webhook_worker.abort();
         }
     }
     Ok(())

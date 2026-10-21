@@ -56,6 +56,24 @@ pub struct PaymentReceipt {
     pub live_mode: bool,
 }
 
+/// A provider-confirmed refund notification, never a request to issue a refund.
+/// Waffo identifies both refund outcomes by the same refund entity ID.
+#[derive(Debug, Clone)]
+pub struct RefundReceipt {
+    pub provider: String,
+    pub event_id: String,
+    pub refund_id: String,
+    pub order_id: String,
+    pub provider_order_id: String,
+    pub payment_id: String,
+    pub amount_cents: i64,
+    pub original_amount_cents: Option<i64>,
+    pub currency: String,
+    pub live_mode: bool,
+    pub succeeded: bool,
+    pub reason: String,
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/webhooks/stripe", post(stripe_webhook))
@@ -64,9 +82,13 @@ pub fn routes() -> Router<AppState> {
 }
 
 pub async fn create_checkout(state: &AppState, order: &Order, email: &str) -> AppResult<Checkout> {
-    if order.amount_cents <= 0 || order.currency != "CNY" || order.status != "pending" {
+    if order.amount_cents <= 0
+        || crate::config::currency_decimals(&order.currency).is_none()
+        || order.status != "pending"
+    {
         return Err(AppError::bad_request("Invalid payment order"));
     }
+    crate::commerce::provider_currency_enabled(state, &order.provider, &order.currency)?;
     // A stable local order ID also supplies a stable provider idempotency key.
     if order.id.is_empty()
         || order.id.len() > 128
@@ -84,8 +106,13 @@ pub async fn create_checkout(state: &AppState, order: &Order, email: &str) -> Ap
     }
 }
 
-fn return_url(state: &AppState, order: &Order) -> AppResult<String> {
-    let mut url = reqwest::Url::parse(&state.cfg.public_url)
+fn return_url(
+    public_url: &str,
+    order_id: &str,
+    provider: &str,
+    canceled: bool,
+) -> AppResult<String> {
+    let mut url = reqwest::Url::parse(public_url)
         .map_err(|_| AppError::unavailable("Configure a valid public_url"))?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -96,10 +123,16 @@ fn return_url(state: &AppState, order: &Order) -> AppResult<String> {
             "Payment checkout requires an HTTPS public_url",
         ));
     }
-    url.set_path("/app");
+    url.set_path("/billing/return");
     url.set_query(None);
     url.set_fragment(None);
-    url.query_pairs_mut().append_pair("order", &order.id);
+    url.query_pairs_mut()
+        .append_pair("order_id", order_id)
+        .append_pair("provider", provider);
+    if canceled {
+        // This hint is for presentation only. Only authenticated callbacks settle orders.
+        url.query_pairs_mut().append_pair("canceled", "1");
+    }
     Ok(url.to_string())
 }
 
@@ -135,10 +168,14 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
             "Stripe key does not match the configured payment environment",
         ));
     }
-    let destination = return_url(state, order)?;
+    let destination = return_url(&state.cfg.public_url, &order.id, "stripe", false)?;
+    let canceled = return_url(&state.cfg.public_url, &order.id, "stripe", true)?;
     let fields = [
         ("mode", "payment".to_string()),
-        ("line_items[0][price_data][currency]", "cny".to_string()),
+        (
+            "line_items[0][price_data][currency]",
+            order.currency.to_ascii_lowercase(),
+        ),
         (
             "line_items[0][price_data][unit_amount]",
             order.amount_cents.to_string(),
@@ -151,8 +188,8 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
         ("client_reference_id", order.id.clone()),
         ("metadata[hireferry_order_id]", order.id.clone()),
         ("customer_email", email.to_string()),
-        ("success_url", destination.clone()),
-        ("cancel_url", destination),
+        ("success_url", destination),
+        ("cancel_url", canceled),
         ("phone_number_collection[enabled]", "false".to_string()),
     ];
     let response = state
@@ -210,16 +247,16 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
     endpoint.set_path(WAFFO_CHECKOUT_PATH);
     let body = serde_json::to_vec(&json!({
         "productId": cfg.product_id,
-        "currency": "CNY",
+        "currency": order.currency,
         "buyerEmail": email,
         "priceSnapshot": {
-            "amount": cents_to_decimal(order.amount_cents),
+            "amount": minor_to_decimal(order.amount_cents, &order.currency).ok_or_else(|| AppError::bad_request("Unsupported payment currency"))?,
             "taxIncluded": true,
             "taxCategory": cfg.tax_category,
         },
         "orderMerchantExternalId": order.id,
         "metadata": { "hireferry_order_id": order.id },
-        "successUrl": return_url(state, order)?,
+        "successUrl": return_url(&state.cfg.public_url, &order.id, "waffo", false)?,
         "expiresInSeconds": 1800,
     }))
     .map_err(AppError::internal)?;
@@ -347,6 +384,8 @@ async fn waffo_webhook(
         .map_err(|_| AppError::bad_request("Invalid payment event"))?;
     if let Some(receipt) = waffo_receipt(&event, &cfg.mode, &cfg.store_id)? {
         crate::commerce::settle_payment(&state, receipt).await?;
+    } else if let Some(receipt) = waffo_refund(&event, &cfg.mode, &cfg.store_id)? {
+        crate::commerce::settle_refund(&state, receipt).await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -389,7 +428,7 @@ fn stripe_receipt(event: &Value, live_mode: bool) -> AppResult<Option<PaymentRec
         .filter(|n| *n > 0)
         .ok_or_else(|| AppError::bad_request("Invalid payment amount"))?;
     let currency = required_string(data, "currency")?.to_ascii_uppercase();
-    if currency != "CNY" {
+    if crate::config::currency_decimals(&currency).is_none() {
         return Err(AppError::bad_request("Unexpected payment currency"));
     }
     let payment_id = data
@@ -431,17 +470,17 @@ fn waffo_receipt(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<
         return Err(AppError::bad_request("Payment is not completed"));
     }
     let currency = required_string(data, "currency")?;
-    if currency != "CNY" {
+    if crate::config::currency_decimals(&currency).is_none() {
         return Err(AppError::bad_request("Unexpected payment currency"));
     }
-    // amount is the documented compatibility field for actual charged amount.
-    // Never use total/listPrice when the actual charge is absent.
+    // Waffo's legacy amount falls back to the list price if the payment channel
+    // reported no charged amount. Only chargedAmount proves what was collected;
+    // accepting that fallback could grant a paid service without a known charge.
     let charged = data
         .get("chargedAmount")
-        .or_else(|| data.get("amount"))
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::bad_request("Missing charged amount"))?;
-    let amount_cents = decimal_to_cents(charged)
+    let amount_cents = decimal_to_minor(charged, &currency)
         .filter(|n| *n > 0)
         .ok_or_else(|| AppError::bad_request("Invalid charged amount"))?;
     let order_id = required_string(data, "orderMerchantExternalId")?;
@@ -462,6 +501,89 @@ fn waffo_receipt(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<
         amount_cents,
         currency,
         live_mode: mode == "prod",
+    }))
+}
+
+fn waffo_refund(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<RefundReceipt>> {
+    if event.get("mode").and_then(Value::as_str) != Some(mode)
+        || event.get("storeId").and_then(Value::as_str) != Some(store_id)
+    {
+        return Err(AppError::bad_request(
+            "Incorrect refund environment or store",
+        ));
+    }
+    let succeeded = match event.get("eventType").and_then(Value::as_str) {
+        Some("refund.succeeded") => true,
+        Some("refund.failed") => false,
+        _ => return Ok(None),
+    };
+    let data = event
+        .get("data")
+        .ok_or_else(|| AppError::bad_request("Missing refund data"))?;
+    let expected_status = if succeeded { "succeeded" } else { "failed" };
+    if data.get("refundStatus").and_then(Value::as_str) != Some(expected_status)
+        || data.get("paymentStatus").and_then(Value::as_str) != Some("succeeded")
+        || data.get("orderStatus").and_then(Value::as_str) != Some("completed")
+    {
+        return Err(AppError::bad_request(
+            "Refund outcome or original payment is inconsistent",
+        ));
+    }
+    let refund_id = required_string(event, "id")?;
+    let event_id = required_string(event, "eventId")?;
+    if event_id != refund_id {
+        return Err(AppError::bad_request("Refund identifiers disagree"));
+    }
+    let order_id = required_string(data, "orderMerchantExternalId")?;
+    if let Some(metadata_id) = data.pointer("/orderMetadata/hireferry_order_id") {
+        if metadata_id.as_str() != Some(order_id.as_str()) {
+            return Err(AppError::bad_request("Refund order references disagree"));
+        }
+    }
+    let currency = required_string(data, "currency")?;
+    if crate::config::currency_decimals(&currency).is_none() {
+        return Err(AppError::bad_request("Unexpected refund currency"));
+    }
+    // Waffo's amount is the legacy refund amount; total/originalPayment.total
+    // describe the original list price and must never be used as a refund.
+    let amount_cents = data
+        .get("refundedAmount")
+        .or_else(|| data.get("amount"))
+        .and_then(Value::as_str)
+        .and_then(|value| decimal_to_minor(value, &currency))
+        .filter(|n| *n > 0)
+        .ok_or_else(|| AppError::bad_request("Missing or invalid refund amount"))?;
+    let original_amount_cents = data
+        .get("originalChargedAmount")
+        .map(|value| {
+            value
+                .as_str()
+                .and_then(|value| decimal_to_minor(value, &currency))
+                .filter(|n| *n > 0)
+                .ok_or_else(|| AppError::bad_request("Invalid original charged amount"))
+        })
+        .transpose()?;
+    let reason = match data.get("refundReason") {
+        None => String::new(),
+        Some(Value::String(reason)) => {
+            crate::safety::bounded_text(reason, 2000, "Refund reason")?;
+            reason.clone()
+        }
+        Some(_) => return Err(AppError::bad_request("Invalid refund reason")),
+    };
+    Ok(Some(RefundReceipt {
+        provider: "waffo".into(),
+        event_id,
+        refund_id,
+        order_id,
+        provider_order_id: required_string(data, "orderId")?,
+        payment_id: required_string(data, "paymentId")?,
+        amount_cents,
+        original_amount_cents,
+        currency,
+        live_mode: mode == "prod",
+        succeeded,
+        reason,
     }))
 }
 
@@ -599,28 +721,50 @@ fn unix_milliseconds() -> u64 {
         .as_millis() as u64
 }
 
-fn cents_to_decimal(cents: i64) -> String {
-    format!("{}.{:02}", cents / 100, cents % 100)
+pub fn minor_to_decimal(amount: i64, currency: &str) -> Option<String> {
+    let decimals = crate::config::currency_decimals(currency)?;
+    if amount < 0 {
+        return None;
+    }
+    if decimals == 0 {
+        return Some(amount.to_string());
+    }
+    let scale = 10_i64.checked_pow(decimals)?;
+    Some(format!(
+        "{}.{:0width$}",
+        amount / scale,
+        amount % scale,
+        width = decimals as usize
+    ))
 }
 
-fn decimal_to_cents(value: &str) -> Option<i64> {
+pub fn decimal_to_minor(value: &str, currency: &str) -> Option<i64> {
+    let decimals = crate::config::currency_decimals(currency)? as usize;
     if value.is_empty() || value.len() > 24 {
         return None;
     }
     let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
     if whole.is_empty()
         || !whole.bytes().all(|b| b.is_ascii_digit())
-        || fraction.len() > 2
         || !fraction.bytes().all(|b| b.is_ascii_digit())
         || (value.contains('.') && fraction.is_empty())
     {
         return None;
     }
-    let whole = whole.parse::<i64>().ok()?.checked_mul(100)?;
-    let fractional = match fraction.len() {
-        0 => 0,
-        1 => fraction.parse::<i64>().ok()?.checked_mul(10)?,
-        _ => fraction.parse::<i64>().ok()?,
+    // Providers may pad display values with zeros. Never round away money.
+    if fraction.len() > decimals && !fraction[decimals..].bytes().all(|digit| digit == b'0') {
+        return None;
+    }
+    let fraction = &fraction[..fraction.len().min(decimals)];
+    let scale = 10_i64.checked_pow(decimals as u32)?;
+    let whole = whole.parse::<i64>().ok()?.checked_mul(scale)?;
+    let fractional = if fraction.is_empty() {
+        0
+    } else {
+        fraction
+            .parse::<i64>()
+            .ok()?
+            .checked_mul(10_i64.checked_pow((decimals - fraction.len()) as u32)?)?
     };
     whole.checked_add(fractional)
 }
@@ -656,8 +800,11 @@ mod tests {
             ("300.00", 30000),
             ("600", 60000),
         ] {
-            assert_eq!(decimal_to_cents(text), Some(cents));
-            assert_eq!(decimal_to_cents(&cents_to_decimal(cents)), Some(cents));
+            assert_eq!(decimal_to_minor(text, "CNY"), Some(cents));
+            assert_eq!(
+                decimal_to_minor(&minor_to_decimal(cents, "CNY").unwrap(), "CNY"),
+                Some(cents)
+            );
         }
         for text in [
             "",
@@ -675,7 +822,7 @@ mod tests {
             "92233720368547758.08",
             "999999999999999999999999",
         ] {
-            assert_eq!(decimal_to_cents(text), None, "{text}");
+            assert_eq!(decimal_to_minor(text, "CNY"), None, "{text}");
         }
     }
 
@@ -798,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn stripe_requires_paid_one_time_cny_and_consistent_order() {
+    fn stripe_requires_paid_one_time_supported_currency_and_consistent_order() {
         let event = stripe_event();
         let receipt = stripe_receipt(&event, false).unwrap().unwrap();
         assert_eq!(receipt.amount_cents, 30000);
@@ -808,7 +955,7 @@ mod tests {
         invalid["data"]["object"]["metadata"]["hireferry_order_id"] = json!("another_order");
         assert!(stripe_receipt(&invalid, false).is_err());
         invalid = event.clone();
-        invalid["data"]["object"]["currency"] = json!("usd");
+        invalid["data"]["object"]["currency"] = json!("invalid");
         assert!(stripe_receipt(&invalid, false).is_err());
         invalid = event;
         invalid["data"]["object"]["payment_status"] = json!("unpaid");
@@ -833,15 +980,24 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("chargedAmount");
+        // The legacy amount remains present, but can describe a list price
+        // rather than money collected when chargedAmount is absent.
+        assert!(waffo_receipt(&event, "test", "STO_one").is_err());
+        event["data"].as_object_mut().unwrap().remove("amount");
+        assert!(waffo_receipt(&event, "test", "STO_one").is_err());
+        for invalid in [Value::Null, json!("0.00"), json!(300)] {
+            event["data"]["chargedAmount"] = invalid;
+            event["data"]["amount"] = json!("300.00");
+            assert!(waffo_receipt(&event, "test", "STO_one").is_err());
+        }
+        event["data"]["chargedAmount"] = json!("250.00");
         assert_eq!(
             waffo_receipt(&event, "test", "STO_one")
                 .unwrap()
                 .unwrap()
                 .amount_cents,
-            30000
+            25000
         );
-        event["data"].as_object_mut().unwrap().remove("amount");
-        assert!(waffo_receipt(&event, "test", "STO_one").is_err());
     }
 
     #[test]
@@ -864,6 +1020,54 @@ mod tests {
                 validate_checkout_url(url, "checkout.stripe.com").is_err(),
                 "{url}"
             );
+        }
+    }
+
+    #[test]
+    fn payment_returns_use_canonical_billing_route_and_only_status_hints() {
+        for provider in ["stripe", "waffo"] {
+            assert_eq!(
+                return_url("https://hireferry.lmm.best", "order_one", provider, false).unwrap(),
+                format!(
+                    "https://hireferry.lmm.best/billing/return?order_id=order_one&provider={provider}"
+                )
+            );
+        }
+        assert_eq!(
+            return_url("https://hireferry.lmm.best", "order_one", "stripe", true).unwrap(),
+            "https://hireferry.lmm.best/billing/return?order_id=order_one&provider=stripe&canceled=1"
+        );
+
+        // Building a root route discards stale config paths, queries and fragments.
+        // References are encoded instead of being able to inject success flags.
+        let raw = return_url(
+            "https://hireferry.lmm.best/old/path?paid=true#fragment",
+            "order&paid=true/中文",
+            "waffo",
+            false,
+        )
+        .unwrap();
+        let url = reqwest::Url::parse(&raw).unwrap();
+        assert_eq!(
+            url.origin().ascii_serialization(),
+            "https://hireferry.lmm.best"
+        );
+        assert_eq!(url.path(), "/billing/return");
+        assert!(url.fragment().is_none());
+        assert_eq!(
+            url.query_pairs().into_owned().collect::<Vec<_>>(),
+            vec![
+                ("order_id".to_owned(), "order&paid=true/中文".to_owned()),
+                ("provider".to_owned(), "waffo".to_owned()),
+            ]
+        );
+        for invalid in [
+            "http://hireferry.lmm.best",
+            "https://user:secret@hireferry.lmm.best",
+            "javascript:alert(1)",
+            "not a URL",
+        ] {
+            assert!(return_url(invalid, "order_one", "stripe", false).is_err());
         }
     }
 }

@@ -93,6 +93,85 @@ fn substitute(template: &str, values: &BTreeMap<String, String>) -> AppResult<St
     Ok(output)
 }
 
+fn money(amount: i64, currency: &str) -> AppResult<String> {
+    let value = crate::payments::minor_to_decimal(amount, currency)
+        .ok_or_else(|| AppError::bad_request("Invalid legal pricing amount or currency"))?;
+    Ok(format!("{currency} {value}"))
+}
+
+fn percent(bps: i64) -> String {
+    let whole = bps / 100;
+    let remainder = bps % 100;
+    if remainder == 0 {
+        format!("{whole}%")
+    } else if remainder % 10 == 0 {
+        format!("{whole}.{}%", remainder / 10)
+    } else {
+        format!("{whole}.{remainder:02}%")
+    }
+}
+
+fn fee_rule(mode: &str, bps: i64, original: bool, english: bool) -> AppResult<String> {
+    match (mode, english) {
+        ("free", false) => Ok("免费，无需付款".into()),
+        ("free", true) => Ok("free, with no payment required".into()),
+        ("fixed", false) => Ok("按所选币种收取下表列明的固定金额".into()),
+        ("fixed", true) => Ok("the fixed amount listed below for the selected currency".into()),
+        ("salary_percent", false) => Ok(format!(
+            "{}固定月薪底薪的 {}",
+            if original { "原" } else { "所填" },
+            percent(bps)
+        )),
+        ("salary_percent", true) => Ok(format!(
+            "{} of the {}fixed base monthly salary",
+            percent(bps),
+            if original { "original " } else { "stated " }
+        )),
+        _ => Err(AppError::bad_request("Invalid legal fee mode")),
+    }
+}
+
+fn currency_fee_table(cfg: &Config, english: bool) -> AppResult<String> {
+    let p = &cfg.pricing;
+    let mut table = if english {
+        "| Currency | Publication | Each description update | Employer AI base-pay threshold |\n| --- | --- | --- | --- |\n".to_owned()
+    } else {
+        "| 币种 | 发布 | 每次描述修改 | 招聘方 AI 连接底薪门槛 |\n| --- | --- | --- | --- |\n"
+            .to_owned()
+    };
+    for currency in p.currencies() {
+        let amounts = p.amounts(&currency)?;
+        let fee = |mode: &str, bps: i64, fixed: i64| -> AppResult<String> {
+            match mode {
+                "free" => Ok(if english { "Free" } else { "免费" }.into()),
+                "fixed" => money(fixed, &currency),
+                "salary_percent" => Ok(if english {
+                    format!("{} of base pay", percent(bps))
+                } else {
+                    format!("底薪的 {}", percent(bps))
+                }),
+                _ => Err(AppError::bad_request("Invalid legal fee mode")),
+            }
+        };
+        let publication = fee(&p.publish_mode, p.publish_bps, amounts.publish_fixed_minor)?;
+        let edit = fee(&p.edit_mode, p.edit_bps, amounts.edit_fixed_minor)?;
+        let threshold = if amounts.employer_ai_min_salary_minor == 0 {
+            if english {
+                "No salary threshold"
+            } else {
+                "不设薪资门槛"
+            }
+            .into()
+        } else {
+            money(amounts.employer_ai_min_salary_minor, &currency)?
+        };
+        table.push_str(&format!(
+            "| {currency} | {publication} | {edit} | {threshold} |\n"
+        ));
+    }
+    Ok(table)
+}
+
 pub fn document(cfg: &Config, kind: &str, language: &str) -> AppResult<Value> {
     let key = format!("{kind}.{language}");
     let default =
@@ -108,17 +187,44 @@ pub fn document(cfg: &Config, kind: &str, language: &str) -> AppResult<Value> {
         .collect();
     values.insert("public_url".into(), markdown_text(&cfg.public_url));
     values.insert("site_name".into(), markdown_text(&cfg.site.name));
+    let english = language == "en";
+    let activation_price = money(cfg.pricing.onboarding_cents, &cfg.pricing.currency)?;
+    values.insert("activation_price".into(), activation_price.clone());
     values.insert(
-        "activation_price".into(),
-        format!("CNY {:.2}", cfg.pricing.onboarding_cents as f64 / 100.0),
+        "activation_fee".into(),
+        match (cfg.pricing.onboarding_cents == 0, english) {
+            (true, false) => "免费开通".into(),
+            (true, true) => "Free activation".into(),
+            (false, false) => format!("一次性支付 {activation_price}"),
+            (false, true) => format!("A one-time {activation_price} charge"),
+        },
+    );
+    values.insert("publish_percent".into(), percent(cfg.pricing.publish_bps));
+    values.insert("edit_percent".into(), percent(cfg.pricing.edit_bps));
+    values.insert(
+        "publish_fee_rule".into(),
+        fee_rule(
+            &cfg.pricing.publish_mode,
+            cfg.pricing.publish_bps,
+            false,
+            english,
+        )?,
     );
     values.insert(
-        "publish_percent".into(),
-        format!("{}%", cfg.pricing.publish_bps as f64 / 100.0),
+        "edit_fee_rule".into(),
+        fee_rule(&cfg.pricing.edit_mode, cfg.pricing.edit_bps, true, english)?,
     );
     values.insert(
-        "edit_percent".into(),
-        format!("{}%", cfg.pricing.edit_bps as f64 / 100.0),
+        "currency_fee_table".into(),
+        currency_fee_table(cfg, english)?,
+    );
+    values.insert(
+        "default_currency".into(),
+        markdown_text(&cfg.pricing.currency),
+    );
+    values.insert(
+        "available_currencies".into(),
+        markdown_text(&cfg.pricing.currencies().join(", ")),
     );
     values.insert("max_edits".into(), cfg.pricing.max_edits.to_string());
     let contact = if cfg.site.support_email.is_empty() {

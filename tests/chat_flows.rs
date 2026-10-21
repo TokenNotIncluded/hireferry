@@ -25,16 +25,16 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_config(Config::default())
+    }
+    fn with_config(mut cfg: Config) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let cfg = Config {
-            development: true,
-            database: dir
-                .path()
-                .join("chat.sqlite3")
-                .to_string_lossy()
-                .into_owned(),
-            ..Default::default()
-        };
+        cfg.development = true;
+        cfg.database = dir
+            .path()
+            .join("chat.sqlite3")
+            .to_string_lossy()
+            .into_owned();
         let state = AppState::new(cfg).unwrap();
         Self { _dir: dir, state }
     }
@@ -113,12 +113,56 @@ fn mandate(allowed: bool) -> MandateInput {
         target_roles: "Rust developer".into(),
         salary_min_cents: Some(300_000),
         salary_max_cents: Some(600_000),
+        salary_currency: None,
         location: "Remote".into(),
         preferences: "A small team".into(),
         status: "active".into(),
         allow_external: allowed,
     }
 }
+
+#[test]
+fn mandate_salary_keeps_its_currency_and_uses_config_default_for_new_records() {
+    let mut cfg = Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    };
+    cfg.pricing.currency = "JPY".into();
+    let s = AppState::new(cfg).unwrap();
+    s.conn().unwrap().execute("INSERT INTO users(id,email,role,created_at,updated_at) VALUES('seeker','yen@example.test','seeker',1,1)", []).unwrap();
+    let principal = Principal {
+        user_id: Some("seeker".into()),
+        admin: false,
+        via_ai: false,
+        actor: "seeker".into(),
+    };
+    let first = chat::save_mandate(&s, &principal, None, mandate(false)).unwrap();
+    assert_eq!(first["mandate"]["salary_currency"], "JPY");
+    assert_eq!(first["mandate"]["currency_decimals"], 0);
+    assert_eq!(first["mandate"]["salary_min_cents"], 300000);
+    // A historical CNY mandate must not be reinterpreted as JPY when the
+    // operator changes the default and a legacy client omits the field.
+    s.conn()
+        .unwrap()
+        .execute(
+            "UPDATE mandates SET salary_currency='CNY' WHERE user_id='seeker'",
+            [],
+        )
+        .unwrap();
+    let preserved = chat::save_mandate(&s, &principal, None, mandate(false)).unwrap();
+    assert_eq!(preserved["mandate"]["salary_currency"], "CNY");
+    let mut disallowed = mandate(false);
+    disallowed.salary_currency = Some("USD".into());
+    assert!(chat::save_mandate(&s, &principal, None, disallowed).is_err());
+    let mut explicit = mandate(false);
+    explicit.salary_currency = Some("JPY".into());
+    assert_eq!(
+        chat::save_mandate(&s, &principal, None, explicit).unwrap()["mandate"]["salary_currency"],
+        "JPY"
+    );
+}
+
 fn outreach(stage: &str) -> OutreachInput {
     OutreachInput {
         channel: "Public careers page".into(),
@@ -127,6 +171,70 @@ fn outreach(stage: &str) -> OutreachInput {
         stage: stage.into(),
         note: "Manually recorded; no request was sent by this application.".into(),
     }
+}
+
+#[test]
+fn recent_record_capacity_returns_latest_items_without_hiding_known_conversations() {
+    let mut cfg = Config::default();
+    cfg.limits.recent_list_limit = 2;
+    let f = Fixture::with_config(cfg);
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let mut match_ids = Vec::new();
+    for n in 1..=3 {
+        let (matched, job) = f.matched(&seeker, &employer);
+        let db = f.state.conn().unwrap();
+        db.execute(
+            "UPDATE matches SET updated_at=?1 WHERE id=?2",
+            params![n, matched],
+        )
+        .unwrap();
+        db.execute("INSERT INTO chat_conversations(id,kind,match_id,created_at,updated_at) VALUES(?1,'matched',?2,?3,?3)", params![format!("match_{matched}"), matched, n]).unwrap();
+        db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,headcount,status,delete_count,deleted_from_status,deleted_headcount,created_at,updated_at) VALUES(?1,?2,'Deleted role','Private JD',300000,0,'deleted',1,'published',1,?3,?3)", params![format!("deleted-{n}"), uid(&employer), n]).unwrap();
+        db.execute("INSERT INTO orders(id,user_id,kind,job_id,amount_cents,provider,status,created_at,paid_at) VALUES(?1,?2,'publish',?3,30000,'stripe','paid',?4,?4)", params![format!("order-{n}"), uid(&employer), job, n]).unwrap();
+        db.execute("INSERT INTO outreach(id,user_id,channel,opportunity,source_url,stage,note,created_by,updated_by,created_at,updated_at) VALUES(?1,?2,'Public careers','Private opportunity','https://example.invalid/role','identified','','admin','admin',?3,?3)", params![format!("outreach-{n}"), uid(&seeker), n]).unwrap();
+        match_ids.push(matched);
+    }
+    // Keep the platform room older than the three synthetic matched rooms.
+    f.state.conn().unwrap().execute("INSERT INTO chat_conversations(id,kind,user_id,created_at,updated_at) VALUES(?1,'platform',?2,0,0)", params![platform(&seeker), uid(&seeker)]).unwrap();
+    let page_ids = |page: Value| -> Vec<String> {
+        items(&page)
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        page_ids(hireferry::api::deleted_jobs(&f.state, uid(&employer)).unwrap()),
+        vec!["deleted-3", "deleted-2"]
+    );
+    assert_eq!(
+        hireferry::api::user_orders(&f.state, uid(&employer))
+            .unwrap()
+            .into_iter()
+            .map(|order| order.id)
+            .collect::<Vec<_>>(),
+        vec!["order-3", "order-2"]
+    );
+    assert_eq!(
+        page_ids(hireferry::api::list_matches(&f.state, Some(uid(&employer))).unwrap()),
+        vec![match_ids[2].clone(), match_ids[1].clone()]
+    );
+    assert_eq!(
+        page_ids(chat::list_outreach(&f.state, &seeker, None).unwrap()),
+        vec!["outreach-3", "outreach-2"]
+    );
+    assert_eq!(
+        page_ids(chat::list_conversations(&f.state, &seeker).unwrap()),
+        vec![
+            format!("match_{}", match_ids[2]),
+            format!("match_{}", match_ids[1])
+        ]
+    );
+    let oldest = format!("match_{}", match_ids[0]);
+    assert_eq!(
+        chat::get_conversation(&f.state, &seeker, &oldest).unwrap()["id"],
+        oldest
+    );
 }
 
 #[test]
@@ -495,6 +603,39 @@ fn cursors_are_incremental_scoped_and_bounded_while_latest_and_older_history_rem
     assert_eq!(empty["next_cursor"], expected[104]);
     assert!(chat::updates(&f.state, &owner, -1, 100).is_err());
     assert!(chat::messages(&f.state, &owner, &id, 0, 0).is_err());
+}
+
+#[test]
+fn polling_reads_existing_messages_without_materializing_empty_match_rooms() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let admin = f.admin();
+    let (matched, _) = f.matched(&seeker, &employer);
+    for p in [&admin, &seeker, &employer] {
+        assert!(items(&chat::updates(&f.state, p, 0, 100).unwrap()).is_empty());
+    }
+    assert_eq!(
+        f.state
+            .conn()
+            .unwrap()
+            .query_row("SELECT count(*) FROM chat_conversations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "Empty message polling must not materialize the matching history"
+    );
+    let room = format!("match_{matched}");
+    let sent = send(
+        &f,
+        &seeker,
+        &room,
+        "Shared room is created when it is needed",
+    );
+    let updates = chat::updates(&f.state, &employer, 0, 100).unwrap();
+    assert_eq!(items(&updates).len(), 1);
+    assert_eq!(items(&updates)[0]["id"], sent["id"]);
+    assert_eq!(items(&updates)[0]["conversation_id"], room);
 }
 
 #[test]
@@ -1045,4 +1186,364 @@ async fn webmcp_cookie_messages_attribute_ai_and_recheck_revoked_admin_sessions(
         audit_count, 2,
         "Rejected requests must not persist delivery audits"
     );
+}
+
+async fn conversation_request(
+    f: &Fixture,
+    id: &str,
+    cookie: Option<&str>,
+    bearer: Option<&str>,
+) -> (StatusCode, Value) {
+    request(
+        f,
+        "GET",
+        &format!("/api/chat/conversations/{id}"),
+        None,
+        cookie,
+        None,
+        bearer,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn known_conversation_metadata_remains_accessible_outside_the_recent_two_hundred() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let admin = f.admin();
+    let (admin_cookie, _) = f.browser(&admin);
+    let (seeker_cookie, _) = f.browser(&seeker);
+    let (matched, _) = f.matched(&seeker, &employer);
+    let platform_id = platform(&seeker);
+    let matched_id = format!("match_{matched}");
+    send(&f, &seeker, &platform_id, "Old private platform message");
+    send(&f, &seeker, &matched_id, "Old shared introduction message");
+    {
+        let mut db = f.state.conn().unwrap();
+        let tx = db.transaction().unwrap();
+        tx.execute("UPDATE chat_conversations SET updated_at=1", [])
+            .unwrap();
+        for index in 0..205 {
+            let id = format!("recent-chat-user-{index:03}");
+            tx.execute(
+                "INSERT INTO users(id,email,name,role,created_at,updated_at) VALUES(?1,?2,?3,'seeker',?4,?4)",
+                params![id, format!("{id}@example.invalid"), format!("Recent user {index}"), hireferry::now()],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO chat_conversations(id,kind,user_id,created_at,updated_at) VALUES(?1,'platform',?2,?3,?3)",
+                params![format!("platform_{id}"), id, hireferry::now()],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    let recent = request(
+        &f,
+        "GET",
+        "/api/chat/conversations",
+        None,
+        Some(&admin_cookie),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(recent.0, StatusCode::OK);
+    assert_eq!(items(&recent.1).len(), 200);
+    assert!(
+        items(&recent.1)
+            .iter()
+            .all(|c| c["id"] != platform_id && c["id"] != matched_id)
+    );
+
+    for (id, preview) in [
+        (&platform_id, "Old private platform message"),
+        (&matched_id, "Old shared introduction message"),
+    ] {
+        let direct = conversation_request(&f, id, Some(&admin_cookie), None).await;
+        assert_eq!(direct.0, StatusCode::OK);
+        assert_eq!(direct.1["id"], id.as_str());
+        assert_eq!(direct.1["last_message_preview"], preview);
+        assert_eq!(direct.1["unread_count"], 1);
+        assert_eq!(direct.1["updated_at"], 1);
+        assert_eq!(direct.1["writable"], true);
+        assert_eq!(direct.1["participants"].as_array().unwrap().len(), 2);
+        assert!(!direct.1.to_string().contains("@example.invalid"));
+        assert_eq!(
+            direct.1,
+            chat::get_conversation(&f.state, &admin, id).unwrap(),
+            "HTTP returns the existing Conversation DTO without a wrapper"
+        );
+        let owner = conversation_request(&f, id, Some(&seeker_cookie), None).await;
+        assert_eq!(owner.0, StatusCode::OK);
+        assert_eq!(owner.1["unread_count"], 0);
+    }
+    let db = f.state.conn().unwrap();
+    let count: i64 = db
+        .query_row("SELECT count(*) FROM chat_conversations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 207, "Reading an old room must not duplicate it");
+    let read_count: i64 = db
+        .query_row("SELECT count(*) FROM chat_reads", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        read_count, 0,
+        "Metadata reads must not mark messages as read"
+    );
+}
+
+#[tokio::test]
+async fn direct_conversation_metadata_rechecks_membership_bans_and_revoked_credentials() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let stranger = f.user("seeker");
+    let admin = f.admin();
+    let (seeker_cookie, _) = f.browser(&seeker);
+    let (employer_cookie, _) = f.browser(&employer);
+    let (stranger_cookie, _) = f.browser(&stranger);
+    let (admin_cookie, _) = f.browser(&admin);
+    let (ai, token) = f.admin_ai();
+    let private_id = platform(&seeker);
+    assert_eq!(
+        conversation_request(&f, &private_id, None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        conversation_request(&f, &private_id, Some(&stranger_cookie), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        f.state
+            .conn()
+            .unwrap()
+            .query_row("SELECT count(*) FROM chat_conversations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "Unauthorized metadata requests must not create a room"
+    );
+    let own = conversation_request(&f, &private_id, Some(&seeker_cookie), None).await;
+    assert_eq!(own.0, StatusCode::OK);
+    assert_eq!(own.1["user_id"], uid(&seeker));
+    let admin_created = conversation_request(&f, &platform(&employer), None, Some(&token)).await;
+    assert_eq!(admin_created.0, StatusCode::OK);
+    assert_eq!(admin_created.1["user_id"], uid(&employer));
+
+    let (matched, job) = f.matched(&seeker, &employer);
+    let matched_id = format!("match_{matched}");
+    assert_eq!(
+        conversation_request(&f, &matched_id, Some(&stranger_cookie), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        !f.state
+            .conn()
+            .unwrap()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM chat_conversations WHERE id=?1)",
+                [&matched_id],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+    );
+    for cookie in [&seeker_cookie, &employer_cookie] {
+        let response = conversation_request(&f, &matched_id, Some(cookie), None).await;
+        assert_eq!(response.0, StatusCode::OK);
+        assert_eq!(response.1["writable"], true);
+    }
+    for reason in ["declined", "deleted", "counterpart_banned"] {
+        {
+            let db = f.state.conn().unwrap();
+            db.execute(
+                "UPDATE matches SET status=?2 WHERE id=?1",
+                params![
+                    matched,
+                    if reason == "declined" {
+                        "declined"
+                    } else {
+                        "introduced"
+                    }
+                ],
+            )
+            .unwrap();
+            db.execute(
+                "UPDATE jobs SET status=?2 WHERE id=?1",
+                params![
+                    job,
+                    if reason == "deleted" {
+                        "deleted"
+                    } else {
+                        "published"
+                    }
+                ],
+            )
+            .unwrap();
+            db.execute(
+                "UPDATE users SET banned=?2 WHERE id=?1",
+                params![uid(&employer), reason == "counterpart_banned"],
+            )
+            .unwrap();
+        }
+        let hidden = conversation_request(&f, &matched_id, Some(&seeker_cookie), None).await;
+        assert_eq!(hidden.0, StatusCode::NOT_FOUND, "{reason}");
+        let archived = conversation_request(&f, &matched_id, Some(&admin_cookie), None).await;
+        assert_eq!(archived.0, StatusCode::OK, "{reason}");
+        assert_eq!(archived.1["writable"], false, "{reason}");
+    }
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=1 WHERE id=?1", [uid(&seeker)])
+        .unwrap();
+    assert_eq!(
+        conversation_request(&f, &private_id, Some(&seeker_cookie), None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        chat::get_conversation(&f.state, &seeker, &private_id)
+            .unwrap_err()
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE admin_api_tokens SET revoked=1 WHERE id=?1",
+            [ai.actor.strip_prefix("admin_ai:").unwrap()],
+        )
+        .unwrap();
+    assert_eq!(
+        conversation_request(&f, &private_id, None, Some(&token))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        chat::get_conversation(&f.state, &ai, &private_id)
+            .unwrap_err()
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "DELETE FROM sessions WHERE token_hash=?1",
+            [auth::hash_token(
+                admin_cookie.strip_prefix("hf_session=").unwrap(),
+            )],
+        )
+        .unwrap();
+    assert_eq!(
+        conversation_request(&f, &private_id, Some(&admin_cookie), None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (bootstrap_cookie, _) = f.browser(&admin);
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE sessions SET admin=0,bootstrap=1 WHERE token_hash=?1",
+            [auth::hash_token(
+                bootstrap_cookie.strip_prefix("hf_session=").unwrap(),
+            )],
+        )
+        .unwrap();
+    assert_eq!(
+        conversation_request(&f, &private_id, Some(&bootstrap_cookie), None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[test]
+fn bulk_room_materialization_keeps_current_authorization_and_existing_timestamps() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let stranger = f.user("seeker");
+    let banned_employer = f.user("employer");
+    let (existing, _) = f.matched(&seeker, &employer);
+    let (missing, _) = f.matched(&seeker, &employer);
+    let (foreign, _) = f.matched(&stranger, &employer);
+    let (declined, _) = f.matched(&seeker, &employer);
+    let (deleted, deleted_job) = f.matched(&seeker, &employer);
+    let (banned, _) = f.matched(&seeker, &banned_employer);
+    chat::get_conversation(&f.state, &seeker, &format!("match_{existing}")).unwrap();
+    {
+        let db = f.state.conn().unwrap();
+        db.execute(
+            "UPDATE chat_conversations SET created_at=7,updated_at=11",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE matches SET status='declined' WHERE id=?1",
+            [&declined],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE jobs SET status='deleted' WHERE id=?1",
+            [&deleted_job],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE users SET banned=1 WHERE id=?1",
+            [uid(&banned_employer)],
+        )
+        .unwrap();
+    }
+    let visible = chat::list_conversations(&f.state, &seeker).unwrap();
+    assert_eq!(items(&visible).len(), 3);
+    for matched in [&existing, &missing] {
+        assert!(
+            items(&visible)
+                .iter()
+                .any(|c| c["id"] == format!("match_{matched}"))
+        );
+    }
+    for matched in [&foreign, &declined, &deleted, &banned] {
+        assert!(
+            !f.state
+                .conn()
+                .unwrap()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM chat_conversations WHERE match_id=?1)",
+                    [matched],
+                    |r| r.get::<_, bool>(0),
+                )
+                .unwrap(),
+            "Inaccessible match {matched} was materialized for a member"
+        );
+    }
+    let all = chat::list_conversations(&f.state, &f.admin()).unwrap();
+    assert_eq!(items(&all).len(), 7);
+    for matched in [&declined, &deleted, &banned] {
+        let id = format!("match_{matched}");
+        assert_eq!(
+            items(&all).iter().find(|c| c["id"] == id).unwrap()["writable"],
+            false
+        );
+    }
+    let repeated = chat::list_conversations(&f.state, &f.admin()).unwrap();
+    assert_eq!(items(&repeated).len(), 7);
+    let existing_id = format!("match_{existing}");
+    let original = items(&repeated)
+        .iter()
+        .find(|c| c["id"] == existing_id)
+        .unwrap();
+    assert_eq!(original["created_at"], 7);
+    assert_eq!(original["updated_at"], 11);
 }

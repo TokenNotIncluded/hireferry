@@ -53,6 +53,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  CREATE TABLE IF NOT EXISTS mandates(
  user_id TEXT PRIMARY KEY REFERENCES users(id),target_industry TEXT NOT NULL,target_roles TEXT NOT NULL,
  salary_min_cents INTEGER CHECK(salary_min_cents>=0),salary_max_cents INTEGER CHECK(salary_max_cents>=0),
+ salary_currency TEXT NOT NULL DEFAULT 'CNY',
  location TEXT NOT NULL,preferences TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','closed')),
  allow_external INTEGER NOT NULL DEFAULT 0 CHECK(allow_external IN (0,1)),consented_at INTEGER,
  consented_via_ai INTEGER NOT NULL DEFAULT 0 CHECK(consented_via_ai IN (0,1)),
@@ -67,6 +68,16 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  created_by TEXT NOT NULL,updated_by TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS outreach_user ON outreach(user_id,updated_at);
  "#)?;
+    let has_currency: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mandates') WHERE name='salary_currency')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_currency {
+        db.execute_batch(
+            "ALTER TABLE mandates ADD COLUMN salary_currency TEXT NOT NULL DEFAULT 'CNY';",
+        )?;
+    }
     Ok(())
 }
 
@@ -84,6 +95,7 @@ pub struct MandateInput {
     pub target_roles: String,
     pub salary_min_cents: Option<i64>,
     pub salary_max_cents: Option<i64>,
+    pub salary_currency: Option<String>,
     pub location: String,
     pub preferences: String,
     pub status: String,
@@ -131,6 +143,7 @@ struct ReadInput {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/chat/conversations", get(http_conversations))
+        .route("/api/chat/conversations/{id}", get(http_conversation))
         .route("/api/chat/platform", post(http_platform))
         .route(
             "/api/chat/conversations/{id}/messages",
@@ -230,11 +243,21 @@ fn ensure_thread(db: &Connection, p: &Principal, id: &str) -> AppResult<()> {
 
 fn ensure_matches(db: &Connection, p: &Principal) -> AppResult<()> {
     access::ensure_active(db, p)?;
-    let ids = db.prepare("SELECT mt.id FROM matches mt JOIN jobs j ON j.id=mt.job_id JOIN users sk ON sk.id=mt.seeker_id JOIN users er ON er.id=j.owner_id WHERE ?1=1 OR (mt.status IN ('introduced','interview','hired') AND j.status<>'deleted' AND sk.banned=0 AND er.banned=0 AND (mt.seeker_id=?2 OR j.owner_id=?2))")?
-        .query_map(params![p.admin,uid(p)], |r| r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-    for id in ids {
-        ensure_thread(db, p, &format!("match_{id}"))?;
-    }
+    // The caller holds an IMMEDIATE transaction. Materialize only missing,
+    // currently authorized rooms without loading every match into Rust.
+    db.execute(
+        "INSERT OR IGNORE INTO chat_conversations(id,kind,match_id,created_at,updated_at)
+         SELECT 'match_' || mt.id,'matched',mt.id,?3,?3
+         FROM matches mt
+         JOIN jobs j ON j.id=mt.job_id
+         JOIN users sk ON sk.id=mt.seeker_id
+         JOIN users er ON er.id=j.owner_id
+         WHERE (?1=1 OR (mt.status IN ('introduced','interview','hired')
+           AND j.status<>'deleted' AND sk.banned=0 AND er.banned=0
+           AND (mt.seeker_id=?2 OR j.owner_id=?2)))
+         AND NOT EXISTS(SELECT 1 FROM chat_conversations c WHERE c.match_id=mt.id)",
+        params![p.admin, uid(p), now()],
+    )?;
     Ok(())
 }
 
@@ -302,11 +325,14 @@ pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
     }
     ensure_matches(&tx, p)?;
     let sql = format!(
-        "SELECT c.id {THREAD_FROM} WHERE {VISIBLE} ORDER BY c.updated_at DESC,c.id LIMIT 200"
+        "SELECT c.id {THREAD_FROM} WHERE {VISIBLE} ORDER BY c.updated_at DESC,c.id LIMIT ?3"
     );
     let ids = tx
         .prepare(&sql)?
-        .query_map(params![p.admin, uid(p)], |r| r.get::<_, String>(0))?
+        .query_map(
+            params![p.admin, uid(p), s.cfg.limits.recent_list_limit],
+            |r| r.get::<_, String>(0),
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let items = ids
         .iter()
@@ -316,6 +342,19 @@ pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
     tx.commit()?;
     Ok(json!({"items":items,"poll_after_ms":POLL_MS}))
 }
+
+/// Reads a known room independently of the bounded recent-conversations list.
+/// Checks current membership before lazy creation, within the same transaction.
+pub fn get_conversation(s: &AppState, p: &Principal, id: &str) -> AppResult<Value> {
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    ensure_thread(&tx, p, id)?;
+    let result = thread_value(&tx, p, id)?;
+    access::ensure_active(&tx, p)?;
+    tx.commit()?;
+    Ok(result)
+}
+
 pub fn platform_conversation(
     s: &AppState,
     p: &Principal,
@@ -508,7 +547,9 @@ pub fn updates(s: &AppState, p: &Principal, after: i64, count: i64) -> AppResult
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     access::ensure_active(&tx, p)?;
-    ensure_matches(&tx, p)?;
+    // Every stored message already references a conversation. Creating empty
+    // rooms cannot add any updates, and scanning all matches on each poll makes
+    // a five-second read grow with the entire matching history.
     let sql = format!(
         "SELECT msg.*,COALESCE(sender.name,'') AS sender_name {THREAD_FROM} JOIN chat_messages msg ON msg.conversation_id=c.id LEFT JOIN users sender ON sender.id=msg.sender_id WHERE {VISIBLE} AND msg.id>?3 ORDER BY msg.id ASC LIMIT ?4"
     );
@@ -543,8 +584,9 @@ fn target_seeker(db: &Connection, p: &Principal, target: Option<&str>) -> AppRes
     Ok(user.to_owned())
 }
 fn mandate_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let currency: String = r.get("salary_currency")?;
     Ok(
-        json!({"user_id":r.get::<_,String>("user_id")?,"user_name":r.get::<_,String>("user_name")?,"banned":r.get::<_,bool>("user_banned")?,"target_industry":r.get::<_,String>("target_industry")?,"target_roles":r.get::<_,String>("target_roles")?,"salary_min_cents":r.get::<_,Option<i64>>("salary_min_cents")?,"salary_max_cents":r.get::<_,Option<i64>>("salary_max_cents")?,"location":r.get::<_,String>("location")?,"preferences":r.get::<_,String>("preferences")?,"status":r.get::<_,String>("status")?,"allow_external":r.get::<_,bool>("allow_external")?,"consented_at":r.get::<_,Option<i64>>("consented_at")?,"consented_via_ai":r.get::<_,bool>("consented_via_ai")?,"via_ai":r.get::<_,bool>("via_ai")?,"created_at":r.get::<_,i64>("created_at")?,"updated_at":r.get::<_,i64>("updated_at")?}),
+        json!({"user_id":r.get::<_,String>("user_id")?,"user_name":r.get::<_,String>("user_name")?,"banned":r.get::<_,bool>("user_banned")?,"target_industry":r.get::<_,String>("target_industry")?,"target_roles":r.get::<_,String>("target_roles")?,"salary_min_cents":r.get::<_,Option<i64>>("salary_min_cents")?,"salary_max_cents":r.get::<_,Option<i64>>("salary_max_cents")?,"salary_currency":currency,"currency_decimals":crate::config::currency_decimals(&currency),"location":r.get::<_,String>("location")?,"preferences":r.get::<_,String>("preferences")?,"status":r.get::<_,String>("status")?,"allow_external":r.get::<_,bool>("allow_external")?,"consented_at":r.get::<_,Option<i64>>("consented_at")?,"consented_via_ai":r.get::<_,bool>("consented_via_ai")?,"via_ai":r.get::<_,bool>("via_ai")?,"created_at":r.get::<_,i64>("created_at")?,"updated_at":r.get::<_,i64>("updated_at")?}),
     )
 }
 fn stored_mandate(db: &Connection, user: &str) -> AppResult<Option<Value>> {
@@ -581,12 +623,24 @@ pub fn save_mandate(
         .any(|n| !(0..=100_000_000).contains(&n))
         || matches!((input.salary_min_cents,input.salary_max_cents),(Some(a),Some(b)) if a>b)
     {
-        return Err(AppError::bad_request("Invalid salary range in CNY cents"));
+        return Err(AppError::bad_request(
+            "Invalid salary range in minor currency units",
+        ));
     }
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let user = target_seeker(&tx, p, target)?;
     let old = stored_mandate(&tx, &user)?;
+    let salary_currency = input.salary_currency.as_deref().unwrap_or_else(|| {
+        old.as_ref()
+            .and_then(|v| v["salary_currency"].as_str())
+            .unwrap_or(&s.cfg.pricing.currency)
+    });
+    if crate::config::currency_decimals(salary_currency).is_none()
+        || (input.salary_currency.is_some() && !s.cfg.pricing.permits_currency(salary_currency))
+    {
+        return Err(AppError::bad_request("Choose a configured salary currency"));
+    }
     if input.status == "active"
         && tx.query_row("SELECT banned FROM users WHERE id=?1", [&user], |r| {
             r.get::<_, bool>(0)
@@ -630,7 +684,7 @@ pub fn save_mandate(
     } else {
         false
     };
-    tx.execute("INSERT INTO mandates(user_id,target_industry,target_roles,salary_min_cents,salary_max_cents,location,preferences,status,allow_external,consented_at,consented_via_ai,via_ai,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13) ON CONFLICT(user_id) DO UPDATE SET target_industry=excluded.target_industry,target_roles=excluded.target_roles,salary_min_cents=excluded.salary_min_cents,salary_max_cents=excluded.salary_max_cents,location=excluded.location,preferences=excluded.preferences,status=excluded.status,allow_external=excluded.allow_external,consented_at=excluded.consented_at,consented_via_ai=excluded.consented_via_ai,via_ai=excluded.via_ai,updated_at=excluded.updated_at",params![user,input.target_industry.trim(),input.target_roles.trim(),input.salary_min_cents,input.salary_max_cents,input.location.trim(),input.preferences,input.status,input.allow_external,consent,consent_ai,p.via_ai,now()])?;
+    tx.execute("INSERT INTO mandates(user_id,target_industry,target_roles,salary_min_cents,salary_max_cents,salary_currency,location,preferences,status,allow_external,consented_at,consented_via_ai,via_ai,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?14,?6,?7,?8,?9,?10,?11,?12,?13,?13) ON CONFLICT(user_id) DO UPDATE SET target_industry=excluded.target_industry,target_roles=excluded.target_roles,salary_min_cents=excluded.salary_min_cents,salary_max_cents=excluded.salary_max_cents,salary_currency=excluded.salary_currency,location=excluded.location,preferences=excluded.preferences,status=excluded.status,allow_external=excluded.allow_external,consented_at=excluded.consented_at,consented_via_ai=excluded.consented_via_ai,via_ai=excluded.via_ai,updated_at=excluded.updated_at",params![user,input.target_industry.trim(),input.target_roles.trim(),input.salary_min_cents,input.salary_max_cents,input.location.trim(),input.preferences,input.status,input.allow_external,consent,consent_ai,p.via_ai,now(),salary_currency])?;
     audit(&tx,&p.actor,"mandate_update",&user,&json!({"status":input.status,"allow_external":input.allow_external,"previous_allow_external":previously_allowed,"via_ai":p.via_ai}).to_string())?;
     let result = json!({"mandate":stored_mandate(&tx,&user)?});
     access::ensure_active(&tx, p)?;
@@ -650,9 +704,10 @@ pub fn list_mandates(s: &AppState, p: &Principal, query: SearchInput) -> AppResu
         return Err(AppError::bad_request("Invalid mandate status"));
     }
     let page = query.page.unwrap_or(1);
-    if !(1..=1_000_000).contains(&page) {
+    if !(1..=s.cfg.limits.list_max_page).contains(&page) {
         return Err(AppError::bad_request("Invalid page"));
     }
+    let page_size = s.cfg.limits.list_page_size;
     let filter = "FROM mandates m JOIN users u ON u.id=m.user_id WHERE u.role='seeker' AND (?1 IS NULL OR m.status=?1) AND (u.name LIKE ?2 OR m.target_industry LIKE ?2 OR m.target_roles LIKE ?2 OR m.location LIKE ?2)";
     let search = format!("%{}%", q.trim());
     let total: i64 = db.query_row(
@@ -660,8 +715,8 @@ pub fn list_mandates(s: &AppState, p: &Principal, query: SearchInput) -> AppResu
         params![status, search],
         |r| r.get(0),
     )?;
-    let items=db.prepare(&format!("SELECT m.*,u.name AS user_name,u.banned AS user_banned {filter} ORDER BY m.updated_at DESC,m.user_id LIMIT 50 OFFSET ?3"))?.query_map(params![status,search,(page-1)*50],mandate_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(json!({"items":items,"total":total,"page":page}))
+    let items=db.prepare(&format!("SELECT m.*,u.name AS user_name,u.banned AS user_banned {filter} ORDER BY m.updated_at DESC,m.user_id LIMIT ?3 OFFSET ?4"))?.query_map(params![status,search,page_size,(page-1)*page_size],mandate_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}))
 }
 
 fn outreach_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
@@ -672,7 +727,7 @@ fn outreach_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 pub fn list_outreach(s: &AppState, p: &Principal, target: Option<&str>) -> AppResult<Value> {
     let db = s.conn()?;
     let user = target_seeker(&db, p, target)?;
-    let items=db.prepare("SELECT o.*,u.banned AS user_banned FROM outreach o JOIN users u ON u.id=o.user_id WHERE o.user_id=?1 ORDER BY o.updated_at DESC,o.id LIMIT 200")?.query_map([user],outreach_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let items=db.prepare("SELECT o.*,u.banned AS user_banned FROM outreach o JOIN users u ON u.id=o.user_id WHERE o.user_id=?1 ORDER BY o.updated_at DESC,o.id LIMIT ?2")?.query_map(params![user,s.cfg.limits.recent_list_limit],outreach_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({"items":items}))
 }
 pub fn save_outreach(
@@ -753,6 +808,14 @@ pub fn save_outreach(
 async fn http_conversations(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, false)?;
     Ok(Json(list_conversations(&s, &p)?))
+}
+async fn http_conversation(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, false)?;
+    Ok(Json(get_conversation(&s, &p, &id)?))
 }
 async fn http_platform(
     State(s): State<AppState>,

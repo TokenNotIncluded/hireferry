@@ -11,8 +11,9 @@ Third-party websites and AI clients you connect have their own privacy policies.
 ## Information we collect {#information}
 
 - **Accounts:**  sign-in email, account identifier and role, plus the display name, avatar and introduction contact email you provide. {{login_provider}} sign-in uses a {{login_provider}} account identifier, verified email and authorized basic profile data. We do not request Gmail, contacts or Drive access.
-- **Search and hiring:**  résumés, work and education history, job descriptions, base salary, target industries and roles, salary expectations, work locations and other preferences you submit. Work location is a preference you enter, not GPS tracking.
+- **Search and hiring:**  résumés, work and education history, job descriptions, base salary and currency, hiring targets, target industries and roles, salary expectations and currency, work locations and other preferences you submit. Work location is a preference you enter, not GPS tracking.
 - **Conversations and briefs:**  private platform messages, introduction rooms, external-outreach permissions, progress records, support emails and necessary activity records.
+- **Notifications you configure:**  webhook receiver addresses, event subscriptions, associated signing keys and delivery status, used for notifications after you register an endpoint.
 - **Orders:**  order identifiers, product or service type, amount, currency, provider, payment and refund status, and provider transaction identifiers. We do not store full card numbers or security codes.
 - **Security and operation:**  session and token verification data, expiry and usage records, request times, IP addresses, browser request information, errors and security audit records. We do not require phone numbers, government identifiers, home addresses or unrelated sensitive information.
 
@@ -34,15 +35,21 @@ AI HR can help organize needs, screen, match and draft communications. Models ca
 
 When you connect an AI client, it may read or act through a token you create, within the account’s current permissions. Platform AI HR also operates through authorized access. Only information necessary for the task should be supplied to tools or models. Before supplying information to an additional third-party model provider, we will explain the recipient, purpose and necessary scope, and obtain required authorization. Revoking a token prevents future access; copies already read, exported or cached must also be handled by the recipient.
 
+## Webhooks you choose to enable {#webhooks}
+
+You register endpoints in your workspace; no receiver is created for you automatically. Payloads contain only currently accessible event and object identifiers, statuses and necessary metadata, without résumés, contact email addresses or message text. Full information requires an authorized session. Notifications can be duplicated, retried or delivered out of order; use current records as the source of truth.
+
+You can disable or revoke an endpoint. Each subsequent delivery checks current permissions, and relevant queued notifications are cancelled after introduction or resource access is lost. Copies already saved by a receiver must be handled by that recipient; revocation cannot retrieve them automatically.
+
 ## Providers and international processing {#providers}
 
-Necessary providers include {{hosting_provider}} for hosting, {{email_provider}} for sign-in codes and transactional email, {{login_provider}} for identity verification when you choose {{login_provider}} sign-in, and {{payment_provider}} for payments through that channel. We provide only information needed for each function. {{payment_provider}} processes checkout payment details; our site receives necessary order and payment results, without storing full card numbers or security codes. Provider transaction records retained under their own legal obligations are not automatically deleted when a {{site_name}} account closes.
+Necessary providers include {{hosting_provider}} for hosting, {{email_provider}} for sign-in codes and transactional email, {{login_provider}} for identity verification when you choose {{login_provider}} sign-in, and {{payment_provider}} for payments through that channel. We provide only information needed for each function. If you choose Stripe, Stripe handles its hosted checkout. {{payment_provider}} processes payment details for its channel; our site receives necessary order and payment results, without storing full card numbers or security codes. Provider transaction records retained under their own legal obligations are not automatically deleted when a {{site_name}} account closes.
 
 Servers or provider infrastructure may be outside your country or region. Before international processing, we will provide required recipient and processing information and apply the necessary authorization, contractual and security measures. This policy is not consent to arbitrary international transfers. Contact the privacy address for locations and recipients relevant to your information.
 
 ## Cookies, local storage and email {#cookies}
 
-Necessary sign-in cookies maintain your session, and browser local storage keeps your language preference. Clearing cookies signs you out; clearing local storage resets language preferences. We currently use no advertising trackers, marketing pixels or third-party visitor analytics.
+Necessary sign-in cookies maintain your session, and browser local storage keeps language and appearance preferences. Clearing cookies signs you out; clearing local storage resets those preferences. We currently use no advertising trackers, marketing pixels or third-party visitor analytics.
 
 Current emails are for sign-in verification and necessary service communication, not marketing. Future marketing would require the appropriate separate consent and an opt-out. Marketing opt-out would not prevent necessary security, billing or policy notices.
 
@@ -52,6 +59,8 @@ Current emails are for sign-in verification and necessary service communication,
 - **Support records:**  retained for {{support_retention_years}} years after the relevant request is resolved.
 - **Orders, payments, refunds and necessary reconciliation records:**  retained for {{transaction_retention_years}} years after completion or final refund. Only the necessary portion is kept longer where legally required or while a dispute remains unresolved.
 - **Website access logs:**  rotated on a {{access_log_days}}-day retention window. Evidence for a specific fraud, dispute or security incident is separately access-restricted and removed after resolution when no legal retention requirement remains.
+
+A role can be restored once after its first deletion, or permanently cleared of its title, description and associated content snapshots in the workspace; necessary transaction references remain. While deleted, participants cannot access the related profiles and shared room. Eligible restoration can reopen access under current permissions. This is distinct from account closure or deleting every conversation.
 
 Deletion requests are verified and handled manually. We do not require identity documents unrelated to verification. Retaining necessary transaction records does not justify retaining an entire résumé or all private messages. Introduced parties and other recipients are responsible for copies already shared with them under their own obligations.
 

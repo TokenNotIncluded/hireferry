@@ -4,15 +4,43 @@ This document describes the implemented service behavior. Configuration lives in
 TOML; changing it requires restarting HireFerry. It is not editable in the web
 console.
 
+## 生产来源与支持地址
+
+本项目约定的生产来源为 `https://hireferry.lmm.best`，支持邮箱为
+`support@lmm.best`。对应配置为 `public_url = "https://hireferry.lmm.best"`
+与 `webauthn_rp_id = "hireferry.lmm.best"`；来源不带路径或查询参数。
+本地开发仍使用 `http://localhost:3000` 与 RP ID `localhost`。
+
+这些是部署配置约定，不代表真实 Google、SMTP 或线上域名联调已经完成。
+用户提供的两处凭据文件路径在当前交付环境不存在，因此本次没有从这些路径
+读取或导入生产密钥。部署人员需要在实际服务器上配置可用的 TOML 凭据，
+不能把模板中的空值当作已经完成接入。
+
 ## 用户登录与隐私
 
 普通用户使用 Google 或邮箱验证码。首次登录创建 `unassigned` 账户，再通过界面选择求职者或招聘方。选择招聘方会创建开通订单，收到有效支付通知后才开通招聘权限。
 
-登录邮箱是账户身份标识，默认不在公开资料中返回。`public_email` 是用户明确填写的公开联系邮箱；简历只有在用户开启公开状态后才进入人才目录。网站不要求手机号。管理员为服务运营可以查看账户及内容；公开 API、普通会话和 MCP 令牌不能访问他人私密资料。
+登录邮箱是账户身份标识，只向本人和管理员返回。`public_email` 是历史字段名，现表示向平台及明确匹配对象提供的联系邮箱。资料、简历、头像与岗位没有公共目录；`visible` 不授予公开访问。网站不要求手机号。管理员为服务运营可以查看账户及业务历史，普通会话和个人 MCP 令牌只能读取本人以及平台明确匹配后授予的对应资源。
 
 ### 邮箱验证码
 
-配置 `[smtp]` 的 `enabled`、`host`、`port`、`username`、`password`、`from` 和 `starttls`。
+配置 `[smtp]` 的 `enabled`、`host`、`port`、`username`、`password`、`from`、`reply_to` 和 `starttls`。依据：[配置结构及校验](../src/config.rs)、[验证码邮件构建](../src/auth.rs)。
+
+`from` 是 SMTP 服务允许使用的发件邮箱；`reply_to` 是收件人点击「回复」时使用的地址，两者分别配置。`reply_to` 默认和示例值均为 `support@lmm.best`，当前验证码邮件会发送这个 Reply-To 头。可在 TOML 中改为另一个有效邮箱，或显式设为空字符串以省略该头；非空值会在配置加载时进行邮箱格式校验。更改后需要重启服务。
+
+```toml
+[smtp]
+enabled = false
+host = ""
+port = 587
+username = ""
+password = ""
+from = "" # 填写实际 SMTP 服务允许的发件邮箱。
+reply_to = "support@lmm.best"
+starttls = true
+```
+
+此片段没有生产凭据，不能直接启用发信。支持邮箱和 Reply-To 的配置也不会自动创建邮箱、配置 DNS 或验证 SMTP 服务。
 
 - `starttls = true`：TLS 必需的 STARTTLS，常见端口 587。
 - `starttls = false`：隐式 TLS，常见端口 465；不会回退为明文连接。
@@ -28,10 +56,15 @@ console.
 创建 Google OAuth Web 应用，在 TOML 填写客户端 ID 和 secret。授权回调 URI 必须精确配置为：
 
 ```text
-https://YOUR-HOST/auth/google/callback
+https://hireferry.lmm.best/auth/google/callback
 ```
 
 本地开发可单独登记 `http://localhost:3000/auth/google/callback`。
+
+生产授权来源使用 `https://hireferry.lmm.best`。条款和隐私页面分别为
+`https://hireferry.lmm.best/terms` 与 `https://hireferry.lmm.best/privacy`。
+Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
+`/auth/google/callback`，不使用 `/api/auth/google/callback`。
 
 流程使用浏览器绑定的随机 state、PKCE 和一次性服务端挑战；后端向 Google 交换授权码，并从 Google 用户信息接口取得 `sub` 与已验证邮箱。客户端提交的邮箱或用户标识不能用于创建已验证身份。成功后跳转 `/app`。
 
@@ -68,6 +101,16 @@ https://YOUR-HOST/auth/google/callback
 
 每次认证都重新检查会话过期时间和账户封禁状态。封禁账户无法继续使用旧会话或个人令牌；管理员和普通用户的权限分别验证，引导会话不能被当作完整管理员会话。
 
+### 账户停用与恢复
+
+管理员在账户详情中填写原因后，可以停用或恢复普通账户。`POST /api/admin/users/{id}/access` 接受 `{"banned":true,"reason":"原因"}`（恢复时为 `false`）；原因必须非空且不超过 500 个字符。需要完整管理员权限，浏览器写请求必须通过 CSRF 与来源校验。`GET` 同一路径读取当前状态、原因、变更时间及操作人。用户不能操作自己或其他人的封禁状态；管理员 MCP 同样经过权限复核。
+
+停用在一个数据库事务中生效：删除该账户全部浏览器会话、撤销所有个人 AI 令牌、作废待验证的邮箱验证码，并停用该账户的 Webhook、取消待发送或正在领取的投递。发送器在领取及 DNS 解析后再次检查权限。已经发出的网络请求无法收回。聊天、匹配资料和 MCP 操作也会检查当前账户状态，历史记录保留供管理员审计。邮箱登录申请返回中性响应但不会生成验证码或发送邮件。
+
+恢复只解除账户状态限制，**不会恢复旧会话、令牌、验证码或 Webhook 开关**。用户必须重新登录、重新创建所需的 AI 令牌并主动启用 Webhook。封禁前已经开始的 Google 授权流程也不能在恢复后换取会话，需要重新发起 Google 登录。每次停用和恢复写入包含原因、前后状态与操作人的审计记录；直接更新数据库封禁字段也触发凭据撤销，避免其他后台路径遗漏撤销。
+
+旧的 `PATCH /api/admin/users/{id}` 仍接受 `banned` 和可选的 `ban_reason` 以兼容既有 MCP 客户端；未提供原因时使用明确的兼容操作原因。新界面使用独立的停用与恢复入口，普通资料保存不会隐式解除停用。管理员账户由 Passkey 和独立管理员令牌管理，不属于可停用的普通用户列表；删除管理员 Passkey、撤销管理员令牌仍使用对应的专门入口。
+
 ## 个人 AI 令牌
 
 在登录后的「AI 连接」页面创建令牌。必须由交互式浏览器会话授权创建，已有 Bearer 令牌不能再创建令牌。每个账户最多 10 个有效令牌，30 天过期，只显示一次，数据库保存哈希，可立即撤销。
@@ -80,6 +123,8 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 
 | 方法与路径 | 请求 / 行为 |
 | --- | --- |
+| `GET /api/admin/users/{id}/access` | 管理员读取账户状态、最近原因和操作人 |
+| `POST /api/admin/users/{id}/access` | `{ "banned": true, "reason": "原因" }`；事务内停用或恢复并写入审计 |
 | `GET /api/session` | 返回 `user`、`admin`、`bootstrap`、`csrf`；未登录时 `user` 和 `csrf` 为 null |
 | `POST /api/auth/email/start` | `{ "email": "name@example.com" }`；设置浏览器挑战 Cookie |
 | `POST /api/auth/email/verify` | `{ "email": "name@example.com", "code": "12345678" }`；消费挑战并建立会话 |
@@ -99,14 +144,16 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 
 ## 验证范围
 
-`cargo test --test auth_flows` 覆盖真实 HTTP 路由、SQLite 会话与权限、验证码重试、首次管理员注册、后续登录、多把 Passkey、删除/撤销和跨来源/CSRF 拒绝。WebAuthn 测试使用软件认证器产生并验证真实密码学签名。`cargo test auth::tests` 覆盖限流、哈希、挑战一次性与过期等底层约束。
+`cargo test --test auth_flows` 覆盖真实 HTTP 路由、SQLite 会话与权限、验证码重试、首次管理员注册、后续登录、多把 Passkey、删除/撤销和跨来源/CSRF 拒绝。WebAuthn 测试使用软件认证器产生并验证真实密码学签名。`cargo test auth::tests` 覆盖限流、哈希、挑战一次性、过期以及封禁后的 Google 授权代次校验。`cargo test --test account_access` 覆盖管理员权限、CSRF、原因校验、凭据和 Webhook 撤销、解除封禁后旧凭据不能复活，以及不影响其他账户。
 
 这些测试没有发送真实邮件、访问真实 Google 账户、操作实体认证器或调用真实商户扣款。上线前仍需用实际 HTTPS 域名检查 SMTP 投递、Google 回调、至少两把独立 Passkey 的注册和登录，以及浏览器跨设备行为。需要保持服务器时钟准确。
 
 ## English overview
 
-Users authenticate with a browser-bound, one-time email code or Google's server-side authorization-code flow with state and PKCE. Sign-in addresses are private; public contact addresses and résumé publication are separate choices. Existing accounts are not automatically merged by an email returned from a new Google identity.
+Users authenticate with a browser-bound, one-time email code or Google's server-side authorization-code flow with state and PKCE. Login addresses are visible only to their owner and platform administrators. Profiles, résumés and contact addresses are shared with the platform and explicitly matched counterparties; there is no public directory. Existing accounts are not automatically merged by an email returned from a new Google identity.
+
+The production origin is `https://hireferry.lmm.best`, with the exact Google callback `https://hireferry.lmm.best/auth/google/callback`. SMTP messages default to `Reply-To: support@lmm.best`; the sending address is configured separately. These defaults do not establish a live provider connection. The two supplied credential-file paths were unavailable in the delivery environment, and no production credentials were imported from them.
 
 Administrators begin with a local, single-use 10-minute secret. It grants a 5-minute enrollment session only, never console access. A verified first Passkey completes setup. Later sign-ins require Passkeys; additions and removals require recent authentication, and the last credential cannot be removed. Store a second independent credential before deployment.
 
-Session secrets and personal AI tokens are stored only as hashes. Cookies are HttpOnly and SameSite=Lax, with Secure on HTTPS. Browser mutations require CSRF and origin validation. Suspension is checked on every authenticated request. Personal MCP tokens never grant administrator privileges.
+Session secrets and personal AI tokens are stored only as hashes. Cookies are HttpOnly and SameSite=Lax, with Secure on HTTPS. Browser mutations require CSRF and origin validation. Suspension is checked on every authenticated request. Suspending a member deletes their sessions, revokes personal AI tokens and pending email challenges, disables webhooks and cancels queued delivery. Restoring access never revives those credentials or webhook switches; a fresh sign-in is required, including for a Google flow started before suspension. Reasoned administrative changes are audited. Personal MCP tokens never grant administrator privileges.

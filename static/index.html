@@ -1,19 +1,22 @@
 <!doctype html>
-<html lang="zh-CN" class="light">
+<html lang="zh-CN" class="light" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4f3ee">
   <meta name="description" content="聘渡 HireFerry · AI 原生人才匹配平台。人类 HR 与 AI HR 负责初筛和需求匹配。求职者免费，招聘方按次付费，无会员、无月费。">
   <title>聘渡 HireFerry · 人才双向匹配服务</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/navigation.css">
   <script type="module" src="/static/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳转到主要内容 / Skip to content</a>
-  <div id="root"><main id="main" class="loading-screen"><span class="loader" aria-hidden="true"></span><p role="status">正在准备启程 · Getting ready</p></main></div>
+  <div id="root"><main id="main" class="page-width initial-placeholder" aria-busy="true"><span class="sr-only" role="status">正在加载内容 / Loading content</span><div aria-hidden="true"><span class="skeleton-line" style="width:30%;height:32px"></span><span class="skeleton-line" style="width:65%"></span><span class="skeleton-line" style="width:50%"></span></div></main></div>
   <div id="toast-root" aria-live="polite" aria-atomic="true"></div>
   <div id="dialog-root"></div>
   <noscript><p class="noscript">请启用 JavaScript 使用聘渡。Please enable JavaScript to use HireFerry.</p></noscript>

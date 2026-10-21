@@ -35,7 +35,9 @@ export function posterPalette(background      ) {
         const saturated = light
           ? luminance + (channel - luminance) * 1.2
           : channel
-        return Math.min(255, Math.max(0, saturated * tone))
+        // On a dark ground, lift the existing material so the hull and bridge
+        // remain legible; retain the relative hues and surface shading.
+        return Math.min(255, Math.max(0, light ? saturated * tone : saturated * 0.85 + 48))
       })
       return coverage(pack(...rgb), light ? 1 : 0.96)
     },

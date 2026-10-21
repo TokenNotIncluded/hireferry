@@ -13,6 +13,8 @@ pub mod mcp;
 pub mod models;
 pub mod payments;
 pub mod safety;
+pub mod webhooks;
+pub mod workbench;
 
 use axum::{
     Router,
@@ -36,6 +38,7 @@ impl AppState {
     pub fn new(cfg: config::Config) -> AppResult<Self> {
         cfg.validate()?;
         let db = db::open(&cfg.database)?;
+        webhooks::configure(&db, &cfg.webhooks)?;
         let auth = auth::AuthService::new(&cfg)?;
         Ok(Self {
             cfg: Arc::new(cfg),
@@ -68,6 +71,8 @@ pub fn app(state: AppState) -> Router {
         .merge(chat::routes())
         .merge(payments::routes())
         .merge(mcp::routes())
+        .merge(webhooks::routes())
+        .merge(workbench::routes())
         .route(
             "/healthz",
             axum::routing::get(|| async { StatusCode::NO_CONTENT }),

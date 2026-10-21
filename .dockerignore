@@ -30,6 +30,8 @@ hireferry-final-screenshots
 *final-tests*
 .env
 .env.*
+*.env
 **/.env
 **/.env.*
+**/*.env
 .DS_Store

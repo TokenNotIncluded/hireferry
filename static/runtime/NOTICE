@@ -19,5 +19,10 @@ Those source files identify LIghtJUNction as their 2026 copyright holder.
 The source repository also includes Copyright (C) 2023-2026 QuantumNous.
 All original notices and the GNU AGPL-3.0-or-later license are retained.
 
+HireFerry adjusts the dark-ground palette to keep the ferry, bridge and compass
+readable in its dark appearance. The original hue and surface shading are kept.
+Its motion controller also exposes fractional scene seeking, and the timeline
+interpolates neighboring scenes for the homepage's scroll-driven chapters.
+
 The apple and bird are new procedural, stylized models. They are not scans,
 brand logos, imported photographs, measured anatomy, or species identification.

@@ -23,15 +23,25 @@ The platform, human HR and authorized AI HR may use information only as needed f
 ## One-time charges, without renewal {#pricing}
 
 - **Job seekers:**  briefs, platform messages and matching follow-up are free.
-- **Employer activation:**  a one-time {{activation_price}} purchase opens employer features for one account, which may manage multiple roles.
-- **Job publication:**  each role costs {{publish_percent}} of its stated fixed base monthly salary, charged once. Bonuses, commissions and other projected earnings are excluded.
-- **Description updates:**  charged at the percentage of original base salary agreed when published. New roles currently use {{edit_percent}}, up to {{max_edits}} times. Existing roles keep their original rules. The title and base salary are locked after publication.
+- **Employer activation:**  {{activation_fee}} opens employer features for one account, which may manage multiple roles.
+- **Job publication:**  the rule for new roles is {{publish_fee_rule}}. Enter fixed base salary only, excluding bonuses, commissions and other projected earnings.
+- **Description updates:**  the rule for each update to a new role is {{edit_fee_rule}}, with at most {{max_edits}} updates. Existing roles keep their original fee mode, rates, fixed amounts and allowance. The title, currency and base salary are locked at creation.
 
-There are no membership fees, monthly charges, subscriptions or automatic renewals. Every new charge requires a separate order confirmation. Site orders are currently priced in CNY. Available currencies, payment methods, total payable and applicable taxes are clearly shown at checkout. Price changes do not retroactively alter confirmed orders.
+{{currency_fee_table}}
+
+The table applies to new roles. Employer AI access also requires an activated account and at least one currently published role meeting its recorded base-pay threshold. Existing roles retain their original threshold; an unpaid draft does not satisfy the publication condition.
+
+There are no membership fees, monthly charges, subscriptions or automatic renewals. Every new charge requires a separate order confirmation. The default currency is {{default_currency}} and the currently selectable currencies are {{available_currencies}}. Changing the currency does not convert amounts. Available payment methods, total payable and applicable taxes are clearly shown at checkout. Free actions take effect on confirmation; paid actions take effect after verified payment. Price changes do not retroactively alter confirmed orders or the terms saved for existing roles.
+
+## Hiring targets, deletion and restoration {#job-management}
+
+Hiring targets can be changed for free as often as needed, without changing base salary, description versions or the description-update allowance. Zero pauses new introductions; a positive number resumes an eligible published role. Existing introduction rooms remain available. Employers maintain the count manually; introductions and recorded hires do not decrement it. Closed roles or roles without publication rights cannot resume hiring by changing the target.
+
+The first deletion moves a role to the trash for free. It can be restored once for free or deleted permanently; deletion after restoration is permanent. Deletion removes the participants' access to the associated profiles and shared room. Eligible introductions regain access after restoration under current permissions, while private platform conversations remain separate. Deletion and restoration use no description update and do not trigger refunds. Permanent deletion clears the title, description and content snapshots in associated orders while retaining necessary order, payment, refund and security references.
 
 ## Payment confirmation and delivery {#payment}
 
-Payments through the Waffo channel are processed by **{{payment_provider}}** . We do not store full card numbers or security codes. Account access or role changes take effect only after the provider confirms payment and our server verifies the order and notification. A browser redirect alone is not proof of payment.
+Payments through the Waffo channel are processed by **{{payment_provider}}** . We do not store full card numbers or security codes. Paid account access or role changes take effect only after the provider confirms payment and our server verifies the order and notification; free actions need no payment. If you choose Stripe, Stripe handles the hosted checkout. A browser redirect alone is not proof of payment.
 
 Duplicate notifications do not republish a role or consume another update. If paid access is missing, an amount is wrong or an order has not updated, contact {{support_contact}} with the order identifier. We will reconcile it and deliver the service or handle a refund under the rules below. Avoid paying repeatedly to repair the same order.
 
@@ -43,6 +53,8 @@ Duplicate charges, confirmed billing errors and services we cannot deliver are a
 
 Email {{support_contact}} from your account address with the order identifier, payment time, issue and reason. Do not send full card numbers or security codes. We acknowledge requests within {{refund_ack_business_days}} business days and, after approval, submit the refund to the payment provider within {{refund_processing_business_days}} business days through the original method. Bank or provider settlement may take longer. Refunds are manually reviewed and related entitlements adjusted; we do not promise automatic or immediate settlement.
 
+The site does not initiate refunds. After review, the platform processes them through the payment provider's merchant service. Verified successful Waffo refund notifications update the cumulative refunded amount and order status; failed or unconfirmed notifications do not count as refunded money or reduce recorded net receipts. Partial refunds preserve delivered entitlements. A full activation refund removes the relevant activation, and a full publication refund closes the role. A description-update refund does not roll back text or restore the allowance. Stripe refund status and net amounts are not yet synchronized automatically; contact support to reconcile them. Browser return URLs do not replace authentic notifications and records.
+
 You may contact us first to reconcile a disputed charge. This does not restrict lawful disputes with payment providers, card issuers or authorities.
 
 ## AI, content rights and human review {#ai}
@@ -52,6 +64,12 @@ The platform combines human HR and AI HR. AI may assist with briefs, screening, 
 You retain rights in content you submit and grant only the limited, non-exclusive permission needed to provide the service. We do not use résumés, private messages or hiring briefs to train general-purpose models. AI output can be inaccurate, non-exclusive or lack protectable rights; verify facts, permissions and suitability before use.
 
 AI clients or models you connect may process accessed information under their own policies. Authorize trusted tools and limit sharing. Before introducing additional third-party models to process user information, we will explain the recipient and necessary scope and obtain required authorization. Provider outages can affect AI features; we will explain available alternative communication.
+
+## Webhook notifications you configure {#webhooks}
+
+You can register a receiver and subscribe to events in your workspace. Notifications contain only accessible event and object identifiers, statuses and necessary metadata, without résumés, contact email addresses or message text. Full content requires the corresponding authorization. Notifications can be retried, duplicated, delivered out of order or cancelled after permission is revoked. Use current workspace records as the source of truth.
+
+You can disable or revoke an endpoint. Subsequent deliveries recheck account, introduction and resource permissions. Revocation cannot automatically retrieve copies already received. You choose the receiver and should authorize only trusted recipients.
 
 ## Acceptable use {#conduct}
 

@@ -7,6 +7,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY static ./static
+COPY legal ./legal
 RUN cargo build --locked --release
 
 FROM debian:bookworm-slim
@@ -23,6 +24,7 @@ WORKDIR /app
 COPY --from=builder /build/target/release/hireferry /usr/local/bin/hireferry
 COPY LICENSE /usr/share/licenses/hireferry/LICENSE
 COPY static/runtime/NOTICE /usr/share/licenses/hireferry/particle-sculpture-NOTICE
+COPY legal /usr/share/hireferry/legal
 USER 10001:10001
 EXPOSE 3000
 STOPSIGNAL SIGINT

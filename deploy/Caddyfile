@@ -1,6 +1,6 @@
-# Replace this host with public_url's host. Point DNS to the server first.
+# This host must match public_url and the configured Passkey RP ID.
 # HireFerry stays on loopback; Caddy terminates HTTPS on ports 80/443.
-hireferry.example {
+hireferry.lmm.best {
     encode zstd gzip
     header -Server
     reverse_proxy 127.0.0.1:3000

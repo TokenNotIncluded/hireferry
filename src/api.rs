@@ -8,7 +8,7 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::{OptionalExtension, params};
@@ -25,9 +25,13 @@ pub fn routes() -> Router<AppState> {
         .route("/api/role", post(role))
         .route("/api/jobs", get(jobs).post(create_job))
         .route("/api/jobs/mine", get(my_jobs))
-        .route("/api/jobs/{id}", get(job))
+        .route("/api/my/jobs/trash", get(trash))
+        .route("/api/jobs/{id}", get(job).delete(delete_job))
         .route("/api/jobs/{id}/edit", post(edit_job))
+        .route("/api/jobs/{id}/headcount", patch(update_headcount))
         .route("/api/jobs/{id}/close", post(close_job))
+        .route("/api/jobs/{id}/restore", post(restore_job))
+        .route("/api/jobs/{id}/permanent", delete(permanently_delete_job))
         .route("/api/people", get(people))
         .route("/api/people/{id}", get(person))
         .route("/api/orders", get(orders))
@@ -39,6 +43,9 @@ pub fn routes() -> Router<AppState> {
         .route("/api/matches", get(matches))
 }
 async fn config(State(s): State<AppState>) -> Json<Value> {
+    Json(public_config(&s))
+}
+pub fn public_config(s: &AppState) -> Value {
     let mut providers = vec![];
     if s.cfg.payments.stripe.enabled {
         providers.push("stripe");
@@ -46,9 +53,7 @@ async fn config(State(s): State<AppState>) -> Json<Value> {
     if s.cfg.payments.waffo.enabled {
         providers.push("waffo");
     }
-    Json(
-        json!({"name":s.cfg.site.name,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"pricing":s.cfg.pricing}),
-    )
+    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
 }
 async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<User>> {
     let id = user_id(&s, &h, false)?;
@@ -265,8 +270,12 @@ pub struct ListQuery {
     pub q: Option<String>,
     pub page: Option<i64>,
 }
-pub fn pagination(q: &ListQuery) -> (i64, i64) {
-    (50, (q.page.unwrap_or(1).clamp(1, 2000) - 1) * 50)
+pub fn pagination(s: &AppState, q: &ListQuery) -> (i64, i64) {
+    let limit = s.cfg.limits.list_page_size;
+    (
+        limit,
+        (q.page.unwrap_or(1).clamp(1, s.cfg.limits.list_max_page) - 1) * limit,
+    )
 }
 pub fn list_jobs(s: &AppState, q: &ListQuery, owner: Option<&str>) -> AppResult<Value> {
     let owner = owner.ok_or_else(|| AppError::unauthorized("Sign in required"))?;
@@ -281,7 +290,7 @@ fn query_jobs(s: &AppState, q: &ListQuery, viewer: &str, mine: bool) -> AppResul
     if user.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
-    let (limit, offset) = pagination(q);
+    let (limit, offset) = pagination(s, q);
     let search = format!(
         "%{}%",
         q.q.as_deref()
@@ -307,7 +316,7 @@ fn query_jobs(s: &AppState, q: &ListQuery, viewer: &str, mine: bool) -> AppResul
         params![viewer, search],
         |r| r.get(0),
     )?;
-    Ok(json!({"items":items,"total":total}))
+    Ok(json!({"items":items,"total":total,"limit":limit,"page":offset/limit+1}))
 }
 async fn jobs(
     State(s): State<AppState>,
@@ -325,9 +334,30 @@ async fn my_jobs(
     let uid = user_id(&s, &h, false)?;
     Ok(Json(list_jobs(&s, &q, Some(&uid))?))
 }
+pub fn deleted_jobs(s: &AppState, uid: &str) -> AppResult<Value> {
+    let db = s.conn()?;
+    let user = models::load_user(&db, uid)?;
+    if user.banned || user.role != "employer" {
+        return Err(AppError::forbidden(
+            "An active employer account is required",
+        ));
+    }
+    let items = db
+        .prepare("SELECT * FROM jobs WHERE owner_id=?1 AND status='deleted' AND delete_count=1 ORDER BY updated_at DESC,id LIMIT ?2")?
+        .query_map(params![uid, s.cfg.limits.recent_list_limit], models::job_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(json!({"items":items}))
+}
+async fn trash(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
+    let uid = user_id(&s, &h, false)?;
+    Ok(Json(deleted_jobs(&s, &uid)?))
+}
 pub fn job_detail(s: &AppState, id: &str, viewer: Option<&str>) -> AppResult<Value> {
     let db = s.conn()?;
     let job = models::load_job(&db, id)?;
+    if job.status == "deleted" && job.delete_count >= 2 {
+        return Err(AppError::not_found("Job not found"));
+    }
     let owner = models::load_user(&db, &job.owner_id)?;
     if !viewer
         .map(|v| access::can_read_job(&db, v, id))
@@ -342,7 +372,7 @@ pub fn job_detail(s: &AppState, id: &str, viewer: Option<&str>) -> AppResult<Val
         .and_then(|v| serde_json::from_str(v).ok())
         .unwrap_or(json!({}));
     Ok(
-        json!({"jd_html":safety::markdown(&job.jd_md),"job":job,"terms":{"edit_bps":snapshot["edit_bps"].as_i64().unwrap_or(s.cfg.pricing.edit_bps),"max_edits":snapshot["max_edits"].as_i64().unwrap_or(s.cfg.pricing.max_edits)},"employer":{"id":owner.id,"name":owner.name,"public_email":owner.public_email,"avatar":owner.avatar}}),
+        json!({"jd_html":safety::markdown(&job.jd_md),"job":job,"terms":{"edit_bps":snapshot["edit_bps"].as_i64().unwrap_or(100),"max_edits":snapshot["max_edits"].as_i64().unwrap_or(3),"edit_mode":snapshot["edit_mode"].as_str().unwrap_or("salary_percent"),"edit_fixed_minor":snapshot["edit_fixed_minor"].as_i64().unwrap_or(0),"currency":job.currency,"currency_decimals":job.currency_decimals,"employer_ai_min_salary_minor":job.ai_min_salary_cents},"employer":{"id":owner.id,"name":owner.name,"public_email":owner.public_email,"avatar":owner.avatar}}),
     )
 }
 async fn job(
@@ -359,7 +389,15 @@ pub struct JobInput {
     pub title: String,
     pub jd_md: String,
     pub salary_cents: i64,
+    #[serde(default)]
     pub provider: String,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default = "default_headcount")]
+    pub headcount: i64,
+}
+fn default_headcount() -> i64 {
+    1
 }
 async fn create_job(
     State(s): State<AppState>,
@@ -367,14 +405,42 @@ async fn create_job(
     Json(i): Json<JobInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (job, order) =
-        commerce::new_job(&s, &uid, &i.title, &i.jd_md, i.salary_cents, &i.provider)?;
+    let (job, order) = commerce::new_job_with_currency(
+        &s,
+        &uid,
+        &i.title,
+        &i.jd_md,
+        i.salary_cents,
+        &i.provider,
+        i.headcount,
+        i.currency.as_deref(),
+    )?;
     Ok(Json(json!({"job":job,"order":order})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeadcountInput {
+    headcount: i64,
+}
+async fn update_headcount(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<HeadcountInput>,
+) -> AppResult<Json<models::Job>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::set_headcount(
+        &s,
+        &uid,
+        &id,
+        input.headcount,
+    )?))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EditInput {
     pub jd_md: String,
+    #[serde(default)]
     pub provider: String,
 }
 async fn edit_job(
@@ -396,6 +462,54 @@ async fn close_job(
     Ok(Json(commerce::close_job(&s, &uid, &id)?))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobVersionInput {
+    pub expected_version: i64,
+}
+async fn delete_job(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<JobVersionInput>,
+) -> AppResult<Json<models::Job>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::delete_job(
+        &s,
+        &uid,
+        &id,
+        input.expected_version,
+    )?))
+}
+async fn restore_job(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<JobVersionInput>,
+) -> AppResult<Json<models::Job>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::restore_job(
+        &s,
+        &uid,
+        &id,
+        input.expected_version,
+    )?))
+}
+async fn permanently_delete_job(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(input): Json<JobVersionInput>,
+) -> AppResult<Json<models::Job>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::permanently_delete_job(
+        &s,
+        &uid,
+        &id,
+        input.expected_version,
+    )?))
+}
+
 pub fn public_user(user: User) -> Value {
     json!({"id":user.id,"name":user.name,"avatar":user.avatar,"public_email":user.public_email,"resume_md":user.resume_md,"created_at":user.created_at})
 }
@@ -404,7 +518,7 @@ pub fn list_people(s: &AppState, q: &ListQuery, viewer: &str) -> AppResult<Value
     if models::load_user(&db, viewer)?.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
-    let (limit, offset) = pagination(q);
+    let (limit, offset) = pagination(s, q);
     let search = format!(
         "%{}%",
         q.q.as_deref()
@@ -425,7 +539,9 @@ pub fn list_people(s: &AppState, q: &ListQuery, viewer: &str) -> AppResult<Value
         params![search, limit, offset, viewer],
         |r| r.get(0),
     )?;
-    Ok(json!({"items":users.into_iter().map(public_user).collect::<Vec<_>>(),"total":total}))
+    Ok(
+        json!({"items":users.into_iter().map(public_user).collect::<Vec<_>>(),"total":total,"limit":limit,"page":offset/limit+1}),
+    )
 }
 async fn people(
     State(s): State<AppState>,
@@ -469,10 +585,42 @@ async fn person(
 }
 pub fn user_orders(s: &AppState, id: &str) -> AppResult<Vec<models::Order>> {
     let db = s.conn()?;
-    Ok(db
-        .prepare("SELECT * FROM orders WHERE user_id=?1 ORDER BY created_at DESC,id LIMIT 200")?
-        .query_map([id], models::order_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?)
+    let mut orders = db
+        .prepare("SELECT * FROM orders WHERE user_id=?1 ORDER BY created_at DESC,id LIMIT ?2")?
+        .query_map(
+            params![id, s.cfg.limits.recent_list_limit],
+            models::order_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for order in &mut orders {
+        hide_unavailable_checkout(s, &db, order)?;
+    }
+    Ok(orders)
+}
+fn hide_unavailable_checkout(
+    s: &AppState,
+    db: &rusqlite::Connection,
+    order: &mut models::Order,
+) -> AppResult<()> {
+    if order.status != "pending"
+        || !s
+            .cfg
+            .payments
+            .permits_currency(&order.provider, &order.currency)
+        || !commerce::job_checkout_available(db, order)?
+    {
+        order.checkout_url = None;
+    }
+    Ok(())
+}
+pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order> {
+    let db = s.conn()?;
+    let mut order = models::load_order(&db, id)?;
+    if order.user_id != uid {
+        return Err(AppError::not_found("Order not found"));
+    }
+    hide_unavailable_checkout(s, &db, &mut order)?;
+    Ok(order)
 }
 async fn orders(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, false)?;
@@ -484,11 +632,7 @@ async fn order(
     Path(id): Path<String>,
 ) -> AppResult<Json<models::Order>> {
     let uid = user_id(&s, &h, false)?;
-    let order = models::load_order(&*s.conn()?, &id)?;
-    if order.user_id != uid {
-        return Err(AppError::not_found("Order not found"));
-    }
-    Ok(Json(order))
+    Ok(Json(user_order(&s, &uid, &id)?))
 }
 async fn checkout(
     State(s): State<AppState>,
@@ -579,8 +723,8 @@ pub fn list_matches(s: &AppState, uid: Option<&str>) -> AppResult<Value> {
     if models::load_user(&db, uid)?.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
-    let sql = "SELECT m.*,s.name AS seeker_name,j.title AS job_title,j.owner_id AS employer_id,e.name AS employer_name FROM matches m JOIN users s ON s.id=m.seeker_id JOIN jobs j ON j.id=m.job_id JOIN users e ON e.id=j.owner_id WHERE (m.seeker_id=?1 OR j.owner_id=?1) AND m.status IN ('introduced','interview','hired') AND s.banned=0 AND e.banned=0 AND j.status<>'deleted' ORDER BY m.updated_at DESC LIMIT 200";
-    let items=db.prepare(sql)?.query_map([uid],|r|Ok(json!({"id":r.get::<_,String>("id")?,"seeker_id":r.get::<_,String>("seeker_id")?,"seeker_name":r.get::<_,String>("seeker_name")?,"job_id":r.get::<_,String>("job_id")?,"job_title":r.get::<_,String>("job_title")?,"employer_id":r.get::<_,String>("employer_id")?,"employer_name":r.get::<_,String>("employer_name")?,"status":r.get::<_,String>("status")?,"note":r.get::<_,String>("note")?,"created_at":r.get::<_,i64>("created_at")?,"updated_at":r.get::<_,i64>("updated_at")?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let sql = "SELECT m.*,s.name AS seeker_name,j.title AS job_title,j.owner_id AS employer_id,e.name AS employer_name FROM matches m JOIN users s ON s.id=m.seeker_id JOIN jobs j ON j.id=m.job_id JOIN users e ON e.id=j.owner_id WHERE (m.seeker_id=?1 OR j.owner_id=?1) AND m.status IN ('introduced','interview','hired') AND s.banned=0 AND e.banned=0 AND j.status<>'deleted' ORDER BY m.updated_at DESC LIMIT ?2";
+    let items=db.prepare(sql)?.query_map(params![uid,s.cfg.limits.recent_list_limit],|r|Ok(json!({"id":r.get::<_,String>("id")?,"seeker_id":r.get::<_,String>("seeker_id")?,"seeker_name":r.get::<_,String>("seeker_name")?,"job_id":r.get::<_,String>("job_id")?,"job_title":r.get::<_,String>("job_title")?,"employer_id":r.get::<_,String>("employer_id")?,"employer_name":r.get::<_,String>("employer_name")?,"status":r.get::<_,String>("status")?,"note":r.get::<_,String>("note")?,"created_at":r.get::<_,i64>("created_at")?,"updated_at":r.get::<_,i64>("updated_at")?})))?.collect::<rusqlite::Result<Vec<_>>>()?;
     let items = items
         .into_iter()
         .map(|mut m| {
@@ -599,11 +743,13 @@ async fn ai_eligibility(State(s): State<AppState>, h: HeaderMap) -> AppResult<Js
     let p = access::principal(&s, &h, false)?;
     if p.admin {
         return Ok(Json(
-            json!({"eligible":true,"reason":"platform_admin","role":"admin","min_salary_cents":access::EMPLOYER_AI_MIN_SALARY_CENTS}),
+            json!({"eligible":true,"reason":"platform_admin","role":"admin","min_salary_cents":s.cfg.pricing.employer_ai_min_salary_minor,"currency":s.cfg.pricing.currency,"currency_decimals":crate::config::currency_decimals(&s.cfg.pricing.currency)}),
         ));
     }
-    Ok(Json(access::eligibility(
-        &*s.conn()?,
-        p.user_id.as_deref().unwrap(),
-    )?))
+    let mut value = access::eligibility(&*s.conn()?, p.user_id.as_deref().unwrap())?;
+    value["min_salary_cents"] = json!(s.cfg.pricing.employer_ai_min_salary_minor);
+    value["currency"] = json!(s.cfg.pricing.currency);
+    value["currency_decimals"] = json!(crate::config::currency_decimals(&s.cfg.pricing.currency));
+    value["currency_thresholds"] = s.cfg.pricing.public()["currency_options"].clone();
+    Ok(Json(value))
 }

@@ -16,9 +16,35 @@ Policy text is separate from application code:
   the default templates to the config directory to edit them without rebuilding.
 
 See `config.example.toml` for all settings. The website origin, support address,
-activation price, publication percentage, update percentage and update count
-always come from existing runtime configuration; policy overrides cannot silently
-replace those derived values.
+currency choices, activation fee, publication and update fee modes, rates, fixed
+amounts, update allowance and employer AI salary thresholds come from runtime
+configuration. Policy overrides cannot replace these derived values.
+
+The default terms distinguish free, fixed and salary-percentage fees. Their table
+lists each currently selectable currency with its publication fee, description
+update fee and employer AI base-pay threshold. Amounts are formatted from integer
+minor units using the currency's precision, including zero-decimal JPY/KRW; there
+is no currency conversion or floating-point money calculation. The table applies
+to new roles. Existing jobs and confirmed orders retain their saved currency,
+amounts, edit terms and eligibility threshold when configuration changes.
+
+Replacement documents can use these derived variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `{{public_url}}`, `{{site_name}}`, `{{support_contact}}` | Current site identity and configured support link |
+| `{{activation_price}}` | Exact amount and default currency, such as `JPY 235` or `USD 2.35` |
+| `{{activation_fee}}` | Localized free-activation or one-time-charge wording |
+| `{{publish_fee_rule}}`, `{{edit_fee_rule}}` | Localized wording for the actual fee mode |
+| `{{currency_fee_table}}` | Generated Markdown fee and AI-threshold table for all selectable currencies |
+| `{{default_currency}}`, `{{available_currencies}}` | Default currency code and currently selectable codes |
+| `{{max_edits}}` | Description-update allowance for new roles |
+| `{{publish_percent}}`, `{{edit_percent}}` | Exact configured percentages; use only in custom text that accounts for the fee mode |
+
+The legacy percentage variables remain available for existing custom documents,
+but do not by themselves describe fixed or free policies. A complete replacement
+document is operator-authored text; review its surrounding wording whenever the
+fee model changes.
 
 Templates use `{{operator_name}}`, `{{refund_days}}` and similar variables.
 `{{operator_identity}}` is optional public text for the confirmed legal operator
@@ -46,7 +72,13 @@ server log retention and actual handling procedures aligned with the published
 values. A request to retain necessary transaction records does not authorize
 retaining an unrelated complete résumé or private conversation.
 
-The defaults cover the product's current human HR and AI HR matching workflow.
+The defaults cover the product's current human HR and AI HR matching workflow,
+free headcount changes, one-time restoration, permanent content deletion with
+financial references retained, verified Waffo refund events and explicitly
+configured Webhooks. Stripe refund records are not synchronized automatically.
+These behavior descriptions do not introduce new retention periods or automate
+the commitments above. Browser local storage retains language and appearance
+preferences.
 They do not certify merchant approval or legal compliance. Waffo's business
 onboarding separately needs the actual legal operator and its assessment of
 whether the paid service is an eligible software product.

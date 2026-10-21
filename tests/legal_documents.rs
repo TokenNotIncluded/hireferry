@@ -1,4 +1,8 @@
-use hireferry::{AppState, config::Config, legal};
+use hireferry::{
+    AppState,
+    config::{Config, CurrencyAmounts},
+    legal,
+};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
@@ -36,6 +40,134 @@ fn policies_follow_configured_identity_pricing_and_retention_in_both_languages()
         let privacy = legal::document(&cfg, "privacy", language).unwrap();
         assert!(privacy["html"].as_str().unwrap().contains("45"));
         assert!(!privacy["html"].as_str().unwrap().contains("**"));
+    }
+}
+
+#[test]
+fn policies_render_free_and_fixed_fees_with_each_currencys_exact_precision() {
+    let mut cfg = Config {
+        development: true,
+        ..Config::default()
+    };
+    cfg.pricing.currency = "JPY".into();
+    cfg.pricing.allowed_currencies = vec!["JPY".into(), "USD".into()];
+    cfg.pricing.onboarding_cents = 235;
+    cfg.pricing.publish_mode = "fixed".into();
+    cfg.pricing.publish_fixed_minor = 12345;
+    cfg.pricing.edit_mode = "free".into();
+    cfg.pricing.edit_fixed_minor = 1500;
+    cfg.pricing.currency_amounts.insert(
+        "USD".into(),
+        CurrencyAmounts {
+            publish_fixed_minor: 12345,
+            edit_fixed_minor: 150,
+            employer_ai_min_salary_minor: 0,
+        },
+    );
+    cfg.validate().unwrap();
+    for language in ["zh", "en"] {
+        let value = legal::document(&cfg, "terms", language).unwrap();
+        let html = value["html"].as_str().unwrap();
+        assert!(html.contains("JPY 235") && !html.contains("JPY 235.00"));
+        assert!(html.contains("JPY 12345") && html.contains("USD 123.45"));
+        assert!(html.contains("JPY 300000"));
+        assert!(html.contains("<table>") && html.contains("<td>USD</td>"));
+        assert!(!html.contains("CNY") && !html.contains("10%") && !html.contains("1%"));
+        assert!(html.contains(if language == "en" {
+            "No salary threshold"
+        } else {
+            "不设薪资门槛"
+        }));
+    }
+
+    cfg.pricing.onboarding_cents = 0;
+    cfg.pricing.publish_mode = "free".into();
+    cfg.pricing.edit_mode = "fixed".into();
+    cfg.validate().unwrap();
+    for language in ["zh", "en"] {
+        let value = legal::document(&cfg, "terms", language).unwrap();
+        let html = value["html"].as_str().unwrap();
+        assert!(html.contains(if language == "en" {
+            "Free activation"
+        } else {
+            "免费开通"
+        }));
+        assert!(html.contains("JPY 1500") && html.contains("USD 1.50"));
+        assert!(!html.contains("JPY 12345") && !html.contains("USD 123.45"));
+    }
+}
+
+#[test]
+fn pricing_variables_are_exact_and_cannot_be_replaced_by_policy_text_overrides() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("terms.md"),
+        "# Prices\n\n{{activation_price}}\n\n{{activation_fee}}\n\n{{publish_percent}} / {{edit_percent}}\n\n{{publish_fee_rule}}\n\n{{edit_fee_rule}}\n\n{{currency_fee_table}}\n\n{{default_currency}} / {{available_currencies}}\n\n{{max_edits}}\n").unwrap();
+    let mut cfg = Config {
+        development: true,
+        ..Config::default()
+    };
+    cfg.pricing.currency = "USD".into();
+    cfg.pricing.onboarding_cents = 12345;
+    cfg.pricing.publish_bps = 805;
+    cfg.pricing.edit_bps = 125;
+    cfg.pricing.max_edits = 7;
+    for key in [
+        "activation_price",
+        "activation_fee",
+        "publish_percent",
+        "edit_percent",
+        "publish_fee_rule",
+        "edit_fee_rule",
+        "currency_fee_table",
+        "default_currency",
+        "available_currencies",
+        "max_edits",
+    ] {
+        cfg.legal.values.insert(key.into(), "WRONG OVERRIDE".into());
+    }
+    for language in ["zh", "en"] {
+        cfg.legal
+            .document_files
+            .insert(format!("terms.{language}"), "terms.md".into());
+    }
+    cfg.legal.load_documents(directory.path()).unwrap();
+    cfg.validate().unwrap();
+    for language in ["zh", "en"] {
+        let value = legal::document(&cfg, "terms", language).unwrap();
+        let html = value["html"].as_str().unwrap();
+        assert!(html.contains("USD 123.45"));
+        assert!(html.contains("8.05%") && html.contains("1.25%"));
+        assert!(html.contains("<table>") && html.contains("<p>7</p>"));
+        assert!(!html.contains("WRONG OVERRIDE") && !html.contains("CNY"));
+    }
+}
+
+#[test]
+fn policies_explain_current_lifecycle_webhook_refund_and_storage_behavior() {
+    let cfg = Config::default();
+    for language in ["zh", "en"] {
+        let terms = legal::document(&cfg, "terms", language).unwrap();
+        let terms = terms["html"].as_str().unwrap();
+        assert!(terms.contains("id=\"job-management\""));
+        assert!(terms.contains("id=\"webhooks\""));
+        assert!(terms.contains(if language == "en" {
+            "can be restored once"
+        } else {
+            "可免费恢复一次"
+        }));
+        assert!(terms.contains(if language == "en" {
+            "Stripe refund status and net amounts are not yet synchronized automatically"
+        } else {
+            "Stripe 退款状态与净额暂不自动同步"
+        }));
+        let privacy = legal::document(&cfg, "privacy", language).unwrap();
+        let privacy = privacy["html"].as_str().unwrap();
+        assert!(privacy.contains("id=\"webhooks\""));
+        assert!(privacy.contains(if language == "en" {
+            "language and appearance preferences"
+        } else {
+            "语言和外观偏好"
+        }));
     }
 }
 

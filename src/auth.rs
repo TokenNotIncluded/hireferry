@@ -123,12 +123,15 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             CHECK(NOT(user_id IS NOT NULL AND (admin=1 OR bootstrap=1)))
         );
         CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+        CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
         CREATE TABLE IF NOT EXISTS auth_challenges (
             id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject TEXT NOT NULL,
             secret_hash TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}',
             expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS auth_challenges_expiry ON auth_challenges(expires_at);
+        CREATE INDEX IF NOT EXISTS auth_challenges_email ON auth_challenges(subject) WHERE kind='email';
+        CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id);
         CREATE TABLE IF NOT EXISTS auth_limits (
             key TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL
         );
@@ -141,7 +144,29 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             id TEXT PRIMARY KEY, name TEXT NOT NULL, credential_json TEXT NOT NULL,
             created_at INTEGER NOT NULL, last_used_at INTEGER,
             counter INTEGER NOT NULL DEFAULT 0
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS account_access_clock (
+            id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT OR IGNORE INTO account_access_clock(id) VALUES(1);
+        CREATE TABLE IF NOT EXISTS account_moderation (
+            user_id TEXT PRIMARY KEY REFERENCES users(id),
+            banned INTEGER NOT NULL CHECK(banned IN (0,1)),
+            reason TEXT NOT NULL, changed_by TEXT NOT NULL,
+            changed_at INTEGER NOT NULL, generation INTEGER NOT NULL
+        );
+        CREATE TRIGGER IF NOT EXISTS account_access_changed AFTER UPDATE OF banned ON users
+        WHEN OLD.banned IS NOT NEW.banned BEGIN
+            UPDATE account_access_clock SET generation=generation+1 WHERE id=1;
+            INSERT INTO account_moderation(user_id,banned,reason,changed_by,changed_at,generation)
+            VALUES(NEW.id,NEW.banned,CASE WHEN NEW.banned=1 THEN 'Account suspended' ELSE 'Access restored' END,
+                'system',unixepoch(),(SELECT generation FROM account_access_clock WHERE id=1))
+            ON CONFLICT(user_id) DO UPDATE SET banned=excluded.banned,reason=excluded.reason,
+                changed_by=excluded.changed_by,changed_at=excluded.changed_at,generation=excluded.generation;
+            DELETE FROM sessions WHERE NEW.banned=1 AND user_id=NEW.id;
+            UPDATE api_tokens SET revoked=1 WHERE NEW.banned=1 AND user_id=NEW.id;
+            DELETE FROM auth_challenges WHERE NEW.banned=1 AND kind='email' AND subject=NEW.email COLLATE NOCASE;
+        END;",
     )?;
     Ok(())
 }
@@ -349,6 +374,16 @@ fn new_session(
     admin: bool,
     bootstrap: bool,
 ) -> AppResult<(String, String)> {
+    if let Some(user_id) = user_id {
+        let active: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE id=?1 AND banned=0)",
+            [user_id],
+            |r| r.get(0),
+        )?;
+        if !active {
+            return Err(AppError::forbidden("This account is suspended"));
+        }
+    }
     cleanup(db)?;
     let raw = random_token();
     let csrf = random_token();
@@ -463,17 +498,44 @@ async fn email_start(
             "DELETE FROM auth_challenges WHERE kind='email' AND subject=?1",
             [&email],
         )?;
+        let blocked: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE email=?1 AND banned=1)",
+            [&email],
+            |row| row.get(0),
+        )?;
+        if blocked {
+            // Keep the public response neutral: this request must neither send
+            // mail nor disclose whether this address belongs to a blocked user.
+            return with_cookie(
+                Json(json!({"sent":true})).into_response(),
+                &state.cfg,
+                EMAIL_COOKIE,
+                "",
+                0,
+            );
+        }
         db.execute(
             "INSERT INTO auth_challenges(id,kind,subject,secret_hash,expires_at) VALUES(?1,'email',?2,?3,?4)",
             params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),now()+EMAIL_TTL],
         )?;
     }
     if let Some(mailer) = &state.auth.mailer {
-        let message = Message::builder()
+        let mut message = Message::builder()
             .from(state.cfg.smtp.from.parse().map_err(AppError::internal)?)
             .to(email.parse().map_err(AppError::internal)?)
             .subject("聘渡 HireFerry · 登录验证码 / Sign-in code")
-            .header(ContentType::TEXT_PLAIN)
+            .header(ContentType::TEXT_PLAIN);
+        if !state.cfg.smtp.reply_to.is_empty() {
+            message = message.reply_to(
+                state
+                    .cfg
+                    .smtp
+                    .reply_to
+                    .parse()
+                    .map_err(AppError::internal)?,
+            );
+        }
+        let message = message
             .body(format!("你的聘渡登录验证码：{code}\n\nYour HireFerry sign-in code: {code}\n\n10分钟内有效。请勿转发。\nValid for 10 minutes. Do not share this code.\n\n如果不是你本人操作，请忽略这封邮件。\nIf you did not request this, ignore this email."))
             .map_err(AppError::internal)?;
         if mailer.send(message).await.is_err() {
@@ -587,6 +649,22 @@ async fn email_verify(
 #[derive(Deserialize, Serialize)]
 struct GooglePending {
     verifier: String,
+    #[serde(default)]
+    access_generation: i64,
+}
+
+fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> AppResult<()> {
+    let allowed: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users u LEFT JOIN account_moderation a ON a.user_id=u.id WHERE u.id=?1 AND u.banned=0 AND COALESCE(a.generation,0)<=?2)",
+        params![user_id, generation],
+        |row| row.get(0),
+    )?;
+    if !allowed {
+        return Err(AppError::unauthorized(
+            "Account access changed; start Google sign-in again",
+        ));
+    }
+    Ok(())
 }
 
 async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
@@ -603,8 +681,13 @@ async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
             .map_err(|_| AppError::internal("Database lock failed"))?;
         cleanup(&db)?;
         rate_limit(&db, "google-start", 300, 300)?;
+        let access_generation: i64 = db.query_row(
+            "SELECT generation FROM account_access_clock WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?;
         db.execute("INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'google','',?2,?3)",
-            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier})?,now()+CHALLENGE_TTL])?;
+            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation})?,now()+CHALLENGE_TTL])?;
     }
     let callback = format!(
         "{}/auth/google/callback",
@@ -764,6 +847,7 @@ async fn google_callback(
                 uid
             }
         };
+        google_access_unchanged(&tx, &uid, pending.access_generation)?;
         if let Some(old) = cookie(&headers, SESSION_COOKIE) {
             tx.execute(
                 "DELETE FROM sessions WHERE token_hash=?1",
@@ -1273,7 +1357,7 @@ mod tests {
 
     fn db() -> Connection {
         let db = Connection::open_in_memory().unwrap();
-        db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE users(id TEXT PRIMARY KEY);")
+        db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT NOT NULL DEFAULT '',banned INTEGER NOT NULL DEFAULT 0); CREATE TABLE api_tokens(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),revoked INTEGER NOT NULL DEFAULT 0);")
             .unwrap();
         migrate(&db).unwrap();
         db
@@ -1360,5 +1444,37 @@ mod tests {
             HeaderValue::from_static("other_hf_session=bad; hf_session=good; extra=x"),
         );
         assert_eq!(cookie(&headers, SESSION_COOKIE).as_deref(), Some("good"));
+    }
+
+    #[test]
+    fn suspension_invalidates_old_google_flow_without_blocking_other_accounts() {
+        let db = db();
+        db.execute("INSERT INTO users(id,email) VALUES('first','first@example.invalid'),('second','second@example.invalid')", []).unwrap();
+        assert!(google_access_unchanged(&db, "first", 0).is_ok());
+        db.execute("UPDATE users SET banned=1 WHERE id='first'", [])
+            .unwrap();
+        assert!(google_access_unchanged(&db, "first", 0).is_err());
+        assert!(new_session(&db, &Config::default(), Some("first"), false, false).is_err());
+        let started_while_suspended: i64 = db
+            .query_row(
+                "SELECT generation FROM account_access_clock WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.execute("UPDATE users SET banned=0 WHERE id='first'", [])
+            .unwrap();
+        assert!(google_access_unchanged(&db, "first", 0).is_err());
+        assert!(google_access_unchanged(&db, "first", started_while_suspended).is_err());
+        assert!(google_access_unchanged(&db, "second", 0).is_ok());
+        let fresh: i64 = db
+            .query_row(
+                "SELECT generation FROM account_access_clock WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(google_access_unchanged(&db, "first", fresh).is_ok());
+        assert!(new_session(&db, &Config::default(), Some("first"), false, false).is_ok());
     }
 }

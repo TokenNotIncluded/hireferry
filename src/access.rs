@@ -4,8 +4,6 @@ use axum::http::HeaderMap;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-pub const EMPLOYER_AI_MIN_SALARY_CENTS: i64 = 300_000;
-
 #[derive(Clone, Debug)]
 pub struct Principal {
     pub user_id: Option<String>,
@@ -22,8 +20,8 @@ pub fn eligibility(db: &Connection, uid: &str) -> AppResult<Value> {
         (true, "seeker_free")
     } else if user.role == "employer" {
         let qualifying: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM jobs j JOIN orders o ON o.job_id=j.id AND o.kind='publish' AND o.status='paid' WHERE j.owner_id=?1 AND j.status='published' AND j.salary_cents>=?2)",
-            params![uid, EMPLOYER_AI_MIN_SALARY_CENTS],
+            "SELECT EXISTS(SELECT 1 FROM jobs j JOIN orders o ON o.job_id=j.id AND o.kind='publish' AND o.status IN ('paid','partially_refunded') WHERE j.owner_id=?1 AND j.status='published' AND j.salary_cents>=j.ai_min_salary_cents)",
+            [uid],
             |r| r.get(0),
         )?;
         if user.employer_paid && qualifying {
@@ -34,9 +32,7 @@ pub fn eligibility(db: &Connection, uid: &str) -> AppResult<Value> {
     } else {
         (false, "choose_role_first")
     };
-    Ok(
-        json!({"eligible":eligible,"reason":reason,"role":user.role,"min_salary_cents":EMPLOYER_AI_MIN_SALARY_CENTS}),
-    )
+    Ok(json!({"eligible":eligible,"reason":reason,"role":user.role}))
 }
 
 pub fn require_user_ai(db: &Connection, uid: &str) -> AppResult<()> {
@@ -46,7 +42,7 @@ pub fn require_user_ai(db: &Connection, uid: &str) -> AppResult<()> {
     } else {
         Err(AppError::forbidden(
             if status["reason"] == "paid_job_required" {
-                "Employer AI access requires a paid, currently published job with base monthly salary of at least CNY 3,000"
+                "Employer AI access requires a fulfilled, currently published job meeting its recorded salary threshold"
             } else {
                 "Choose an active account role before connecting AI"
             },

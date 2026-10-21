@@ -11,7 +11,7 @@ session_hours = 24
 
 [site]
 name = "HireFerry · 聘渡"
-support_email = ""
+support_email = "support@lmm.best"
 default_language = "zh"
 source_url = "https://github.com/TokenNotIncluded/hireferry"
 
@@ -28,16 +28,19 @@ port = 587
 username = ""
 password = ""
 from = ""
+reply_to = "support@lmm.best"
 starttls = true
 
 [payments.stripe]
 enabled = false
+allowed_currencies = []
 secret_key = ""
 webhook_secret = ""
 live_mode = false
 
 [payments.waffo]
 enabled = false
+allowed_currencies = [] # CNY/EUR/GBP/HKD/JPY/USD only; must match your actual product.
 base_url = "https://api.waffo.ai"
 merchant_id = ""
 store_id = ""
@@ -48,7 +51,46 @@ tax_category = ""
 mode = "test"
 
 [pricing]
-onboarding_cents = 10000
-publish_bps = 1000
-edit_bps = 100
-max_edits = 3
+# Currency codes are explicit. Existing jobs/orders keep their original currency.
+# Empty allowed_currencies means only currency; add per-currency amounts below
+# before enabling additional currencies. No automatic exchange conversion.
+currency = "CNY"
+allowed_currencies = ["CNY"]
+onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+publish_mode = "salary_percent" # salary_percent, fixed, or free
+publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
+publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
+edit_mode = "salary_percent" # Snapshot is retained for the lifetime of each job.
+edit_bps = 100 # Percentage of the original base salary, not the publication fee.
+edit_fixed_minor = 3000
+max_edits = 3 # Applies to JD edits; headcount changes and deletion stay free.
+employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new jobs.
+
+# Example: add USD to allowed_currencies, then set its independent amounts.
+# Values are business settings, not exchange rates; review before enabling.
+# [pricing.currency_amounts.USD]
+# publish_fixed_minor = 30000
+# edit_fixed_minor = 3000
+# employer_ai_min_salary_minor = 300000
+# For JPY/KRW, one minor unit is one yen/won (no multiplication by 100).
+
+[limits]
+max_job_headcount = 1000000 # Maximum value, not a limit on free modifications.
+max_pending_orders_per_user = 20
+list_page_size = 50
+list_max_page = 2000
+workbench_page_size = 25
+recent_list_limit = 200
+
+# Outbound webhooks retain the same public HTTPS-only restrictions in development.
+# Tests inject a transport; HTTP/localhost bypasses are never enabled.
+[webhooks]
+enabled = true
+max_endpoints = 5
+max_attempts = 5
+max_pending_per_endpoint = 1000
+request_timeout_secs = 5
+max_response_bytes = 16384
+poll_interval_secs = 5
+delivered_retention_days = 30
+failed_retention_days = 90

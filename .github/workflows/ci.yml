@@ -48,14 +48,15 @@ jobs:
       - name: Test Rust application
         run: cargo test --locked
 
+      - name: Verify matching queries with 100,000 synthetic candidates
+        run: cargo test --locked --test workbench -- --ignored --nocapture
+
       - name: Check and test browser assets
         run: |
           for asset in static/*.js static/runtime/*.js; do
             node --input-type=module --check < "$asset"
           done
-          node tests/home-story.test.mjs
-          node tests/sculpture.test.mjs
-          node tests/service-ui.test.mjs
+          for suite in tests/*.test.mjs; do node "$suite"; done
 
       - name: Build Linux release
         run: cargo build --locked --release
@@ -64,7 +65,7 @@ jobs:
         run: |
           mkdir -p dist/hireferry/static/runtime
           cp target/release/hireferry README.md LICENSE THIRD_PARTY_NOTICES config.example.toml config.development.toml dist/hireferry/
-          cp -r docs deploy dist/hireferry/
+          cp -r docs deploy legal dist/hireferry/
           cp static/runtime/NOTICE dist/hireferry/static/runtime/NOTICE
           tar -czf dist/hireferry-linux-x86_64.tar.gz -C dist hireferry
 
