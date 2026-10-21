@@ -71,7 +71,7 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
   });
   const theme = new MutationObserver(refresh);
   resize.observe(canvas); intersection.observe(canvas);
-  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-palette'] });
   canvas.addEventListener('pointermove', move, { passive: true });
   canvas.addEventListener('pointerdown', move, { passive: true });
   for (const name of ['pointerleave', 'pointercancel', 'pointerup']) canvas.addEventListener(name, leave);

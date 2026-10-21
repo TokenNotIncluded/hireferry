@@ -14,7 +14,7 @@ const pack = (r        , g        , b        ) =>
   0
 /** Coverage and trails blend with the actual ground, never a black matte. */
 
-export function posterPalette(background      ) {
+export function posterPalette(background, materials = null) {
   const light = background[0] + background[1] + background[2] > 384
   const coverage = (pixel        , alpha        ) =>
     pack(
@@ -27,6 +27,12 @@ export function posterPalette(background      ) {
     background: pack(...background),
     coverage,
     ink: (color      ) => {
+      if (materials) {
+        const pale = (color[0] + color[1] + color[2]) / 3 > 130;
+        const target = color[0] > color[1] + 20 ? materials.tertiary : pale ? materials.secondary : materials.primary;
+        const shade = light ? .72 + Math.min(.28, (color[0]+color[1]+color[2])/1800) : .82 + Math.min(.18,(color[0]+color[1]+color[2])/2400);
+        return coverage(pack(...target.map(channel=>channel*shade)),1);
+      }
       // Preserve hue and shading, but give pale materials a printable midtone.
       const luminance =
         color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722
@@ -73,19 +79,23 @@ export function createRenderer(
   let palette = posterPalette([7, 7, 7])
   let themeKey
   const refreshTheme = () => {
-    const key = document.documentElement.className
+    const key = `${document.documentElement.className}:${document.documentElement.dataset.palette}`
     if (key === themeKey) return
     themeKey = key
-    const value = getComputedStyle(canvas)
-      .getPropertyValue('--poster-ground')
-      .trim()
+    const style = getComputedStyle(canvas)
+    const value = style.getPropertyValue('--poster-ground').trim()
     const hex = /^#([a-f\d]{6})$/i.exec(value)
     const color = hex ? Number.parseInt(hex[1], 16) : 0x070707
+    const material = role => {
+      const hex = style.getPropertyValue(role).trim();
+      const value = /^#[a-f\d]{6}$/i.test(hex) ? Number.parseInt(hex.slice(1),16) : 0x005bc0;
+      return [(value>>>16)&255,(value>>>8)&255,value&255];
+    }
     palette = posterPalette([
       (color >>> 16) & 255,
       (color >>> 8) & 255,
       color & 255,
-    ])
+    ], {primary:material('--md-primary'),secondary:material('--md-secondary'),tertiary:material('--md-tertiary')})
     colors = new WeakMap()
   }
   const paintFor = (points         , fringe        ) => {

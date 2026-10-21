@@ -8,7 +8,7 @@
 
 聘渡由人类 HR 与 AI HR 居中服务：求职者提交资料与求职委托，招聘方提交岗位，双方分别与平台私聊。平台建立明确匹配后，双方才可查看对应资料、岗位和联系邮箱，并进入一段新的独立会话。
 
-这是一个面向 Linux 自托管的小型 Rust 应用：单个服务、内嵌网页资源、SQLite 数据库、纯文本 TOML 配置。生产运行无需 Node.js 服务或外部数据库。界面支持中文与英文，以及跟随系统、浅色、深色三种外观；外观偏好保存在当前浏览器。
+这是一个面向 Linux 自托管的小型 Rust 应用：单个服务、内嵌网页资源、SQLite 数据库、纯文本 TOML 配置。生产运行无需 Node.js 服务或外部数据库。界面支持中文与英文，提供海蓝、紫罗兰、玫瑰三种 Material 3 配色，以及浅色、深色和跟随系统三种外观；偏好保存在当前浏览器。
 
 正式部署域名为 **https://hireferry.lmm.best**，支持邮箱为 **support@lmm.best**。生产接入与运维步骤见 [部署交接](docs/deployment-handoff.md)；本文中的正式地址不代表已完成线上部署或真实商户联调。
 
@@ -35,6 +35,7 @@
 - [HumanGrant](docs/humangrant.md) 提供「Continue with human beings」入口：本人逐项确认权限，AI 使用独立签名凭据，可在「AI 连接」中撤销。
 - 用户可配置自己的公网 HTTPS Webhook，接收已获授权的业务事件通知，查看投递历史、暂停、撤销及重试失败投递。
 - 所有系统设置通过 TOML 修改并重启生效，没有系统设置页面。
+- 顶栏「主题」可选择海蓝、紫罗兰或玫瑰配色，并单独切换浅色、深色或跟随系统。新访客默认浅色海蓝；选择保存在当前浏览器，刷新和切页后保留。颜色由 Google Material Color Utilities 生成，正文、按钮等配对颜色经过对比度检查。
 
 ### 平台匹配工作台
 
@@ -322,3 +323,5 @@ Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refu
 ## 许可与致谢 / License and credits
 
 [AGPL-3.0-or-later](LICENSE)。首页粒子运行时基于 [LIghtJUNction/particle-sculpture-skill](https://github.com/LIghtJUNction/particle-sculpture-skill)；保留其 [版权说明](static/runtime/NOTICE)。本站渡船、桥梁与罗盘为面向聘渡主题的程序化模型。界面视觉参考 [ix.dev](https://ix.dev/)，未复制其品牌资源。
+
+主题颜色通过 Google 官方 [Material Color Utilities](https://github.com/material-foundation/material-color-utilities) 0.3.0 的 `SchemeVibrant` 生成；`static/theme-palettes.json` 保存种子色和完整颜色角色，`scripts/generate-theme-palettes.mjs` 可重新生成 CSS。浏览器运行时无需加载该依赖。
