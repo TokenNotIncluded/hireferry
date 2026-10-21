@@ -386,6 +386,9 @@ async fn actual_login_explicit_consent_scope_reduction_and_immediate_revocation(
 
     let anonymous = Browser::new(&app).review(&request).await;
     assert!(anonymous["human_id"].is_null());
+    assert_eq!(anonymous["grant_status"], "none");
+    assert!(anonymous["grant_expires_at"].is_null());
+    assert_eq!(anonymous["granted_permissions"], json!([]));
     actor.claim(&app, &request).await.denied();
     let before = browser.review(&request).await;
     let after = browser.review(&request).await;
@@ -399,9 +402,38 @@ async fn actual_login_explicit_consent_scope_reduction_and_immediate_revocation(
         .approve(&request, json!([permission("profile.read", "self")]))
         .await
         .ok();
+    let approved_review = browser.review(&request).await;
+    assert_eq!(approved_review["phase"], "approved");
+    assert_eq!(approved_review["grant_status"], "pending_claim");
+    assert_eq!(
+        approved_review["grant_expires_at"],
+        before["requested_grant_expires_at"]
+    );
+    assert_eq!(
+        approved_review["granted_permissions"],
+        json!([permission("profile.read", "self")])
+    );
+    assert_eq!(
+        approved_review["requested_permissions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     let claimed = actor.claim(&app, &request).await;
     claimed.ok();
     assert_eq!(claimed.value["token_type"], "HumanGrant");
+    let connected_review = browser.review(&request).await;
+    assert_eq!(connected_review["phase"], "succeeded");
+    assert_eq!(connected_review["grant_status"], "active");
+    assert_eq!(
+        connected_review["grant_expires_at"],
+        claimed.value["expires_at"]
+    );
+    assert_eq!(
+        connected_review["granted_permissions"],
+        approved_review["granted_permissions"]
+    );
     let token = claimed.value["access_token"].as_str().unwrap();
     actor.claim(&app, &request).await.denied();
     let profile = actor.tool(&app, token, "get_profile", json!({})).await;
@@ -447,6 +479,17 @@ async fn actual_login_explicit_consent_scope_reduction_and_immediate_revocation(
         )
         .await
         .ok();
+    let revoked_review = browser.review(&request).await;
+    assert_eq!(revoked_review["phase"], "succeeded");
+    assert_eq!(revoked_review["grant_status"], "revoked");
+    assert_eq!(
+        revoked_review["grant_expires_at"],
+        claimed.value["expires_at"]
+    );
+    assert_eq!(
+        revoked_review["granted_permissions"],
+        approved_review["granted_permissions"]
+    );
     actor
         .tool(&app, token, "get_profile", json!({}))
         .await
@@ -1078,7 +1121,7 @@ async fn expiry_and_removed_permissions_are_rechecked_on_each_signed_operation()
         .await
         .denied();
 
-    let (_, claimed) = actor
+    let (active_request, claimed) = actor
         .granted(
             &app,
             &mut browser,
@@ -1145,14 +1188,23 @@ async fn expiry_and_removed_permissions_are_rechecked_on_each_signed_operation()
         session.value["effective_permissions"],
         json!([permission("profile.read", "self")])
     );
+    let expired_at = now() - 1;
     state
         .conn()
         .unwrap()
         .execute(
             "UPDATE hg_grants SET expires_at=?1 WHERE id=?2",
-            params![now() - 1, claimed["grant_id"].as_str().unwrap()],
+            params![expired_at, claimed["grant_id"].as_str().unwrap()],
         )
         .unwrap();
+    let expired_review = browser.review(&active_request).await;
+    assert_eq!(expired_review["phase"], "succeeded");
+    assert_eq!(expired_review["grant_status"], "expired");
+    assert_eq!(expired_review["grant_expires_at"], expired_at);
+    assert_eq!(
+        expired_review["granted_permissions"],
+        json!([permission("profile.read", "self")])
+    );
     actor
         .tool(&app, token, "get_profile", json!({}))
         .await

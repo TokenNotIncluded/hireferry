@@ -20,6 +20,7 @@ const request = changes => ({
   client_id: 'hireferry-web', target_service: 'hireferry', purpose: 'Read my profile',
   human_id: 'person-one', human_name: 'A person', expected_human_id: null,
   requested_permissions: [permission, writePermission], grantable_permissions: [permission],
+  grant_status: 'none', grant_expires_at: null, granted_permissions: [],
   expires_at: now + 600, requested_grant_expires_at: now + 3600, checked_at: now, csrf: 'review-csrf',
   ...changes,
 });
@@ -122,6 +123,8 @@ test('the review uses the server-checked sign-in and remembers the link without 
   const { ui } = fixture(async (url, options) => { calls.push(options?.method || 'GET'); return request({ human_id: null, human_name: null, csrf: null, grantable_permissions: [] }); });
   const html = await ui.reviewPage(link);
   assert.match(html, /Sign in to review/);
+  assert.match(html, /Requested permissions/);
+  assert.match(html, /Update my profile/);
   assert.doesNotMatch(html, /data-form="hg-approve"/);
   assert.equal(ui.savedReturn(), path);
   assert.deepEqual(calls, ['GET']);
@@ -228,4 +231,38 @@ test('a newly signed-in member completes role selection before returning to the 
   assert.equal(ui.returnAfterLogin(), path);
   ui.clearReturn();
   assert.equal(ui.returnAfterLogin(), '/app');
+});
+
+
+test('completed requests with unusable grants never claim the AI is connected or invite it to continue', async () => {
+  for (const [status, label] of [['revoked', 'Access revoked'], ['expired', 'Access expired'], ['account_disabled', 'Account unavailable'], ['permissions_removed', 'No permissions remain'], ['unclaimed_expired', 'Claim window expired']]) {
+    const { ui } = fixture(async () => request({ phase: 'succeeded', grant_status: status, granted_permissions: [permission], grant_expires_at: now + 900, csrf: null }));
+    const html = await ui.reviewPage(link);
+    assert.match(html, new RegExp(`<span class="hg-status">${label}</span>`), status);
+    assert.match(html, new RegExp(`<h2>${label}</h2>`), status);
+    assert.doesNotMatch(html, /AI connected|Return to your AI|Return to the AI that made this request/, status);
+    assert.match(html, /Permissions approved at the time/, status);
+    assert.match(html, /not the permissions currently available/, status);
+    assert.match(html, /Read my profile and account status/, status);
+    assert.doesNotMatch(html, /Update my profile/, status);
+  }
+});
+
+test('approved review pages show only the approved subset and distinguish pending, active, and reduced access', async () => {
+  for (const status of ['pending_claim', 'active', 'restricted']) {
+    const { ui } = fixture(async () => request({ phase: status === 'pending_claim' ? 'approved' : 'succeeded', grant_status: status, granted_permissions: [permission], grant_expires_at: now + 900, csrf: null }));
+    const html = await ui.reviewPage(link);
+    assert.match(html, /Read my profile and account status/, status);
+    assert.doesNotMatch(html, /Update my profile|Requested permissions/, status);
+    assert.match(html, /Grant expires/, status);
+    if (status === 'restricted') {
+      assert.match(html, /Access has been reduced/);
+      assert.match(html, /Permissions approved at the time/);
+      assert.match(html, /Fewer permissions are currently available/);
+      assert.doesNotMatch(html, /Return to your AI|AI connected/);
+    } else {
+      assert.match(html, /Approved permissions/);
+      assert.match(html, status === 'active' ? /AI connected/ : /Approved, waiting for your AI/);
+    }
+  }
 });

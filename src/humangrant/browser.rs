@@ -128,6 +128,17 @@ async fn inner(state: &AppState, request: Request) -> Result<Value> {
     let value = match (parts.method.as_str(), path.as_slice()) {
         ("GET", ["api", "humangrant", "review", link]) => {
             let r = record(&tx, link, true)?;
+            let grant_state = state_json(&tx, state, &r, time)?;
+            let granted_permissions: Vec<Permission> = tx
+                .query_row(
+                    "SELECT permissions FROM hg_grants WHERE request_id=?1",
+                    [&r.id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|permissions| serde_json::from_str(&permissions))
+                .transpose()?
+                .unwrap_or_default();
             let human = match session.as_ref().map(|s| current(&tx, s, time)) {
                 Some(Ok(human)) => Some(human),
                 Some(Err(error)) if error.status != StatusCode::UNAUTHORIZED => return Err(error),
@@ -160,6 +171,8 @@ async fn inner(state: &AppState, request: Request) -> Result<Value> {
             json!({"request_id":r.id,"phase":r.phase,"actor_id":r.actor_id,"client_id":r.client_id,
                 "target_service":"hireferry","purpose":r.purpose,"requested_permissions":r.permissions,
                 "grantable_permissions":grantable,"expected_human_id":r.expected_human_id,
+                "grant_status":grant_state["grant_status"],"grant_expires_at":grant_state["grant_expires_at"],
+                "granted_permissions":granted_permissions,
                 "human_id":human,"human_name":name,"expires_at":r.expires_at,
                 "requested_grant_expires_at":r.grant_expires_at,"checked_at":time,"csrf":token})
         }

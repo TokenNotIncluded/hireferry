@@ -2,7 +2,7 @@
 
 更新：2026-10-21。HumanGrant 增量基于远端 `84671e355ec58fbc0e90535c0b089b32cf430c64`，保留此前的政策配置、页面切换、收费/币种配置、工作台、Webhook 与账号停用机制。新增接入与素材验收见第 8 节。
 
-**最新完整回归通过 166 项 Rust 常规测试、111 项 JavaScript 测试，共 277 项，0 失败。** 另有 13 个浏览器 JavaScript 模块和示例客户端语法检查、Rust 格式检查、本地 Linux 开发构建及真实 Node 客户端到 Rust 服务的 HTTP 联调。GitHub CI 与发布包以这份源码对应提交的实际 Actions 结果为准。
+**最新完整回归通过 166 项 Rust 常规测试、113 项 JavaScript 测试，共 279 项，0 失败。** 另有 13 个浏览器 JavaScript 模块和示例客户端语法检查、Rust 格式检查、本地 Linux 开发构建及真实 Node 客户端到 Rust 服务的 HTTP 联调。GitHub CI 与发布包以这份源码对应提交的实际 Actions 结果为准。
 
 ## 1. 自动化验证
 
@@ -28,20 +28,20 @@
 | `workbench_access` | 8 | 工作台管理员权限、严格 MCP 参数、批量事务和并发重试 |
 | **常规合计** | **166** | **0 失败** |
 
-十万候选人测试在普通测试中标为 ignored，上一轮使用 `--ignored --nocapture` 显式执行并通过；本轮 HumanGrant 回归没有重复该规模测试，不计入上述 277 项。各套件使用临时 SQLite、合成账户、受控传输及软件认证器，不连接真实付款、邮件或外部招聘渠道。
+十万候选人测试在普通测试中标为 ignored，上一轮使用 `--ignored --nocapture` 显式执行并通过；本轮 HumanGrant 回归没有重复该规模测试，不计入上述 279 项。各套件使用临时 SQLite、合成账户、受控传输及软件认证器，不连接真实付款、邮件或外部招聘渠道。
 
 | JavaScript 套件 | 通过数 |
 | --- | ---: |
 | `home-story.test.mjs` | 3 |
 | `humangrant-client.test.mjs` | 11 |
-| `humangrant-ui.test.mjs` | 12 |
+| `humangrant-ui.test.mjs` | 14 |
 | `legal-content.test.mjs` | 2 |
 | `money.test.mjs` | 4 |
 | `navigation.test.mjs` | 5 |
 | `sculpture.test.mjs` | 3 |
 | `service-ui.test.mjs` | 68 |
 | `theme.test.mjs` | 3 |
-| **合计** | **111** |
+| **合计** | **113** |
 
 前端验证包含按币种精确金额、历史费用、免费操作、网关选择、管理员统计、批量介绍、权限变化、聊天轮询、暗色主题，以及公共 DOM 与输入内容的保留/清理。DOM 回归与浏览器视觉验收分别记录，不能相互替代。
 
@@ -122,6 +122,8 @@ cargo build --locked --release
 ## 8. HumanGrant 增量验收
 
 登录页、接入说明、权限确认页及 AI 连接中的授权列表已接入现有导航和主题系统。人形加确认勾的标记、按钮展示图和确认插画共六份 SVG 已重新绘制，浅色／深色素材已实际渲染检查。不同申请和账户使用不同页面标识，不会在 DOM 复用时带入旧权限勾选；过期的确认页或授权列表响应不能覆盖当前操作。
+
+确认完成后，页面按当前授权状态显示待领取、可用、权限减少、已撤销或已到期，只列出实际批准的权限。受限或失效后的清单明确标为历史批准记录；申请的 `succeeded` 历史不会误显示为仍可访问。最后的状态显示修正通过了 19 项 HumanGrant Rust 目标测试及全部 113 项 JavaScript 回归。
 
 在独立开发数据库、关闭 SMTP 的回环地址运行最终 Rust 服务，使用交付的 Node 示例客户端实际验签，完成以下 HTTP 联调：
 
