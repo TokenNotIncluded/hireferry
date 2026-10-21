@@ -1,0 +1,23 @@
+Particle Sculpture Skill
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+Derived from TokenNotIncluded/api.lmm.best:
+https://github.com/TokenNotIncluded/api.lmm.best
+Source revision: 8da4f3994299b7120c44b3fa579db35449a42188
+
+assets/runtime/geometry.js preserves the original geometry implementation
+from apps/web/src/features/home/sculptures/geometry.ts (TypeScript types removed).
+assets/runtime/renderer.js adapts the pixel rasterizer, depth buffer,
+point brush, transition scatter, palette and critically damped recovery from
+apps/web/src/features/home/home-poster.ts.
+assets/runtime/motion.js adapts the single-loop lifecycle and passive
+pointer/touch handling from apps/web/src/features/home/home-motion.ts.
+SKILL.md and references adapt the modelling guidance from
+.agents/skills/home-sculpture/SKILL.md and sculptures/README.md.
+Those source files identify LIghtJUNction as their 2026 copyright holder.
+The source repository also includes Copyright (C) 2023-2026 QuantumNous.
+All original notices and the GNU AGPL-3.0-or-later license are retained.
+
+The apple and bird are new procedural, stylized models. They are not scans,
+brand logos, imported photographs, measured anatomy, or species identification.

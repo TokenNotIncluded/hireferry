@@ -1,0 +1,54 @@
+# Local development ONLY / 仅用于本机开发
+# This mode is rejected unless bind and public_url both use loopback addresses.
+# With SMTP disabled, the email API returns dev_code and the UI displays it.
+# It never simulates successful payments or creates sample accounts/data.
+bind = "127.0.0.1:3000"
+public_url = "http://localhost:3000"
+webauthn_rp_id = "localhost"
+database = "data/hireferry.sqlite3"
+development = true
+session_hours = 24
+
+[site]
+name = "HireFerry · 聘渡"
+support_email = ""
+default_language = "zh"
+source_url = "https://github.com/TokenNotIncluded/hireferry"
+
+[google]
+enabled = false
+client_id = ""
+client_secret = ""
+# Local redirect URI: http://localhost:3000/auth/google/callback
+
+[smtp]
+enabled = false
+host = ""
+port = 587
+username = ""
+password = ""
+from = ""
+starttls = true
+
+[payments.stripe]
+enabled = false
+secret_key = ""
+webhook_secret = ""
+live_mode = false
+
+[payments.waffo]
+enabled = false
+base_url = "https://api.waffo.ai"
+merchant_id = ""
+store_id = ""
+product_id = ""
+private_key_pem = ""
+webhook_public_key_pem = ""
+tax_category = ""
+mode = "test"
+
+[pricing]
+onboarding_cents = 10000
+publish_bps = 1000
+edit_bps = 100
+max_edits = 3

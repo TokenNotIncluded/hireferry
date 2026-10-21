@@ -1,0 +1,60 @@
+# HireFerry production configuration / 生产配置模板
+# Copy to config.toml; keep it outside Git and chmod 600. Restart after changes.
+# The domain below is an example, not a live deployment claim.
+# Replace both host names with your actual HTTPS domain before starting.
+bind = "127.0.0.1:3000"
+public_url = "https://hireferry.lmm.best"
+webauthn_rp_id = "hireferry.lmm.best"
+database = "data/hireferry.sqlite3"
+development = false
+session_hours = 24
+
+[site]
+name = "HireFerry · 聘渡"
+support_email = ""
+default_language = "zh" # zh or en
+source_url = "https://github.com/TokenNotIncluded/hireferry"
+
+[google]
+enabled = false
+client_id = ""
+client_secret = ""
+# Example authorized redirect URI: https://hireferry.lmm.best/auth/google/callback
+# Example terms URL: https://hireferry.lmm.best/terms
+# Example privacy URL: https://hireferry.lmm.best/privacy
+
+[smtp]
+enabled = false
+host = ""
+port = 587
+username = ""
+password = ""
+from = "" # e.g. HireFerry <hello@YOUR-HOST>
+starttls = true # true: STARTTLS (usually 587); false: implicit TLS (usually 465)
+# Production email login stays unavailable until SMTP is configured and enabled.
+
+[payments.stripe]
+enabled = false
+secret_key = ""
+webhook_secret = ""
+live_mode = false # Test keys: false. Live keys: true.
+# Webhook: https://YOUR-HOST/api/webhooks/stripe
+
+[payments.waffo]
+enabled = false
+base_url = "https://api.waffo.ai"
+merchant_id = ""
+store_id = ""
+product_id = "" # A one-time product supporting CNY and signed priceSnapshot.
+private_key_pem = "" # Store PEM text here using a TOML multiline literal string.
+webhook_public_key_pem = ""
+tax_category = "" # Use the category approved for your actual business.
+mode = "test" # Exactly "test" or "prod".
+# Webhook: https://YOUR-HOST/api/webhooks/waffo
+# See docs/payments.md for provider setup, signatures and environment checks.
+
+[pricing]
+onboarding_cents = 10000 # ¥100, charged once to activate an employer account.
+publish_bps = 1000 # 10% of monthly base salary; 10000 basis points = 100%.
+edit_bps = 100 # 1% of the ORIGINAL monthly base salary for each paid JD edit.
+max_edits = 3

@@ -1,0 +1,50 @@
+[package]
+name = "hireferry"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "HireFerry — a small, private-by-default human recruitment service"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "limit"] }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls", "hostname", "pool"] }
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+sha2 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+hex = "0.4"
+base64 = "0.22"
+rsa = { version = "0.9", features = ["pem", "sha2"] }
+signature = "2"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+subtle = "2"
+pulldown-cmark = "0.13"
+ammonia = "4"
+roxmltree = "0.20"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+include_dir = "0.7"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+http-body-util = "0.1"
+webauthn-authenticator-rs = { version = "0.5", default-features = false, features = ["softpasskey"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
