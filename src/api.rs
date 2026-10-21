@@ -53,7 +53,7 @@ pub fn public_config(s: &AppState) -> Value {
     if s.cfg.payments.waffo.enabled {
         providers.push("waffo");
     }
-    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
+    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
 }
 async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<User>> {
     let id = user_id(&s, &h, false)?;

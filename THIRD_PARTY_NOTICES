@@ -21,3 +21,31 @@ All original notices and the GNU AGPL-3.0-or-later license are retained.
 
 The apple and bird are new procedural, stylized models. They are not scans,
 brand logos, imported photographs, measured anatomy, or species identification.
+
+HumanGrant signature profile and public test vector
+Source: https://github.com/LIghtJUNction/humangrant
+Source revision: c4a730480d2aae93a636889a144a025fe98becb8
+Adapted in src/humangrant/crypto.rs. The new interface artwork is original
+HireFerry artwork and does not reuse the upstream HumanGrant logo or buttons.
+
+MIT License
+
+Copyright (c) 2026 HumanGrant contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

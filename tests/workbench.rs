@@ -252,7 +252,7 @@ fn v4_upgrade_rebuilds_search_and_write_triggers_keep_all_four_indexes_current()
         assert_eq!(
             db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            6
+            7
         );
     }
     let search = |q: &str| {

@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 6 {
+    if version > 7 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -114,7 +114,8 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     crate::commerce::migrate(db)?;
     crate::webhooks::migrate(db)?;
     crate::workbench::migrate(db)?;
-    db.pragma_update(None, "user_version", 6)?;
+    crate::humangrant::migrate(db)?;
+    db.pragma_update(None, "user_version", 7)?;
     Ok(())
 }
 pub fn audit(

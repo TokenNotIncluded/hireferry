@@ -21,6 +21,14 @@ client_id = ""
 client_secret = ""
 # Local redirect URI: http://localhost:3000/auth/google/callback
 
+[humangrant]
+enabled = true
+client_ids = ["hireferry-web", "hireferry-cli"]
+request_ttl_seconds = 600
+max_grant_seconds = 86400
+request_limit_per_hour = 12
+service_limit_per_hour = 600
+
 [smtp]
 enabled = false
 host = ""

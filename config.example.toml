@@ -24,6 +24,18 @@ client_secret = ""
 # Refunds: https://hireferry.lmm.best/refunds
 # Contact: https://hireferry.lmm.best/contact
 
+# A person signs in above, then approves a separate, scoped AI identity.
+# No external HumanGrant service or OAuth secret is needed.
+[humangrant]
+enabled = true
+client_ids = ["hireferry-web", "hireferry-cli"] # Allowed client labels, not proof of identity.
+request_ttl_seconds = 600 # Time to approve and claim a request: 60..3600.
+max_grant_seconds = 86400 # Maximum delegated session: 60..86400; no auto-renewal.
+request_limit_per_hour = 12 # Persistent per-signing-key limit.
+service_limit_per_hour = 600 # Persistent total request limit across all keys.
+# Invitations use a forwarded review link. HumanGrant email delivery is disabled.
+# See docs/humangrant.md for signing, consent, permissions and revocation.
+
 [smtp]
 enabled = false
 host = ""

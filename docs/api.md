@@ -1,10 +1,10 @@
 # HTTP API、MCP 与 WebMCP
 
-本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[聊天与委托](../src/chat.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
+本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[聊天与委托](../src/chat.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[HumanGrant](../src/humangrant.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
 
 聘渡由平台 HR 居中服务。账号资料、简历、头像与岗位均不提供公共目录。每位用户与平台的私聊独立保存；平台建立明确匹配后，双方才能读取对应资料，并进入新的独立匹配会话。管理员可以读取全平台业务历史，包含封禁、拒绝匹配与岗位删除后的归档会话；归档会话不可发送新消息。
 
-当前数据库版本为 schema 6：旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
+当前数据库版本为 schema 7，新增 HumanGrant 申请、授权和防重放状态。此前 schema 6 中，旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
 
 ## 1. 通用约定
 
@@ -15,15 +15,17 @@
 - 浏览器 Cookie 为 `hf_session`，HttpOnly、SameSite=Lax，HTTPS 下 Secure；默认 24 小时，可由 TOML 调整。
 - Cookie 写请求携带 `Origin`（配置的 public_url 来源）和 `X-CSRF-Token`（来自 GET /api/session）。尚未登录的认证接口验证同源及浏览器挑战。
 - Bearer 为 `Authorization: Bearer <token>`。普通用户、管理员两类令牌严格隔离；管理员不能冒充普通用户调用本人资料接口。
+- HumanGrant 的远程业务请求只走 `POST /mcp`，使用 `Authorization: HumanGrant <access_token>` 并由原申请密钥签名；它不能作为个人 Bearer 使用，也不能直接调用普通用户 HTTP 业务接口。具体签名要求见 [HumanGrant 说明](humangrant.md)。
 - 每次普通用户 Bearer 请求检查封禁、撤销、过期和 AI 资格。求职者免费；招聘方须已开通，并拥有至少一个发布订单已完成、状态为 published、底薪达到该岗位 `ai_min_salary_cents` 的岗位。门槛使用岗位自己的币种；默认模板为 CNY 300000 最小单位，允许配置为零。免费发布的已完成订单可满足发布条件，`headcount=0` 仍满足这里的已发布条件。
 - WebMCP 请求携带 `X-HireFerry-AI: webmcp` 并使用当前 Cookie/CSRF，服务端再次检查 AI 资格。关闭或删除最后一个合资格岗位后，已有招聘方 AI 令牌立即不可用；可用人工工作台执行符合规则的回收站恢复。
-- `public_email` 是历史字段名，现表示向平台及明确匹配对象提供的联系邮箱。`visible` 兼容旧客户端，写入固定 false，不授予公开访问。登录邮箱 email 只向本人和管理员返回。
+- `public_email` 是历史字段名，现表示向平台及明确匹配对象提供的联系邮箱。`visible` 兼容旧客户端，写入固定 false，不授予公开访问。登录邮箱 email 只向本人、获准读取本人资料的 AI 和管理员返回。
 
 | 身份 | 业务范围 |
 | --- | --- |
 | 未登录 | 首页、条款、隐私/退款/联系页面、公开配置、登录流程、健康检查；支付返回页不显示私人订单 |
 | 普通用户 Cookie | 本人资料/岗位/订单、平台私聊、明确匹配对象和对应匹配会话；按角色操作 |
 | 普通用户 Bearer / WebMCP | 同上，每次重新检查 AI 资格；不能自行签发令牌 |
+| 普通用户 HumanGrant | 仅限本人明确批准的 MCP 操作与资源；每次检查签名、原申请密钥、授权期限、撤销和当前 AI 资格；无管理员权限 |
 | 管理员 Cookie | 全平台业务、会话历史、订单/统计/审计，以及 Passkey/管理员令牌管理 |
 | 管理员 Bearer / WebMCP | 全平台业务操作；无 Passkey、令牌签发、系统配置或伪造付款操作 |
 
@@ -48,7 +50,7 @@ Stripe 另外使用 `POST /api/webhooks/stripe`，远程 MCP 使用 `POST /mcp`�
 | 方法与路径 | 输入 | 返回 / 条件 |
 | --- | --- | --- |
 | GET `/healthz` | 无 | 204，进程存活 |
-| GET `/api/config` | 无 | {name,public_origin,default_language,support_email,source_url,google_enabled,email_enabled,development,providers,payment_currencies,pricing,limits}；无服务密钥 |
+| GET `/api/config` | 无 | {name,public_origin,default_language,support_email,source_url,google_enabled,email_enabled,humangrant_enabled,development,providers,payment_currencies,pricing,limits}；无服务密钥 |
 | GET `/terms`、`/privacy`、`/refunds`、`/contact` | 无 | 中英双语公开说明页面；联系地址取 site.support_email |
 | GET `/api/legal/{kind}` | kind 为 terms/privacy；query lang=zh/en，默认 zh | {html,version,effective_date}；未知文档或语言 404，不返回文件路径或配置密钥 |
 | GET `/billing/return` | query order_id?、provider?、canceled? | 页面壳；登录后读取本人 GET /api/orders/{id}，query 不能改变订单状态 |
@@ -72,6 +74,24 @@ CLI admin-bootstrap 口令一次性、10 分钟有效。首次引导会话 5 分
 公开 `pricing` 包含默认 `currency`、`currency_decimals`、`allowed_currencies`、`currency_options`，以及 `onboarding_cents`、发布/修改的 `*_mode`、`*_bps`、`*_fixed_minor`、`max_edits` 和 `employer_ai_min_salary_minor`。每个 `currency_options` 项提供币种、精度和该币种的两项固定费用及 AI 门槛。`payment_currencies` 按已启用网关列出它当前允许的币种，例如 `{stripe:["USD","JPY"],waffo:["USD"]}`；它独立于新岗位的可选币种，旧订单仍可能使用其他历史币种。`limits` 提供 `max_job_headcount`、`max_pending_orders_per_user`、`list_page_size`、`list_max_page`、`workbench_page_size`、`recent_list_limit`。工作台默认页大小可配置为 1–100（模板 25），最近记录上限可配置为 1–1000（模板 200）。
 
 公开法律文档来自独立中英 Markdown 模板；`[legal.values]` 和 `[legal.document_files]` 配置公开政策值及完整替代文本。费用模式、币种、整数金额精度、修改次数与 AI 门槛从运行配置派生，不能被政策值覆盖。加载配置时校验所有文档和变量，渲染过滤原始 HTML 与不安全链接。详见 [政策配置](legal-policies.md)。
+
+### HumanGrant 入口与确认
+
+浏览器入口是 `/humangrant`，本人确认页是 `/human/{link}`。本人继续使用 Google 或邮箱验证码登录；有效登录直接显示申请内容。权限、资源和期限由本人明确选择。批准后，原申请 AI 可单次领取独立凭据；本人在「AI 连接」页面查看或撤销。管理员不能通过此流程授权。
+
+| 方法与路径 | 输入 / 身份 | 返回 / 行为 |
+| --- | --- | --- |
+| GET `/api/humangrant/config` | 无 | 协议版本、客户端、权限范围与配置限制，无密钥 |
+| POST `/v1/requests` | 原申请 AI 的签名请求 | 创建申请，返回独立的本人确认链接与状态地址 |
+| GET `/v1/requests/{id}/status.md` | 原申请 AI 的签名请求 | 私有 Markdown 状态；不会批准或领取凭据 |
+| POST `/v1/requests/{id}/claim` | 原申请 AI 的签名请求 | 本人批准后，单次领取独立 AI 凭据 |
+| GET `/api/humangrant/review/{link}` | 本人 Cookie 可选 | 申请详情、当前账户和可授予权限；打开页面不授权 |
+| POST `/api/humangrant/review/{link}/approve` | 本人 Cookie、同源、确认页的 `X-HG-CSRF`；`{permissions,expires_at}` | 再次检查实际账户并批准所选范围 |
+| POST `/api/humangrant/review/{link}/deny` | 本人 Cookie、同源、确认页的 `X-HG-CSRF`；`{}` | 拒绝申请 |
+| GET `/api/humangrant/grants` | 本人 Cookie | 本人授权列表与该列表的确认凭据 |
+| DELETE `/api/humangrant/grants/{id}` | 本人 Cookie、同源、授权列表的 `X-HG-CSRF`；`{}` | 撤销本人对应授权 |
+
+HumanGrant 的完整请求字段、取消、会话检查、签名与有效权限计算见 [HumanGrant 说明](humangrant.md)。本节的浏览器审批确认凭据与普通 API 的 `X-CSRF-Token` 不可互换。
 
 ## 3. 普通用户 HTTP API
 
@@ -329,7 +349,7 @@ OutreachInput 必填 channel、opportunity、stage，可选 source_url、note（
 
 ### 传输与请求
 
-端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。必须手动配置 Bearer，Cookie 不能代替。没有 OAuth 自动发现、SSE 推送、resources/prompts 或 MCP 会话 ID。
+端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。没有 OAuth 自动发现、SSE 推送、resources/prompts 或 MCP 会话 ID。
 
 ```http
 Authorization: Bearer <personal-token-or-admin-token>
@@ -338,11 +358,13 @@ Accept: application/json, text/event-stream
 MCP-Protocol-Version: 2025-11-25
 ```
 
+HumanGrant 使用 `Authorization: HumanGrant <access_token>`，并按 [签名规范](humangrant.md) 为每次请求提供密钥标识、时间、随机数、正文摘要与签名。仅持有访问令牌不足以调用；服务端核对它是否绑定原申请密钥。普通用户和管理员 Bearer 继续使用上面的请求头。
+
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"my-hr-agent","version":"1.0"}}}
 ```
 
-支持 initialize、ping、tools/list、tools/call。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。普通用户和管理员各有 **32 个工具**：普通用户为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具；管理员为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。
+支持 initialize、ping、tools/list、tools/call。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。使用 Bearer 的普通用户和管理员各有 **32 个工具**：普通用户为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具；管理员为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。HumanGrant 的 `tools/list` 只返回当前授权允许的工具，`tools/call` 在执行时继续检查具体资源和当前权限。HumanGrant 不开放管理员工具、`choose_role`、`create_checkout` 或 `update_mandate`。
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
