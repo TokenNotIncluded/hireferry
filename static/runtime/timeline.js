@@ -13,8 +13,10 @@ export function createTimeline(scenes, { hold = 7, morph = 1.6 } = {}) {
     at(seconds, selected = null) {
       const time = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
       if (selected !== null) {
-        const index = Math.max(0, Math.min(scenes.length - 1, Math.floor(Number.isFinite(selected) ? selected : 0)));
-        return { from: scenes[index], to: scenes[index], age: time, nextAge: time, mix: 0 };
+        const position = Math.max(0, Math.min(scenes.length - 1, Number.isFinite(selected) ? selected : 0));
+        const index = Math.floor(position);
+        return { from: scenes[index], to: scenes[Math.min(index + 1, scenes.length - 1)],
+          age: time, nextAge: time, mix: smooth(position - index) };
       }
       const index = Math.floor(time / duration) % scenes.length;
       const phase = time % duration;

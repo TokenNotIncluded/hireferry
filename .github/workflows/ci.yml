@@ -53,6 +53,7 @@ jobs:
           for asset in static/*.js static/runtime/*.js; do
             node --input-type=module --check < "$asset"
           done
+          node tests/home-story.test.mjs
           node tests/sculpture.test.mjs
           node tests/service-ui.test.mjs
 

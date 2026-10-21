@@ -84,6 +84,7 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
   announce(); schedule();
   return {
     select(index) { selected = index; time = 0; resetClock(); },
+    seek(position) { selected = position; refresh(); },
     pause(value = !paused) { paused = Boolean(value); resetClock(); },
     inspect() { return { ...renderer.inspect(), state: state(), visible, selected }; },
     dispose() {

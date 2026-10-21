@@ -24,7 +24,7 @@
 
 ## 已实现的工作台
 
-- 首页服务介绍与收费说明，渡船、桥梁、罗盘三组粒子轮播；支持暂停、切换与减少动态效果偏好。
+- 首页以同一张开放画布呈现平台、初筛匹配和收费三段介绍。滚轮与手机纵向滑动先原地切换文案和渡船、桥梁、罗盘粒子，第三段结束后再进入下方内容流；支持倒退、章节按钮、暂停和减少动态效果偏好。
 - 求职者资料、本人委托、外部寻找进展、平台私聊、独立匹配会话与未读提醒。
 - 招聘方多个岗位、Markdown JD、固定月薪底薪、托管支付、自己的订单与匹配对象。
 - 管理员总控台：完整用户/岗位资料、封禁与内容处理、委托、可视化匹配流程、平台私聊和历史会话、外部进展、订单、审计及按日期/历史累计的流水图表。正式和测试流水分开。
@@ -207,6 +207,7 @@ cargo test --locked
 for asset in static/*.js static/runtime/*.js; do
   node --input-type=module --check < "$asset" || exit 1
 done
+node tests/home-story.test.mjs
 node tests/sculpture.test.mjs
 node tests/service-ui.test.mjs
 cargo build --locked --release
@@ -214,7 +215,7 @@ cargo build --locked --release
 
 上述脚本包含 `static/service-ui.js`。Node.js 24 用于前端检查，生产运行无需 Node。GitHub Actions 检查格式、Rust 测试、JavaScript 语法、粒子模型与服务界面测试并构建 Linux 发布包。测试范围包括邮箱与真实 WebAuthn 签名、付费事务、角色/匹配/聊天权限、管理员令牌、委托授权、撤销、重试幂等和输入清洗。
 
-已验证 62 项 Rust 测试、13 项 Node 测试（共 75 项）、7 个 JavaScript 模块语法、Rust 格式检查和本地开发构建。测试日志、真实浏览器与移动端截图、发布构建状态由 [验收记录](docs/acceptance.md) 分别记录。视觉 QA 使用临时独立数据库，测试账号、聊天、匹配和流水不作为默认数据随包。
+已验证 62 项 Rust 测试、16 项 Node 测试（共 78 项）、8 个 JavaScript 模块语法、Rust 格式检查和本地开发构建。测试日志、真实浏览器与移动端截图、发布构建状态由 [验收记录](docs/acceptance.md) 分别记录。视觉 QA 使用临时独立数据库，测试账号、聊天、匹配和流水不作为默认数据随包。
 
 真实 Google OAuth、SMTP 投递、物理 Passkey 设备及两个网关的商户付款，仍需部署方凭证、域名和设备做端到端验收。密码学测试和软件认证器不能替代外部验收。自动退款与争议处理尚未实现；异常到账标记 `paid_needs_review`，由管理员核对并通过商户后台处理。外部 AI 的实际模型运行、第三方搜索与邮件投递也属于单独部署和授权范围。
 
