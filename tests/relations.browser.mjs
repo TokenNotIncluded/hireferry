@@ -15,6 +15,11 @@ const errors = [], graphRequests = [];
 const screenshots = process.env.HFY_BROWSER_SCREENSHOTS;
 const paint = () => page.evaluate(() => new Promise(resolve_ => requestAnimationFrame(() => requestAnimationFrame(resolve_))));
 async function step(name, run) { stage = name; await run(); process.stdout.write(`ok - ${name}\n`); }
+async function until(check, message) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) { if (await check()) return; await new Promise(resolve_ => setTimeout(resolve_, 150)); }
+  throw new Error(message);
+}
 async function capture(name) {
   if (!screenshots) return;
   await mkdir(screenshots, { recursive: true });
@@ -62,7 +67,7 @@ try {
     const beforeScroll = graphRequests.length;
     await page.locator('[data-pj-scroll="right"]').evaluate(element => { element.scrollTop = 850; });
     await paint();
-    await page.locator('[data-pj-portal="right:above"]').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.querySelector('[data-pj-scroll="right"]')?.scrollTop >= 850 && !document.querySelector('[data-pj-portal="right:above"]')?.disabled);
     assert.equal(graphRequests.length, beforeScroll, 'Scrolling a loaded page must not query the database');
     assert.ok(await page.locator('[data-graph-node]').count() < 50);
     await capture('focus-scroll-dark');
@@ -73,8 +78,10 @@ try {
 
   await step('line visibility changes presentation without changing the graph', async () => {
     const before = await fixture.api('/api/admin/relations/query', { mode: 'overview' });
+    const scrollBefore = await page.locator('[data-pj-scroll="right"]').evaluate(element => element.scrollTop);
     await page.locator('[data-pj-action="lines"]').click();
     await paint();
+    assert.equal(await page.locator('[data-pj-scroll="right"]').evaluate(element => element.scrollTop), scrollBefore, 'Hiding lines keeps the scroll anchor');
     await page.locator('[data-pj-action="lines"]').click();
     await paint();
     const after = await fixture.api('/api/admin/relations/query', { mode: 'overview' });
@@ -92,9 +99,43 @@ try {
     assert.ok(expanded.width >= 1400, 'Fullscreen or its immersive fallback should use the viewport');
     await page.locator('[data-pj-action="fullscreen"]').click();
     await paint();
-    await page.locator('[data-pj-matrix-left][data-pj-matrix-right]').first().click();
+    await page.locator('[data-pj-matrix-left][data-pj-matrix-right]:not(:disabled)').first().click();
     await page.locator('[data-pj-action="clear-groups"]').waitFor({ state: 'visible' });
     await page.locator('[data-pj-action="clear-groups"]').click();
+  });
+
+  await step('MCP controls the visible workspace and acknowledges only rendered revisions', async () => {
+    let current;
+    await until(async () => {
+      current = await fixture.mcp('hf_view_open', { response: 'state' });
+      return current.ui.status === 'applied' && current.state.mode === 'focus' && !current.state.filters.left_group_ids?.length;
+    }, 'The browser should finish synchronizing its local view');
+    const before = await fixture.api('/api/admin/relations/query', { mode: 'overview' });
+    const changed = await fixture.mcp('hf_view_patch', { view_id: current.view_id, if_view_rev: current.view_rev, operation_id: 'synthetic-mcp-matrix', commands: [{ op: 'set_mode', mode: 'matrix' }, { op: 'set_presentation', presentation: 'immersive' }] });
+    assert.notEqual(changed.ui.status, 'applied', 'An accepted command is not yet a rendered view');
+    await page.locator('[data-pj-mode="matrix"][aria-pressed="true"]').waitFor();
+    await page.locator('[data-pj-workbench].is-immersive').waitFor();
+    await until(async () => {
+      current = await fixture.mcp('hf_view_open', { mode: 'resume', view_id: changed.view_id, response: 'state' });
+      return current.view_rev === changed.view_rev && current.ui.status === 'applied';
+    }, 'MCP should see the browser acknowledge the requested revision after rendering');
+    const result = await fixture.mcp('hf_graph_query', { query: { mode: 'neighbors', focus: { side: 'left', id: 's0000' } } });
+    assert.equal(result.items, undefined, 'Default AI queries return a summary and handle');
+    const rows = await fixture.mcp('hf_graph_read', { result_id: result.result_id, limit: 100, fields: ['id', 'label'], max_bytes: 2048 });
+    assert.ok(Buffer.byteLength(JSON.stringify(rows)) <= 2048, 'AI output respects its explicit byte budget');
+    assert.ok(rows.returned > 0 && rows.returned <= 100 && rows.next_cursor);
+    assert.doesNotMatch(JSON.stringify(rows), /PRIVATE_|@example\.invalid/);
+    const request = await fixture.mcp('hf_view_patch', { view_id: current.view_id, if_view_rev: current.view_rev, operation_id: 'synthetic-fullscreen-request', commands: [{ op: 'request_fullscreen' }] });
+    await until(async () => {
+      current = await fixture.mcp('hf_view_open', { mode: 'resume', view_id: request.view_id, response: 'state' });
+      return current.ui.status === 'applied' && current.ui.fullscreen === 'requires_user_gesture';
+    }, 'Native fullscreen remains an explicit browser gesture');
+    assert.equal(await page.evaluate(() => document.fullscreenElement === null), true);
+    const after = await fixture.api('/api/admin/relations/query', { mode: 'overview' });
+    assert.deepEqual(after.summary, before.summary);
+    assert.equal(after.data_rev, before.data_rev);
+    await fixture.mcp('hf_view_patch', { view_id: current.view_id, if_view_rev: current.view_rev, operation_id: 'synthetic-back-to-overview', commands: [{ op: 'set_mode', mode: 'overview' }, { op: 'set_presentation', presentation: 'standard' }] });
+    await page.locator('[data-pj-mode="overview"][aria-pressed="true"]').waitFor();
   });
 
   await step('light and narrow screens remain readable without document overflow', async () => {
