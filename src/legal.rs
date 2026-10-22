@@ -227,6 +227,14 @@ pub fn document(cfg: &Config, kind: &str, language: &str) -> AppResult<Value> {
         markdown_text(&cfg.pricing.currencies().join(", ")),
     );
     values.insert("max_edits".into(), cfg.pricing.max_edits.to_string());
+    values.insert(
+        "feedback_retention_days".into(),
+        cfg.feedback.retention_days.to_string(),
+    );
+    values.insert(
+        "feedback_max_records".into(),
+        cfg.feedback.max_records.to_string(),
+    );
     let contact = if cfg.site.support_email.is_empty() {
         if language == "en" {
             "the site support contact".into()

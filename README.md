@@ -34,6 +34,7 @@
 - 普通用户和平台管理员使用独立 MCP 身份；浏览器 WebMCP 绑定当前身份，AI 代发消息带标记。
 - [HumanGrant](docs/humangrant.md) 提供「Continue with human beings」入口：本人逐项确认权限，AI 使用独立签名凭据，可在「AI 连接」中撤销。
 - 用户可配置自己的公网 HTTPS Webhook，接收已获授权的业务事件通知，查看投递历史、暂停、撤销及重试失败投递。
+- 全站及 CLI/OAuth 页面可快速提交问题与建议；管理员 CLI/MCP 可分页审阅及标记处理。反馈自动过期、限频并设置总量上限。
 - 所有系统设置通过 TOML 修改并重启生效，没有系统设置页面。
 - 顶栏色盘可直接点选海蓝、紫罗兰、玫瑰、琥珀或青碧配色，并单独切换浅色、深色或跟随系统。新访客默认浅色海蓝；选择保存在当前浏览器，刷新和切页后保留。颜色由 Google Material Color Utilities 生成，正文、按钮等配对颜色经过对比度检查。
 
@@ -45,7 +46,7 @@
 匹配跟进使用可搜索、按阶段筛选的列表，阶段数量随当前筛选计算，按最近更新时间排列。
 
 搜索只向管理员及独立管理员 AI 开放。它不创建匹配，不扩大求职委托或外部联系同意，
-也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；schema 7 增加 HumanGrant 授权和防重放状态，schema 8 增加 CLI 授权与刷新凭据记录，当前 schema 9 增加优惠申请、优惠码和次数预占。
+也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；schema 7 增加 HumanGrant 授权和防重放状态，schema 8 增加 CLI 授权与刷新凭据记录，schema 9 增加优惠申请、优惠码和次数预占，当前 schema 10 新增有限期反馈箱。
 较短关键词仍采用受筛选条件约束的字面匹配。规模测试与实测结果见 [验收记录](docs/acceptance.md)，
 接口和分页规则见 [工作台 API](docs/api.md#岗位中心匹配工作台)。
 
@@ -137,6 +138,7 @@ hfy capabilities --json
 hfy auth status --json
 hfy auth refresh
 hfy auth logout
+hfy feedback send "页面有问题" --category bug
 ```
 
 更新源码后可用 `cargo install --path crates/hireferry-cli --locked --force` 升级；先退出各站点登录，再用 `cargo uninstall hireferry-cli` 卸载。需要二进制压缩包时运行 `./scripts/package-cli.sh`，脚本会生成带文档和技能的本地包及 `SHA256SUMS`，本地打包本身不发布 Release；推送 `cli-v<版本>` 标签后，`CLI release` 工作流自动为六个平台构建、测试并发布 Release。
@@ -162,6 +164,8 @@ hfy --server https://your-hireferry.example auth login --device
 浏览器登录通过系统浏览器、一次性授权码和 S256 PKCE 完成；设备码适合 SSH、容器或另一台设备确认。两种方式都需要在网站上登录并确认授权。默认只申请 `identity` 身份查询权限；`--scope mcp` 才申请普通用户 AI 权限并检查资格，`--scope admin` 则必须明确授权并完成最近的管理员 Passkey 认证。
 
 访问令牌默认 15 分钟有效，刷新授权默认 30 天；客户端自动续期，每次刷新会更换令牌，重复使用旧刷新令牌会撤销整次授权。用户可在网站的 `/oauth/connections` 查看和撤销自己的 CLI 连接。CLI 不打印访问令牌或刷新令牌；`--json` 结果写入 stdout，网址、设备码和提示写入 stderr。
+
+管理员可用 `hfy --scope admin feedback list --json` 分页查看反馈，并用 `hfy --scope admin feedback resolve <ID>` 标记处理；管理员 MCP 也提供 `admin_list_feedback` 和 `admin_update_feedback`。反馈保留、频率限制和其他短期记录清理策略见[反馈与增长控制](docs/feedback-and-retention.md)。
 
 客户端配置按「默认值 → 客户端配置文件 → `HFY_*` 环境变量 → 命令参数」覆盖。凭据优先保存在系统钥匙环，不可用时使用受限的私有文件。Linux 是本次本地验证平台；macOS、Windows 有对应实现，尚未进行真实系统验收。配置字段、存储细节、从 Git 安装和打包校验见 [CLI 使用说明](docs/cli.md)。当前业务操作继续使用网站或已有 MCP 工具。
 
@@ -351,7 +355,7 @@ HumanGrant 使用同一 `/mcp` 端点，凭据为 `Authorization: HumanGrant <ac
 
 管理员不使用 HumanGrant。管理员通过真实 Passkey 会话在控制台「平台 AI」中签发独立 `hf_admin_` 令牌。创建要求最近 10 分钟内完成 Passkey 认证并通过 CSRF；令牌 30 天有效，平台最多保留 10 个有效令牌。令牌的列出、创建、撤销只允许管理员浏览器会话，Bearer 不能自行扩增凭证。
 
-管理员使用相同 `/mcp` 地址，发现 32 个工具，可读取公开配置并管理全平台业务资料、岗位与恢复、委托、匹配、会话、外部进展、订单及统计。`admin_search_jobs`、`admin_search_candidates`、`admin_search_matches` 提供工作台摘要、筛选和游标分页；`admin_introduce_candidates` 将最多 100 位有效候选人加入同一岗位，整批在同一事务内校验。普通管理列表支持配置页大小，审计和匹配列表也可翻页。每项写入通过与管理页面相同的业务函数，记录具体管理员 AI 的审计身份。管理员令牌不能冒充普通用户、操作 Passkey、修改系统密钥，或把未支付订单伪造为已支付。
+管理员使用相同 `/mcp` 地址，发现 34 个工具，可读取公开配置、处理快速反馈，并管理全平台业务资料、岗位与恢复、委托、匹配、会话、外部进展、订单及统计。`admin_search_jobs`、`admin_search_candidates`、`admin_search_matches` 提供工作台摘要、筛选和游标分页；`admin_introduce_candidates` 将最多 100 位有效候选人加入同一岗位，整批在同一事务内校验。普通管理列表支持配置页大小，审计和匹配列表也可翻页。每项写入通过与管理页面相同的业务函数，记录具体管理员 AI 的审计身份。管理员令牌不能冒充普通用户、操作 Passkey、修改系统密钥，或把未支付订单伪造为已支付。
 
 ### 消息轮询与浏览器工具
 
@@ -409,9 +413,9 @@ Planned headcount defaults to 1 and accepts integers from 0 to 1,000,000. Update
 
 The server records job-search mandates and explicit consent for external outreach. Platform staff or a separately configured AI may poll messages, reply, manage introductions and record factual progress through MCP. The application does not include an LLM, crawler, external job-board integration or automatic outreach service. Administrators can read all business history, including archived conversations, but cannot send to archived rooms.
 
-The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Schema 7 adds HumanGrant authorization and replay protection; schema 8 adds CLI authorizations and refresh credential records; the current schema 9 adds approved promotion codes and reserved publication allowances. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
+The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Schema 7 adds HumanGrant authorization and replay protection; schema 8 adds CLI authorizations and refresh credential records; schema 9 adds approved promotion codes and reserved publication allowances; the current schema 10 adds bounded short-lived feedback. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
 
-One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The server command `hireferry backup` provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
+One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The server command `hireferry backup` provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 34 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
 
 HumanGrant lets a member review the AI identity, choose permissions and expiry, and revoke access later; the AI gets a separate credential bound to its own signing key. Administrator access still uses Passkeys and separate administrator tokens. Cookie sessions cannot replace remote MCP credentials.
 

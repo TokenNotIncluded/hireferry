@@ -1095,7 +1095,7 @@ async fn version_nine_upgrade_preserves_orders_and_is_idempotent() {
         assert_eq!(
             db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         assert_eq!(
             models::load_order(&db, &old_order.id).unwrap().amount_cents,
@@ -1157,7 +1157,7 @@ fn failed_version_nine_upgrade_rolls_back_schema_and_keeps_version_eight() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
 }
 
