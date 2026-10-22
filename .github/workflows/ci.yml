@@ -80,6 +80,7 @@ jobs:
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/downloads.browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/admin-browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/chat-streaming.browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/relations.browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/feedback-language.browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/webmcp-lifecycle.browser.mjs
 
