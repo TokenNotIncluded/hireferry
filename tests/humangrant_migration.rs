@@ -117,7 +117,7 @@ fn upgrade_revokes_existing_suspended_account_grants_and_is_idempotent() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name='hg_account_suspended'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
 
@@ -149,7 +149,7 @@ fn version_seven_humangrant_permissions_and_sessions_survive_cli_version_eight_u
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM cli_authorizations", [], |r| r

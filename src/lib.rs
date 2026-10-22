@@ -20,6 +20,7 @@ pub mod models;
 pub mod payments;
 pub mod promos;
 pub mod safety;
+pub mod staff;
 pub mod webhooks;
 pub mod workbench;
 
@@ -122,6 +123,7 @@ pub fn app(state: AppState) -> Router {
         .merge(feedback::routes())
         .merge(legal::routes())
         .merge(admin::routes())
+        .merge(staff::routes())
         .merge(admin_ai::routes())
         .merge(chat::routes())
         .merge(payments::routes())

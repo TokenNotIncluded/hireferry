@@ -1,0 +1,33 @@
+/* Staff cards inherit the Material 3 palette and the existing workspace rhythm. */
+.staff-panel { margin-bottom: 24px; }
+.staff-invite-form { display: grid; grid-template-columns: minmax(0,2fr) minmax(190px,1fr); gap: 16px; align-items: end; }
+.staff-invite-form .field { min-width: 0; margin: 0; }
+.staff-invite-form .staff-mail-choice { grid-column: 1 / -1; display:flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.staff-mail-choice input { width: 17px; height: 17px; accent-color: var(--accent); }
+.staff-invite-form .form-actions { grid-column: 1 / -1; margin: 0; }
+.staff-panel > .notice { margin-top: 20px; }
+.staff-roster { display: grid; gap: 0; }
+.staff-row { display: flex; gap: 13px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.staff-row:last-child { border-bottom: 0; }
+.staff-avatar { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--accent-soft); color: var(--on-accent-soft); }
+.staff-avatar svg { width: 19px; height: 19px; }
+.staff-row-details { flex: 1; min-width: 0; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.staff-row-details > strong { font-size: 14px; font-weight: 600; }
+.staff-row-details > span, .staff-row-details > small { color: var(--muted); font-size: 12px; }
+.staff-row > button { flex: none; }
+.staff-invite-landing { padding: clamp(30px,6vw,80px) 20px; max-width: 800px; }
+.staff-invite-card { display: grid; justify-items: start; gap: 16px; padding: 32px; }
+.staff-invite-card h2 { font-size: 23px; line-height: 1.3; }
+.staff-invite-card p { margin: 0; color: var(--muted); }
+.staff-invite-card .help { font-size: 12px; }
+.staff-invite-icon { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 14px; background: var(--accent-soft); color: var(--on-accent-soft); }
+.staff-invite-icon svg { width: 26px; height: 26px; }
+.staff-link-box { display: grid; gap: 15px; padding: 16px; background: var(--raised); border-radius: 10px; overflow-wrap: anywhere; }
+.staff-link-box code { white-space: normal; font-size: 12px; }
+.staff-link-box button { justify-self: start; }
+@media (max-width: 680px) {
+  .staff-invite-form { grid-template-columns: 1fr; }
+  .staff-row { flex-wrap: wrap; align-items: flex-start; }
+  .staff-row > button { margin-left: 51px; }
+  .staff-invite-card { padding: 24px; }
+}

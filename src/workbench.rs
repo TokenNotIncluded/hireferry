@@ -361,7 +361,7 @@ fn count(db: &Connection, from: &str, f: &Filter) -> AppResult<i64> {
 
 pub fn search_jobs(s: &AppState, p: &Principal, q: &JobQuery) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let query = clean(q.q.as_deref(), 120)?;
     let employer = clean(q.employer_id.as_deref(), 80)?;
     let limit = limit(q.limit, s.cfg.limits.workbench_page_size)?;
@@ -404,7 +404,7 @@ fn job_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 pub fn get_job(s: &AppState, p: &Principal, id: &str) -> AppResult<Value> {
     use rusqlite::OptionalExtension;
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     db.query_row(
         &format!("SELECT {JOB_FIELDS} {JOB_FROM} WHERE j.id=?1 AND {JOB_ELIGIBLE}"),
         [id],
@@ -437,7 +437,7 @@ pub fn ensure_matchable_job(db: &Connection, id: &str) -> AppResult<()> {
 
 pub fn search_candidates(s: &AppState, p: &Principal, q: &CandidateQuery) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     candidate_data(
         &db,
         q,
@@ -452,7 +452,7 @@ pub fn search_candidates(s: &AppState, p: &Principal, q: &CandidateQuery) -> App
 #[doc(hidden)]
 pub fn explain_candidates(s: &AppState, p: &Principal, q: &CandidateQuery) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     candidate_data(
         &db,
         q,
@@ -613,7 +613,7 @@ fn candidate_data(
 
 pub fn search_matches(s: &AppState, p: &Principal, q: &MatchQuery) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let query = clean(q.q.as_deref(), 120)?;
     let status = clean(q.status.as_deref(), 20)?;
     if !matches!(

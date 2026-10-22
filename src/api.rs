@@ -778,7 +778,7 @@ async fn matches(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Valu
 
 async fn ai_eligibility(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, false)?;
-    if p.admin {
+    if p.admin && p.user_id.is_none() {
         return Ok(Json(
             json!({"eligible":true,"reason":"platform_admin","role":"admin","min_salary_cents":s.cfg.pricing.employer_ai_min_salary_minor,"currency":s.cfg.pricing.currency,"currency_decimals":crate::config::currency_decimals(&s.cfg.pricing.currency)}),
         ));
