@@ -10,7 +10,9 @@ test('every installation and login command uses deployment configuration',()=>{
   assert.equal(commands.unix,'curl -fsSL https://hire.example/install.sh | sh');
   assert.equal(commands.windows,'irm https://hire.example/install.ps1 | iex');
   assert.equal(commands.skill,'npx skills add Example/custom-cli --skill hireferry');
+  assert.equal(commands.windowsSkill,'npx.cmd skills add Example/custom-cli --skill hireferry');
   assert.match(commands.globalSkill,/ -g$/);
+  assert.match(commands.globalWindowsSkill,/^npx\.cmd .* -g$/);
   assert.match(commands.oauth,/--server https:\/\/hire.example auth login --oauth$/);
   assert.match(commands.device,/--server https:\/\/hire.example auth login --device$/);
   assert.doesNotMatch(JSON.stringify(commands),/hireferry.lmm.best|TokenNotIncluded/);
@@ -22,6 +24,7 @@ test('the public guide includes both platform installers, device login, skills a
     assert.match(html,/data-action="copy-command"/);assert.match(html,/--device/);
     assert.match(html,/href="\/install.ps1"/);assert.match(html,/id="cli-skill"/);
     assert.match(html,/npx skills add Example\/custom-cli --skill hireferry/);
+    assert.match(html,/npx\.cmd skills add Example\/custom-cli --skill hireferry/);
     assert.doesNotMatch(html,/data-form="email-start"|client_secret/);
   }
 });

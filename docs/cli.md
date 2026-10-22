@@ -47,7 +47,13 @@ irm https://hireferry.lmm.best/install.ps1 | iex
 npx skills add TokenNotIncluded/hireferry --skill hireferry
 ```
 
-按提示选择需要的助手。默认只安装到当前项目；加入 `-g` 安装到用户范围。此命令同样适用于 Windows PowerShell。技能教助手使用 `hfy` 登录、检查身份和权限，不会绕过网页确认。安装后重启或重新加载助手，再让它“使用 HireFerry 技能，通过设备码登录并查看当前身份”。
+Windows PowerShell 使用下面的命令，直接调用 Node.js 附带的命令入口：
+
+```powershell
+npx.cmd skills add TokenNotIncluded/hireferry --skill hireferry
+```
+
+按提示选择需要的助手。默认只安装到当前项目；加入 `-g` 安装到用户范围。技能教助手使用 `hfy` 登录、检查身份和权限，不会绕过网页确认。安装后重启或重新加载助手，再让它“使用 HireFerry 技能，通过设备码登录并查看当前身份”。
 
 不使用 Node.js 时，可下载 Release 包，使用随包的技能目录和文末手工安装教程；Unix 可运行 `./scripts/install-skill.sh --global`。CLI 本身不依赖 Node.js。
 
