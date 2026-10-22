@@ -83,10 +83,14 @@ def run(args, *, cwd=DESKTOP, capture=False, env=None):
 
 def cli(*args):
     # Use the checked-in lockfile's CLI; do not let npx silently fetch a version.
+    # The npm lifecycle environment also lets Tauri generate a working command
+    # for Xcode/Gradle to re-enter the CLI from their nested project directory.
+    # Invoking .bin/tauri directly generates `node tauri ...`, which cannot find
+    # its script when Xcode executes the Build Rust Code phase in gen/apple.
     binary = DESKTOP / "node_modules" / ".bin" / ("tauri.cmd" if os.name == "nt" else "tauri")
     if not binary.exists():
         raise MobileError("Install the pinned CLI first: cd desktop && npm ci")
-    return [str(binary), *args]
+    return ["npm.cmd" if os.name == "nt" else "npm", "run", "tauri", "--", *args]
 
 
 def sdk_root():

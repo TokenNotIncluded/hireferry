@@ -6,6 +6,7 @@ on:
       - 'desktop/**'
       - 'scripts/mobile.py'
       - 'tests/test_mobile.py'
+      - 'tests/mobile_client.test.cjs'
       - '.github/workflows/mobile-*.yml'
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - 'desktop/**'
       - 'scripts/mobile.py'
       - 'tests/test_mobile.py'
+      - 'tests/mobile_client.test.cjs'
       - '.github/workflows/mobile-*.yml'
   workflow_dispatch:
 
@@ -49,6 +51,9 @@ jobs:
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: Install pinned Android SDK and NDK
         run: |
           sdkmanager 'platforms;android-37' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
@@ -57,7 +62,9 @@ jobs:
         run: npm ci
         working-directory: desktop
       - name: Test build/signing guardrails
-        run: python3 -m unittest discover -s tests -p test_mobile.py -v
+        run: |
+          python3 -m unittest discover -s tests -p test_mobile.py -v
+          node --test tests/mobile_client.test.cjs
       - name: Build engineering artifacts (no release secrets)
         run: python3 scripts/mobile.py build android --variant debug --target aarch64 --target x86_64 --format both --output artifacts/mobile/android
       - name: Enable KVM
