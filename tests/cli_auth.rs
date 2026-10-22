@@ -1559,7 +1559,7 @@ async fn version_eight_upgrade_preserves_version_six_and_seven_accounts_and_manu
             let version: i64 = db
                 .query_row("PRAGMA user_version", [], |r| r.get(0))
                 .unwrap();
-            assert_eq!(version, 8);
+            assert_eq!(version, 9);
             let name: String = db
                 .query_row(
                     "SELECT name FROM api_tokens WHERE id='old-manual'",

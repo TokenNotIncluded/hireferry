@@ -336,7 +336,7 @@ fn require_active_session(db: &Connection, s: &Session) -> AppResult<()> {
     Ok(())
 }
 
-fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) -> AppResult<()> {
+pub(crate) fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) -> AppResult<()> {
     let t = now();
     db.execute(
         "DELETE FROM auth_limits WHERE window_start<?1",
@@ -431,20 +431,23 @@ fn session_response(
 async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Response> {
     let Some(s) = session(&state, &headers)? else {
         return Ok(
-            Json(json!({"user":null,"admin":false,"bootstrap":false,"csrf":null})).into_response(),
+            Json(json!({"user":null,"admin":false,"super_admin":false,"staff":null,"bootstrap":false,"csrf":null})).into_response(),
         );
     };
-    let user = if let Some(id) = &s.user_id {
+    let (user, staff) = if let Some(id) = &s.user_id {
         let db = state
             .db
             .lock()
             .map_err(|_| AppError::internal("Database lock failed"))?;
-        serde_json::to_value(crate::models::load_user(&db, id)?)?
+        (
+            serde_json::to_value(crate::models::load_user(&db, id)?)?,
+            crate::team::human_member(&db, id)?,
+        )
     } else {
-        Value::Null
+        (Value::Null, None)
     };
     Ok(
-        Json(json!({"user":user,"admin":s.admin,"bootstrap":s.bootstrap,"csrf":s.csrf}))
+        Json(json!({"user":user,"admin":s.admin||staff.is_some(),"super_admin":s.admin,"staff":staff,"bootstrap":s.bootstrap,"csrf":s.csrf}))
             .into_response(),
     )
 }
@@ -455,7 +458,7 @@ struct EmailStart {
     email: String,
 }
 
-fn normalized_email(value: &str) -> AppResult<String> {
+pub(crate) fn normalized_email(value: &str) -> AppResult<String> {
     if value.contains(['\r', '\n']) {
         return Err(AppError::bad_request("Enter a valid email address"));
     }
@@ -470,6 +473,44 @@ fn normalized_email(value: &str) -> AppResult<String> {
         return Err(AppError::bad_request("Enter a valid email address"));
     }
     Ok(value)
+}
+
+/// Reuse the configured SMTP transport and sender for platform notifications.
+/// Callers persist delivery status themselves; success means SMTP accepted the
+/// message, not that the recipient has opened it or accepted an invitation.
+pub(crate) async fn send_mail(
+    state: &AppState,
+    to: &str,
+    subject: &str,
+    body: String,
+) -> AppResult<()> {
+    let mailer = state
+        .auth
+        .mailer
+        .as_ref()
+        .ok_or_else(|| AppError::unavailable("Email delivery is not configured"))?;
+    let to = normalized_email(to)?;
+    let mut message = Message::builder()
+        .from(state.cfg.smtp.from.parse().map_err(AppError::internal)?)
+        .to(to.parse().map_err(AppError::internal)?)
+        .subject(subject)
+        .header(ContentType::TEXT_PLAIN);
+    if !state.cfg.smtp.reply_to.is_empty() {
+        message = message.reply_to(
+            state
+                .cfg
+                .smtp
+                .reply_to
+                .parse()
+                .map_err(AppError::internal)?,
+        );
+    }
+    let message = message.body(body).map_err(AppError::internal)?;
+    mailer
+        .send(message)
+        .await
+        .map_err(|_| AppError::unavailable("We could not send the email; try again later"))?;
+    Ok(())
 }
 
 async fn email_start(
@@ -519,35 +560,24 @@ async fn email_start(
             params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),now()+EMAIL_TTL],
         )?;
     }
-    if let Some(mailer) = &state.auth.mailer {
-        let mut message = Message::builder()
-            .from(state.cfg.smtp.from.parse().map_err(AppError::internal)?)
-            .to(email.parse().map_err(AppError::internal)?)
-            .subject("聘渡 HireFerry · 登录验证码 / Sign-in code")
-            .header(ContentType::TEXT_PLAIN);
-        if !state.cfg.smtp.reply_to.is_empty() {
-            message = message.reply_to(
-                state
-                    .cfg
-                    .smtp
-                    .reply_to
-                    .parse()
-                    .map_err(AppError::internal)?,
-            );
-        }
-        let message = message
-            .body(format!("你的聘渡登录验证码：{code}\n\nYour HireFerry sign-in code: {code}\n\n10分钟内有效。请勿转发。\nValid for 10 minutes. Do not share this code.\n\n如果不是你本人操作，请忽略这封邮件。\nIf you did not request this, ignore this email."))
-            .map_err(AppError::internal)?;
-        if mailer.send(message).await.is_err() {
-            let db = state
-                .db
-                .lock()
-                .map_err(|_| AppError::internal("Database lock failed"))?;
-            db.execute("DELETE FROM auth_challenges WHERE id=?1", [hash_token(&id)])?;
-            return Err(AppError::unavailable(
-                "We could not send the email; try again later",
-            ));
-        }
+    if state.auth.mailer.is_some()
+        && send_mail(
+            &state,
+            &email,
+            "聘渡 HireFerry · 登录验证码 / Sign-in code",
+            format!("你的聘渡登录验证码：{code}\n\nYour HireFerry sign-in code: {code}\n\n10分钟内有效。请勿转发。\nValid for 10 minutes. Do not share this code.\n\n如果不是你本人操作，请忽略这封邮件。\nIf you did not request this, ignore this email."),
+        )
+        .await
+        .is_err()
+    {
+        let db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        db.execute("DELETE FROM auth_challenges WHERE id=?1", [hash_token(&id)])?;
+        return Err(AppError::unavailable(
+            "We could not send the email; try again later",
+        ));
     }
     let payload = if state.cfg.development && state.auth.mailer.is_none() {
         json!({"sent":true,"dev_code":code})

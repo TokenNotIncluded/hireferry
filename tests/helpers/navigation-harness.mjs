@@ -17,9 +17,9 @@ async function sourceModule(directory,name){
 export const fixtureUser={id:'fixture-user',role:'seeker',name:'Synthetic QA member',email:'member@example.test',public_email:'',resume_md:'QA_PROFILE_READY',employer_paid:false};
 export const fixtureConfig={name:'HireFerry QA',default_language:'en',humangrant_enabled:false,google_enabled:false,email_enabled:true,development:false,pricing:{currency:'CNY',currency_decimals:2,onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,edit_mode:'salary_percent',edit_bps:100,max_edits:3,allowed_currencies:['CNY']},limits:{list_page_size:50,workbench_page_size:25},providers:[]};
 
-export async function createNavigationHarness(directory,{latencyMs=0}={}) {
-  const [source,services,money,navigation,humanGrant,requests,cliAuth]=await Promise.all([
-    sourceSnapshot(resolve(directory,'app.js')),sourceModule(directory,'service-ui.js'),sourceModule(directory,'money.js'),sourceModule(directory,'navigation.js'),sourceModule(directory,'humangrant-ui.js'),sourceModule(directory,'requests.js').catch(()=>({})),sourceModule(directory,'cli-auth-return.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
+export async function createNavigationHarness(directory,{latencyMs=0,beforeResponse=()=>{}}={}) {
+  const [source,services,money,navigation,humanGrant,requests,cliAuth,team,cliGuide]=await Promise.all([
+    sourceSnapshot(resolve(directory,'app.js')),sourceModule(directory,'service-ui.js'),sourceModule(directory,'money.js'),sourceModule(directory,'navigation.js'),sourceModule(directory,'humangrant-ui.js'),sourceModule(directory,'requests.js').catch(()=>({})),sourceModule(directory,'cli-auth-return.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),sourceModule(directory,'team-ui.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),sourceModule(directory,'cli-guide.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
   ]);
   const sourceHashes=Object.fromEntries(await Promise.all(['app.js','service-ui.js','requests.js','cli-auth-return.js'].map(async name=>[name,await sourceSnapshot(resolve(directory,name)).then(value=>createHash('sha256').update(value).digest('hex')).catch(()=>null)])));
   const root=node(),dialogs=node(),toast=node(),region=node();
@@ -53,9 +53,10 @@ export async function createNavigationHarness(directory,{latencyMs=0}={}) {
   }
   const fetch=async(path,options={})=>{
     const record={path,method:options.method||'GET',began:performance.now(),finished:null,aborted:false};network.push(record);
+    const gate=beforeResponse(path,record);
     await new Promise((yes,no)=>{
       const fail=()=>{clearTimeout(timer);record.aborted=true;record.finished=performance.now();no(options.signal?.reason||new DOMException('Canceled','AbortError'));};
-      const timer=setTimeout(()=>{options.signal?.removeEventListener('abort',fail);yes();},latencyMs);
+      const timer=setTimeout(()=>{Promise.resolve(gate).then(()=>{options.signal?.removeEventListener('abort',fail);yes();},no);},latencyMs);
       if(options.signal?.aborted)fail();else options.signal?.addEventListener('abort',fail,{once:true});
     });
     const data=response(path);record.finished=performance.now();
@@ -71,11 +72,11 @@ export async function createNavigationHarness(directory,{latencyMs=0}={}) {
     service.mountChat=()=>{};
     return service;
   };
-  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,mountPage,createServiceUI,renderLegal:()=>''};
+  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...team,...cliGuide,mountPage,createServiceUI,renderLegal:()=>''};
   const executable=source.replace(/^import .*;\n/gm,'').replace(/render\(\);\s*$/,'');
   const app=new Function(...Object.keys(dependencies),executable+'\nreturn {state,api,session,render,go,service,refreshVisibleSession:typeof refreshVisibleSession==="function"?refreshVisibleSession:null};')(...Object.values(dependencies));
   Object.assign(app.state,{config:structuredClone(fixtureConfig),lang:'en'});
-  return {app,root,network,mounts,stops,location,overrides,sourceHashes,setUser:user=>{currentUser=user;},async prime(){await app.session();await app.render();network.length=0;mounts.length=0;},async route(target,marker){
+  return {app,root,network,mounts,stops,location,overrides,sourceHashes,setUser:user=>{currentUser=user;},dispatch(type,event={}){for(const listener of listeners.get(type)||[])listener(event);},async prime(){await app.session();await app.render();network.length=0;mounts.length=0;},async route(target,marker){
     const began=performance.now(),start=network.length,mountStart=mounts.length;
     await app.go(target);
     const relevant=mounts.slice(mountStart),content=relevant.find(value=>!value.busy&&value.html.includes(marker));

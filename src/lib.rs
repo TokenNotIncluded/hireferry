@@ -17,6 +17,7 @@ pub mod mcp;
 pub mod models;
 pub mod payments;
 pub mod safety;
+pub mod team;
 pub mod webhooks;
 pub mod workbench;
 
@@ -119,6 +120,7 @@ pub fn app(state: AppState) -> Router {
         .merge(legal::routes())
         .merge(admin::routes())
         .merge(admin_ai::routes())
+        .merge(team::routes())
         .merge(chat::routes())
         .merge(payments::routes())
         .merge(mcp::routes())

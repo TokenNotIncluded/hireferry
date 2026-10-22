@@ -28,6 +28,16 @@ const VISIBLE: &str = "(?1=1 OR (c.kind='platform' AND pu.banned=0 AND c.user_id
  OR (c.kind='matched' AND mt.status IN ('introduced','interview','hired')
  AND j.status<>'deleted' AND sk.banned=0 AND er.banned=0
  AND (mt.seeker_id=?2 OR j.owner_id=?2)))";
+// Resolve staff attribution alongside the message page. Disabled employees and
+// rotated credentials retain their historical attribution without extra queries.
+const MESSAGE_FIELDS: &str = "msg.*,COALESCE(sender.name,'') AS sender_name,
+ staff_member.name AS staff_display_name";
+const MESSAGE_JOINS: &str = "LEFT JOIN users sender ON sender.id=msg.sender_id
+ LEFT JOIN team_ai_tokens staff_token ON staff_token.id=
+    CASE WHEN substr(msg.sender_key,1,9)='staff_ai:' THEN substr(msg.sender_key,10) END
+ LEFT JOIN team_members staff_member ON staff_member.id=
+    CASE WHEN substr(msg.sender_key,1,6)='staff:' THEN substr(msg.sender_key,7)
+         ELSE staff_token.member_id END";
 
 pub fn migrate(db: &Connection) -> AppResult<()> {
     db.execute_batch(r#"
@@ -173,6 +183,21 @@ fn missing_thread() -> AppError {
 }
 fn user_key(p: &Principal) -> AppResult<String> {
     if p.admin {
+        // Each employee keeps their own read cursor and idempotency namespace.
+        // A member's browser and WebMCP share it across that member's sessions.
+        if let Some(identity) = p
+            .actor
+            .strip_prefix("staff:")
+            .or_else(|| p.actor.strip_prefix("staff_webmcp:"))
+        {
+            let (id, _) = identity
+                .split_once(':')
+                .ok_or_else(|| AppError::unauthorized("Invalid staff identity"))?;
+            return Ok(format!("staff:{id}"));
+        }
+        if p.actor.starts_with("staff_ai:") {
+            return Ok(p.actor.clone());
+        }
         Ok("admin".into())
     } else {
         Ok(format!(
@@ -373,16 +398,45 @@ pub fn platform_conversation(
     Ok(result)
 }
 
-fn message_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+fn message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Result<Value> {
     let kind: String = r.get("sender_kind")?;
     let body: String = r.get("body")?;
     let sender_name: String = r.get("sender_name")?;
-    Ok(
-        json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"body_html":safety::markdown(&body),"client_id":r.get::<_,String>("client_id")?,"via_ai":r.get::<_,bool>("via_ai")?,"created_at":r.get::<_,i64>("created_at")?}),
-    )
+    let via_ai: bool = r.get("via_ai")?;
+    let mut value = json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"body_html":safety::markdown(&body),"client_id":r.get::<_,String>("client_id")?,"via_ai":via_ai,"created_at":r.get::<_,i64>("created_at")?});
+    if let Some(viewer) = admin_key {
+        let sender_key: String = r.get("sender_key")?;
+        value["is_own"] = json!(kind == "platform" && sender_key == viewer);
+        value["staff_name"] = if kind == "platform" {
+            let name: Option<String> = r.get("staff_display_name")?;
+            let fallback = if sender_key.starts_with("staff:") {
+                "员工"
+            } else if via_ai {
+                "平台AI"
+            } else {
+                "超级管理员"
+            };
+            // A blank profile may historically have used the login email as
+            // its display name. Chat attribution never exports that address.
+            json!(
+                name.as_deref()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty() && !name.contains('@'))
+                    .unwrap_or(fallback)
+            )
+        } else {
+            Value::Null
+        };
+    }
+    Ok(value)
 }
-fn load_message(db: &Connection, id: i64) -> AppResult<Value> {
-    Ok(db.query_row("SELECT msg.*,COALESCE(sender.name,'') AS sender_name FROM chat_messages msg LEFT JOIN users sender ON sender.id=msg.sender_id WHERE msg.id=?1",[id],message_row)?)
+fn load_message(db: &Connection, p: &Principal, id: i64) -> AppResult<Value> {
+    let key = p.admin.then(|| user_key(p)).transpose()?;
+    Ok(db.query_row(
+        &format!("SELECT {MESSAGE_FIELDS} FROM chat_messages msg {MESSAGE_JOINS} WHERE msg.id=?1"),
+        [id],
+        |r| message_row(r, key.as_deref()),
+    )?)
 }
 
 /// after=-1 selects the latest page; after=0 starts at the beginning of history.
@@ -420,11 +474,14 @@ fn message_page(
         (">", after, "ASC")
     };
     let sql = format!(
-        "SELECT msg.*,COALESCE(sender.name,'') AS sender_name FROM chat_messages msg LEFT JOIN users sender ON sender.id=msg.sender_id WHERE msg.conversation_id=?1 AND msg.id {comparison} ?2 ORDER BY msg.id {ordering} LIMIT ?3"
+        "SELECT {MESSAGE_FIELDS} FROM chat_messages msg {MESSAGE_JOINS} WHERE msg.conversation_id=?1 AND msg.id {comparison} ?2 ORDER BY msg.id {ordering} LIMIT ?3"
     );
+    let key = p.admin.then(|| user_key(p)).transpose()?;
     let mut items = tx
         .prepare(&sql)?
-        .query_map(params![id, bound, count + 1], message_row)?
+        .query_map(params![id, bound, count + 1], |r| {
+            message_row(r, key.as_deref())
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let extra = items.len() > count as usize;
     items.truncate(count as usize);
@@ -486,7 +543,7 @@ pub fn send_message(
                 "This client ID already belongs to another message",
             ));
         }
-        load_message(&tx, message_id)?
+        load_message(&tx, p, message_id)?
     } else {
         let kind = if p.admin { "platform" } else { "user" };
         let sender = if p.admin { None } else { p.user_id.as_deref() };
@@ -503,7 +560,7 @@ pub fn send_message(
             id,
             &json!({"message_id":message_id,"via_ai":p.via_ai}).to_string(),
         )?;
-        load_message(&tx, message_id)?
+        load_message(&tx, p, message_id)?
     };
     access::ensure_active(&tx, p)?;
     tx.commit()?;
@@ -551,11 +608,14 @@ pub fn updates(s: &AppState, p: &Principal, after: i64, count: i64) -> AppResult
     // rooms cannot add any updates, and scanning all matches on each poll makes
     // a five-second read grow with the entire matching history.
     let sql = format!(
-        "SELECT msg.*,COALESCE(sender.name,'') AS sender_name {THREAD_FROM} JOIN chat_messages msg ON msg.conversation_id=c.id LEFT JOIN users sender ON sender.id=msg.sender_id WHERE {VISIBLE} AND msg.id>?3 ORDER BY msg.id ASC LIMIT ?4"
+        "SELECT {MESSAGE_FIELDS} {THREAD_FROM} JOIN chat_messages msg ON msg.conversation_id=c.id {MESSAGE_JOINS} WHERE {VISIBLE} AND msg.id>?3 ORDER BY msg.id ASC LIMIT ?4"
     );
+    let key = p.admin.then(|| user_key(p)).transpose()?;
     let mut items = tx
         .prepare(&sql)?
-        .query_map(params![p.admin, uid(p), after, count + 1], message_row)?
+        .query_map(params![p.admin, uid(p), after, count + 1], |r| {
+            message_row(r, key.as_deref())
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let more = items.len() > count as usize;
     items.truncate(count as usize);

@@ -57,6 +57,17 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
             .ok()
             .and_then(|v| v.strip_prefix("Bearer "))
             .ok_or_else(|| AppError::unauthorized("Invalid bearer token"))?;
+        if raw.starts_with("hf_staff_") {
+            let db = s.conn()?;
+            let id = crate::team::verify_ai_token(&db, raw)?
+                .ok_or_else(|| AppError::unauthorized("Staff token expired or revoked"))?;
+            return Ok(Principal {
+                user_id: None,
+                admin: true,
+                via_ai: true,
+                actor: format!("staff_ai:{id}"),
+            });
+        }
         if raw.starts_with("hf_admin_") {
             let db = s.conn()?;
             crate::cli_auth::check_business_token(&db, &s.cfg, raw)?;
@@ -101,6 +112,21 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
         })
     } else {
         let uid = auth::require_user(s, h)?;
+        if let Some(member) = crate::team::human_member(&*s.conn()?, &uid)? {
+            let id = member["id"]
+                .as_str()
+                .ok_or_else(|| AppError::internal("Staff identity is missing"))?;
+            return Ok(Principal {
+                user_id: None,
+                admin: true,
+                via_ai: webmcp,
+                actor: format!(
+                    "{}:{id}:{}",
+                    if webmcp { "staff_webmcp" } else { "staff" },
+                    session.token_hash
+                ),
+            });
+        }
         if webmcp {
             require_user_ai(&*s.conn()?, &uid)?;
         }
@@ -116,6 +142,42 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
 pub fn ensure_admin(db: &Connection, p: &Principal) -> AppResult<()> {
     if !p.admin || p.user_id.is_some() {
         return Err(AppError::forbidden("Administrator access required"));
+    }
+    if let Some(id) = p.actor.strip_prefix("staff_ai:") {
+        if !p.via_ai {
+            return Err(AppError::unauthorized("Invalid staff identity"));
+        }
+        return crate::team::ensure_ai_token(db, id);
+    }
+    let staff_session = if p.via_ai {
+        p.actor.strip_prefix("staff_webmcp:")
+    } else {
+        p.actor.strip_prefix("staff:")
+    };
+    if let Some(identity) = staff_session {
+        let (member_id, session_hash) = identity
+            .split_once(':')
+            .ok_or_else(|| AppError::unauthorized("Invalid staff identity"))?;
+        crate::team::ensure_member(db, member_id)?;
+        let user_id: Option<String> = db
+            .query_row(
+                "SELECT user_id FROM sessions WHERE token_hash=?1 AND admin=0 AND bootstrap=0 AND user_id IS NOT NULL AND expires_at>?2",
+                params![session_hash, now()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let member = user_id
+            .as_deref()
+            .map(|id| crate::team::human_member(db, id))
+            .transpose()?
+            .flatten();
+        if member.as_ref().and_then(|member| member["id"].as_str()) != Some(member_id) {
+            return Err(AppError::unauthorized("Staff session expired or revoked"));
+        }
+        return Ok(());
+    }
+    if p.actor.starts_with("staff:") || p.actor.starts_with("staff_webmcp:") {
+        return Err(AppError::unauthorized("Invalid staff identity"));
     }
     if p.via_ai {
         if let Some(id) = p.actor.strip_prefix("admin_ai:") {

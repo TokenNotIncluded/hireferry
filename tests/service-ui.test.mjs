@@ -7,6 +7,10 @@ const moneySource = await readFile(new URL('../static/money.js', import.meta.url
 const moneyHelpers = await import('data:text/javascript;base64,' + Buffer.from(moneySource).toString('base64'));
 const requestSource = await readFile(new URL('../static/requests.js', import.meta.url), 'utf8');
 const requestHelpers = await import('data:text/javascript;base64,' + Buffer.from(requestSource).toString('base64'));
+const teamSource = await readFile(new URL('../static/team-ui.js', import.meta.url), 'utf8');
+const teamHelpers = await import('data:text/javascript;base64,' + Buffer.from(teamSource).toString('base64'));
+const cliGuideSource = await readFile(new URL('../static/cli-guide.js', import.meta.url), 'utf8');
+const cliGuideHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliGuideSource).toString('base64'));
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
 
 const serviceSource = await readFile(new URL('../static/service-ui.js', import.meta.url), 'utf8');
@@ -71,6 +75,41 @@ test('archived administrator rooms display history but cannot be composed into',
   assert.match(html, /<textarea[^>]*disabled/);
   assert.match(html, /<button class="button small" type="submit" disabled/);
   assert.match(html, /Private platform history stays separate/);
+});
+
+test('internal conversations distinguish coworkers and AI from the current staff member', async () => {
+  const messages = [
+    { id: 1, sender_kind: 'platform', is_own: true, staff_name: 'My staff identity', body: 'Mine', created_at: 1 },
+    { id: 2, sender_kind: 'platform', is_own: false, staff_name: '<Colleague>', body: 'Colleague reply', created_at: 2 },
+    { id: 3, sender_kind: 'platform', is_own: false, staff_name: '平台AI', body: 'AI reply', via_ai: true, created_at: 3 },
+    { id: 4, sender_kind: 'platform', is_own: false, staff_name: '超级管理员', body: 'Owner reply', created_at: 4 },
+    { id: 5, sender_kind: 'platform', body: 'Legacy message', created_at: 5 },
+  ];
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_member', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: messages, next_cursor: 5, first_cursor: 1 }, { admin: true, search: '?tab=messages&conversation=platform_member' });
+  const html = await service.messagesPage(true);
+  const message = id => html.match(new RegExp(`<article[^>]*data-message-id="${id}"[\\s\\S]*?</article>`))?.[0] || '';
+  assert.match(message(1), /class="chat-message own from-platform"/);
+  assert.match(message(1), /<strong>My staff identity<\/strong>/);
+  for (const id of [2, 3, 4]) assert.doesNotMatch(message(id), /chat-message own/);
+  assert.match(message(2), /&lt;Colleague&gt;/);
+  assert.doesNotMatch(message(2), /<Colleague>/);
+  assert.match(message(3), /<strong>Platform AI<\/strong>/);
+  assert.match(message(3), /via AI/);
+  assert.match(message(4), /<strong>Super administrator<\/strong>/);
+  assert.match(message(5), /chat-message own/);
+  assert.match(message(5), /<strong>HireFerry team<\/strong>/);
+});
+
+test('customer conversations never expose internal staff names or adopt administrator ownership metadata', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [{ id: 1, sender_kind: 'platform', sender_id: 'internal-actor', sender_name: 'internal-actor', staff_name: 'Private staff name', is_own: true, body: 'Hello', via_ai: true, created_at: 1 }], next_cursor: 1, first_cursor: 1 });
+  const html = await service.messagesPage();
+  assert.match(html, /<strong>HireFerry team<\/strong>/);
+  assert.match(html, /via AI/);
+  assert.doesNotMatch(html, /Private staff name|internal-actor|chat-message own/);
 });
 
 test('a new search brief never preselects external outreach consent', async () => {
@@ -289,8 +328,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment};')(
-    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment};')(
+    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();

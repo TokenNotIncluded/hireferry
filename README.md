@@ -30,7 +30,8 @@
 - 求职者资料、本人委托、外部寻找进展、平台私聊、独立匹配会话与未读提醒。
 - 招聘方多个岗位、Markdown JD、固定月薪底薪、免费不限次数修改招聘人数、一次恢复的回收站、托管支付、自己的订单与匹配对象。
 - 管理员总控台：完整用户/岗位资料、封禁与内容处理、委托、以岗位为入口的候选筛选与分页、单人详情、匹配跟进列表、平台私聊和历史会话、外部进展、订单、审计及按日期/历史累计的原实收、已退款和净收入图表。正式和测试流水分开。
-- 首次通过服务器命令行一次性口令绑定 Passkey，后续仅 Passkey 登录，支持多把密钥。
+- 超级管理员首次通过服务器命令行一次性口令绑定 Passkey，后续仅 Passkey 登录，支持多把密钥。
+- [团队成员](docs/team.md)：超级管理员可通过现有 SMTP 发送员工邀请，也可复制邀请链接；同事用受邀邮箱登录并确认加入，AI 使用独立凭据。支持撤销邀请、停用/恢复成员及轮换 AI 凭据。
 - 普通用户和平台管理员使用独立 MCP 身份；浏览器 WebMCP 绑定当前身份，AI 代发消息带标记。
 - [HumanGrant](docs/humangrant.md) 提供「Continue with human beings」入口：本人逐项确认权限，AI 使用独立签名凭据，可在「AI 连接」中撤销。
 - 用户可配置自己的公网 HTTPS Webhook，接收已获授权的业务事件通知，查看投递历史、暂停、撤销及重试失败投递。
@@ -45,7 +46,7 @@
 匹配跟进使用可搜索、按阶段筛选的列表，阶段数量随当前筛选计算，按最近更新时间排列。
 
 搜索只向管理员及独立管理员 AI 开放。它不创建匹配，不扩大求职委托或外部联系同意，
-也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；schema 7 增加 HumanGrant 授权和防重放状态，当前 schema 8 增加 CLI 授权与刷新凭据记录。
+也不让招聘方直接浏览尚未匹配的候选资料。SQLite schema 5 为这些查询建立普通索引及 FTS5 trigram 索引，schema 6 另外保存岗位和委托币种、岗位 AI 薪资门槛并支持零费用订单；schema 7 增加 HumanGrant 授权和防重放状态，schema 8 增加 CLI 授权与刷新凭据记录，当前 schema 9 增加员工、邀请和独立 AI 员工凭据。
 较短关键词仍采用受筛选条件约束的字面匹配。规模测试与实测结果见 [验收记录](docs/acceptance.md)，
 接口和分页规则见 [工作台 API](docs/api.md#岗位中心匹配工作台)。
 
@@ -403,7 +404,7 @@ Planned headcount defaults to 1 and accepts integers from 0 to 1,000,000. Update
 
 The server records job-search mandates and explicit consent for external outreach. Platform staff or a separately configured AI may poll messages, reply, manage introductions and record factual progress through MCP. The application does not include an LLM, crawler, external job-board integration or automatic outreach service. Administrators can read all business history, including archived conversations, but cannot send to archived rooms.
 
-The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Schema 7 adds HumanGrant authorization and replay protection; the current schema 8 adds CLI authorizations and refresh credential records. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
+The administrator workbench starts from a recruitable job, then searches active candidate mandates with keyword, industry, role, location and currency-aware salary filters. Lists use bounded cursor pagination and short summaries; individual resumes and introduction details load on demand. Follow-up lists support stage filters and recent-update ordering. Schema 5 added query indexes and FTS5 trigram search; schema 6 added recorded currencies, job AI thresholds and zero-value orders. Schema 7 adds HumanGrant authorization and replay protection; schema 8 adds CLI authorizations and refresh credential records; the current schema 9 adds staff, email-bound invitations and individual AI staff credentials. Every result checks current business eligibility. Discovery never grants candidate consent or automatically creates introductions.
 
 One Linux binary embeds the website. Configure everything in TOML, use the supplied systemd/Caddy templates, and protect the SQLite database and configuration. The server command `hireferry backup` provides consistent online backups. CI binaries are built on Ubuntu 24.04 x86_64; use a target-environment source build or the supplied Docker build for other runtime or architecture requirements. Administrator enrollment uses a one-time shell secret followed by Passkeys only. Separate administrator AI tokens are issued from a recently authenticated Passkey session; member tokens cannot gain administrator rights. MCP `2025-11-25` exposes 32 member tools and 32 administrator tools with manual Bearer headers. It also accepts signed HumanGrant access and exposes only the permitted member tools. Browser WebMCP is feature-detected and uses the current authorized session.
 

@@ -113,6 +113,49 @@ body:has(.workspace-layout) { overflow: hidden; }
 .workspace-layout .wb-panel { border-radius: 10px; }
 
 /* A pending route is quiet and stays inside its content area. */
+.team-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 22px; color: var(--muted); margin: -8px 0 22px; font-size: 13px; }
+.team-summary > span { display: inline-flex; gap: 7px; align-items: center; }
+.team-summary svg, .team-access-note svg { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.team-summary strong { color: var(--ink); }
+.team-access-note { margin-bottom: 20px; }
+.team-access-note > div { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.team-access-note p { margin: 0; line-height: 1.8; font-size: 13px; }
+.team-access-note .help { margin-top: 7px; }
+.team-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 20px; }
+.team-create-grid > .panel { margin-top: 0; margin-bottom: 0; }
+.team-create-grid > .panel > .panel-header { align-items: flex-start; gap: 16px; }
+.team-create-grid .panel-header > svg { width: 22px; height: 22px; flex: none; color: var(--accent); }
+.team-create-grid .field { margin-bottom: 16px; }
+.team-create-grid form > .button { margin-top: 12px; }
+.team-email-choice { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.7; cursor: pointer; padding-block: 5px; }
+.team-email-choice input { width: 17px; height: 17px; margin: 3px 0 0; flex: none; accent-color: var(--accent); }
+.team-email-choice:has(input:disabled) { color: var(--muted); cursor: default; }
+.team-member { display: flex; gap: 20px; justify-content: space-between; padding: 20px 0; border-top: 1px solid var(--line); }
+.team-member:first-child { border-top: 0; padding-top: 0; }
+.team-member:last-child { padding-bottom: 0; }
+.team-person { display: flex; gap: 12px; min-width: 0; }
+.team-kind-icon { width: 36px; height: 36px; background: var(--raised); color: var(--accent); border-radius: 10px; display: inline-grid; place-items: center; flex: none; }
+.team-kind-icon svg { width: 19px; height: 19px; }
+.team-person h3 { margin: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.team-person p { margin: 2px 0 6px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.team-person .list-meta { font-size: 11px; line-height: 1.7; gap: 8px 14px; }
+.team-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; flex: none; font-size: 12px; }
+.team-row-actions .text-button { white-space: nowrap; }
+.team-secret { width: 100%; resize: vertical; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.8; }
+.team-invite-page { display: flex; justify-content: center; padding-block: 64px; }
+.team-invite-card { width: min(100%, 640px); padding: 36px; margin: 0; }
+.team-invite-card > h1 { font-size: clamp(25px, 4vw, 34px); margin: 20px 0 12px; letter-spacing: -.025em; }
+.team-invite-card > p { color: var(--muted); line-height: 1.8; margin-bottom: 24px; }
+.team-invite-details { margin: 28px 0; padding: 20px; border-radius: 10px; background: var(--raised); font-size: 13px; }
+.team-invite-details > div { display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 16px; padding: 7px 0; }
+.team-invite-details dt { color: var(--muted); }
+.team-invite-details dd { margin: 0; overflow-wrap: anywhere; }
+.team-invite-card > .team-permissions { font-size: 13px; color: var(--ink); }
+.team-invite-decision { display: grid; gap: 16px; margin-bottom: 20px; }
+.team-invite-decision form > .button { margin-top: 20px; }
+@media (max-width: 1000px) { .team-create-grid { grid-template-columns: minmax(0, 1fr); } .team-member { flex-direction: column; gap: 14px; } .team-row-actions { justify-content: flex-start; padding-left: 48px; } }
+@media (max-width: 480px) { .team-invite-page { padding-block: 28px; } .team-invite-card { padding: 24px 20px; } .team-invite-details { padding: 14px; } .team-invite-details > div { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; } .team-summary { gap: 12px; font-size: 12px; } }
+
 .workspace-layout .page-placeholder { min-height: 0; height: 100%; }
 .workspace-layout .skeleton-heading { margin-bottom: 25px; }
 .workspace-layout .skeleton-line { background: var(--line); opacity: .65; border-radius: 4px; }

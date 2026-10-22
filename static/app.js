@@ -6,13 +6,16 @@ import { mountPage, pageIdentity, pagePlaceholder } from './navigation.js';
 import { currencyMeta, currencyOptions, minorToDecimal, parseMinor, minorStep, formatMinor, calculateFee } from './money.js';
 import { createHumanGrantUI } from './humangrant-ui.js';
 import { createRequestClient, createSessionReader, navigationReads, RequestTimeoutError } from './requests.js';
+import { createTeamUI } from './team-ui.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
+let teamModule;
+function team() { return teamModule ||= createTeamUI({state,api,t,esc,icon,heading,shell,notice,empty,openDialog,confirmDialog,notify,go,render,session}); }
 
 const root = document.querySelector('#root');
 const dialogs = document.querySelector('#dialog-root');
-const state = { lang: localStorage.getItem('hireferry-language') || 'zh', config:null, user:null, admin:false, bootstrap:false, csrf:null, sculpture:null, homeStory:null, render:0, eligibility:null, chat:null, chatTimer:null };
+const state = { lang: localStorage.getItem('hireferry-language') || 'zh', config:null, user:null, admin:false, super_admin:false, staff:null, bootstrap:false, csrf:null, sculpture:null, homeStory:null, render:0, eligibility:null, chat:null, chatTimer:null };
 const t = (zh,en) => state.lang === 'en' ? en : zh;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const currency = record => currencyMeta(state.config,record);
@@ -101,7 +104,7 @@ function safeBillingReturn(value) {
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
 function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}}
-function afterSignIn() {let saved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);}catch{}return safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app');}
+function afterSignIn() {let saved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);}catch{}const review=state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app';return team().returnAfterLogin()||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.admin?'/admin?tab=messages':'/app');}
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {
   const rules=terms||pricing(),option=currencies().find(item=>item.currency===currency(record).currency);
@@ -125,6 +128,15 @@ let toastTimer, lastFocus, trapListener, logoClicks=0, logoTimeout;
 
 function requestErrorText(message) {
   return ({
+    'Sign in with a passkey again before granting team access': t('请先点击“重新验证通行密钥”，完成验证后再继续团队操作。', 'Choose “Verify passkey again” before continuing this team action.'),
+    'Employee access has been disabled': t('员工访问权限已停用，请联系超级管理员。', 'Your staff access is disabled. Contact the super administrator.'),
+    'The team has reached its active member limit': t('已达到团队成员数量上限，请先停用不再需要的成员。', 'The team member limit has been reached. Disable a member who no longer needs access.'),
+    'An invitation is already pending for this email; resend or revoke it first': t('这个邮箱已有待接受邀请，请在邀请记录中生成新链接，或先撤销原邀请。', 'This email already has a pending invitation. Generate a new link from its invitation record, or revoke it first.'),
+    'This account is already an active employee or is suspended': t('该账户已是员工，或当前处于封禁状态。请核对成员和账户状态。', 'This account is already a staff member or is suspended. Check its member and account status.'),
+    'This invitation has expired, was revoked or was already accepted': t('邀请已过期、已撤销或已被接受，请刷新查看。', 'This invitation has expired, been revoked, or already been accepted. Refresh to check.'),
+    'Sign in with the email address that received this invitation': t('请使用收到此邀请的邮箱登录。', 'Sign in with the email address that received this invitation.'),
+    'Restore the suspended account before enabling employee access': t('请先解除该账户的封禁，再启用员工权限。', 'Restore the suspended account before enabling staff access.'),
+    'SMTP is not configured; create a copyable invitation link instead': t('邮件服务未配置，请取消发送邮件并生成可复制的邀请链接。', 'Email is not configured. Turn off email delivery to create a copyable invitation link.'),
     'This payment provider is not enabled for the order currency': t('此支付方式不支持订单币种，请选择兼容的支付方式或联系平台。','This payment method is not available for the order currency. Choose a compatible method or contact HireFerry.'),
     'Choose a supported salary currency': t('请选择支持的薪资币种。','Choose a supported salary currency.'),
     'Headcount exceeds the configured maximum': t('招聘人数超过站点上限，请按输入框提示调整。','The hiring target exceeds the site limit. Use the range shown beside the field.'),
@@ -184,8 +196,8 @@ const requests = createRequestClient(async (path,{method='GET',body,...options}=
   return result;
 });
 const sessionReader = createSessionReader(() => api('/api/session',{fresh:true}));
-const identityOf = value => `${value.admin?'admin':value.user?.id||'guest'}:${value.csrf||''}`;
-const authMutation = path => /^\/api\/(?:auth\/|role$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
+const identityOf = value => `${value.admin?(value.super_admin?'admin':`staff:${value.staff?.id||''}`):value.user?.id||'guest'}:${value.csrf||''}`;
+const authMutation = path => /^\/api\/(?:auth\/|role$|team\/invitations\/accept$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
 function invalidateIdentity() {
   sessionReader.invalidate();requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;
 }
@@ -225,7 +237,7 @@ async function session(renderVersion) {
   const s=await sessionReader.read({force:renderVersion===undefined});
   if(renderVersion===undefined||renderVersion===state.render){
     if(identityOf(state)!==identityOf(s)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
-    Object.assign(state,{user:s.user,admin:s.admin,bootstrap:s.bootstrap,csrf:s.csrf});
+    Object.assign(state,{user:s.user,admin:s.admin,super_admin:s.super_admin===true,staff:s.staff||null,bootstrap:s.bootstrap,csrf:s.csrf});
   }
   return s;
 }
@@ -288,7 +300,7 @@ async function mountHome() {
 
 function sidebar(tab,admin=false) {
   const entries=admin?[
-    ['overview','chart',t('总览','Overview')],['messages','message',t('消息','Messages')],['matches','board',t('匹配工作台','Matching')],['mandates','target',t('寻找委托','Search briefs')],['users','person',t('用户','People')],['jobs','briefcase',t('岗位','Jobs')],['orders','receipt',t('订单与流水','Orders')],['agents','bot',t('平台 AI','Platform AI')],['keys','key',t('通行密钥','Passkeys')]
+    ['overview','chart',t('总览','Overview')],['messages','message',t('消息','Messages')],['matches','board',t('匹配工作台','Matching')],['mandates','target',t('寻找委托','Search briefs')],['users','person',t('用户','People')],['jobs','briefcase',t('岗位','Jobs')],['orders','receipt',t('订单与流水','Orders')],...(state.super_admin?[['team','person',t('团队成员','Team members')],['agents','bot',t('平台 AI','Platform AI')],['keys','key',t('通行密钥','Passkeys')]]:[])
   ]:[
     ['messages','message',t('消息','Messages')],
     ...(state.user?.role==='seeker'?[['mandate','target',t('寻找委托','My search')]]:[]),
@@ -297,9 +309,9 @@ function sidebar(tab,admin=false) {
   ];
   const item=([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}"${tab===key?' aria-current="page"':''}>${icon(ico)}<span>${label}</span>${tab===key?'<span class="nav-current-dot" aria-hidden="true"></span>':''}</a>`;
   const primary=entries.slice(0,4),secondary=entries.slice(4);
-  const cliConnection=`<a href="/oauth/connections">${icon('key')}<span>${t('命令行连接','Command-line connections')}</span></a>`;
+  const cliConnection=admin&&!state.super_admin?'':`<a href="/oauth/connections">${icon('key')}<span>${t('命令行连接','Command-line connections')}</span></a>`;
   const logout=`<button type="button" data-action="logout">${icon('logout')}<span>${t('退出登录','Sign out')}</span></button>`;
-  return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin?t('聘渡管理团队','HireFerry team'):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?t('管理员','Administrator'):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
+  return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin?esc(state.staff?.name||t('聘渡管理团队','HireFerry team')):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?(state.super_admin?t('超级管理员','Super administrator'):t('团队员工','Staff')):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
 }
 function shell(body,tab,admin=false) {return `<main id="main" class="page-width app-layout workspace-layout" data-workspace-page="${esc(tab)}">${sidebar(tab,admin)}<section class="app-content" tabindex="-1">${body}</section></main>`;}
 function paymentProviders(record) {
@@ -450,14 +462,24 @@ async function render() {
   showPending();
   recordPaint('shell');
   try {
-    if(!state.config) {const results=await Promise.all([api('/api/config'),session(version)]);if(version!==state.render)return;state.config=results[0];if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';document.documentElement.lang=state.lang==='en'?'en':'zh-CN';showPending(true);}
+    if(!state.config) {
+      // Read in parallel, then apply identity: its private-request cancellation must not abort config.
+      const [config]=await Promise.all([api('/api/config'),sessionReader.read()]);
+      if(version!==state.render)return;
+      await session(version);
+      if(version!==state.render)return;
+      state.config=config;
+      if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';
+      document.documentElement.lang=state.lang==='en'?'en':'zh-CN';showPending(true);
+    }
     if(resumeCliLogin())return;
     let body;
     if(path==='/')body=home();
     else if(path==='/cli')body=renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
     else if(path==='/humangrant')body=humanGrant().intro();
     else if(/^\/human\/[A-Za-z0-9_-]+$/.test(path)){await session(version);if(version!==state.render)return;body=await humanGrant().reviewPage(path.split('/')[2],version);}
-    else if(path==='/login'){if(state.user){go(afterSignIn());return;}body=login();}
+    else if(path==='/team/invite'){await session(version);if(version!==state.render)return;body=await team().reviewPage(location.hash.slice(1),version);}
+    else if(path==='/login'){if(state.user||state.admin){go(afterSignIn());return;}body=login();}
     else if(path==='/jobs'||path==='/people'){await session(version);if(version!==state.render)return;go(state.user?'/app?tab=matches':'/login');return;}
     else if(/^\/jobs\/[^/]+$/.test(path))body=await jobDetail(decodeURIComponent(path.split('/')[2]));
     else if(/^\/people\/[^/]+$/.test(path))body=await personDetail(decodeURIComponent(path.split('/')[2]));
@@ -485,7 +507,7 @@ async function render() {
     else body=`<main id="main" class="page-width page-error"><div class="eyebrow" style="justify-content:center">404 / A SMALL DETOUR</div><h1 style="margin-top:20px">${t('这条路，还没有渡口。','This path has no ferry yet.')}</h1><p>${t('页面不存在，或已经被移走。','This page does not exist or has been moved.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to the beginning')}${icon('arrow')}</a></main>`;
     if(version!==state.render||resumeCliLogin())return;mountPage(root,header()+body+footer(),pageKey);syncCurrencyFields();recordPaint('ready');if(path==='/')void mountHome();
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
-    if(path.startsWith('/app')&&state.user?.role==='unassigned')chooseRole();
+    if(path.startsWith('/app')&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
     // Browsers without WebMCP need no eligibility request. Discovery never holds navigation open.
     if((document.modelContext||navigator.modelContext)?.registerTool&&state.user&&!state.admin&&!state.eligibility){
@@ -496,8 +518,9 @@ async function render() {
 
 async function adminPage(tab) {
   if(state.bootstrap&&!state.admin)return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('key')}</span><h1>${t('绑定第一把通行密钥','Add your first passkey')}</h1><p>${t('完成后，管理员登录只接受通行密钥。','After this step, administrator sign-in uses passkeys only.')}</p></div><section class="auth-card"><h2>${t('安全地开始。','A secure beginning.')}</h2><p class="subtitle">${t('使用设备指纹、面容或实体安全密钥。一次性密码不会再用于登录。','Use your device’s fingerprint, face recognition, or security key. The one-time password cannot be used to sign in again.')}</p><form data-form="passkey-register"><div class="field"><label for="passkey-name">${t('密钥名称','Passkey name')}</label><input class="input" id="passkey-name" name="name" value="${t('我的主设备','My primary device')}" maxlength="80" required></div><button class="button full" type="submit">${icon('key')}${t('绑定通行密钥','Create a passkey')}</button></form><p class="help">${t('请在可信设备上操作。首次绑定完成后可以再添加备用密钥。','Use a trusted device. You can add backup passkeys after this first one.')}</p></section></main>`;
-  if(!state.admin){const s=await api('/api/admin/auth/status');return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('shield')}</span><h1>${t('聘渡总控台','HireFerry control room')}</h1><p>${t('每次相遇背后，都有人认真负责。','Real people, behind every connection.')}</p></div><section class="auth-card"><h2>${s.initialized?t('欢迎回来。','Welcome back.'):t('第一次，安全启程。','A secure first step.')}</h2><p class="subtitle">${s.initialized?t('使用已绑定的通行密钥登录。','Sign in with a registered passkey.'):t('输入在服务器上生成的一次性密码。','Enter the one-time password generated on the server.')}</p>${s.initialized?`<button class="button full" data-action="admin-passkey-login">${icon('key')}${t('使用通行密钥登录','Sign in with a passkey')}</button><p class="help">${t('支持已绑定的指纹、面容与实体安全密钥。','Supports registered device biometrics and security keys.')}</p>`:`<form data-form="admin-bootstrap"><div class="field"><label for="bootstrap-password">${t('一次性密码','One-time password')}</label><input class="input" type="password" id="bootstrap-password" name="password" autocomplete="one-time-code" required></div><button class="button full" type="submit">${t('验证并绑定通行密钥','Verify and add a passkey')}${icon('arrow')}</button></form><p class="help">${t('管理员需要先在 Linux 服务器中运行初始化命令。密码短期有效，仅用于首次绑定。','An administrator must run the initialization command on the Linux server first. The password expires soon and is only for the first passkey setup.')}</p>`}</section></main>`;}
-  if(tab==='messages')return service.messagesPage(true);if(tab==='mandates')return service.adminMandates();if(tab==='agents')return service.adminTokens();if(tab==='users')return adminUsers();if(tab==='jobs')return adminJobs();if(tab==='orders')return adminOrders();if(tab==='keys')return adminKeys();if(tab==='matches')return matchesPage(true);return adminOverview();
+  if(!state.admin){const s=await api('/api/admin/auth/status');return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('shield')}</span><h1>${t('聘渡总控台','HireFerry control room')}</h1><p>${t('每次相遇背后，都有人认真负责。','Real people, behind every connection.')}</p></div><section class="auth-card"><h2>${s.initialized?t('欢迎回来。','Welcome back.'):t('第一次，安全启程。','A secure first step.')}</h2><p class="subtitle">${s.initialized?t('使用已绑定的通行密钥登录。','Sign in with a registered passkey.'):t('输入在服务器上生成的一次性密码。','Enter the one-time password generated on the server.')}</p>${s.initialized?`<button class="button full" data-action="admin-passkey-login">${icon('key')}${t('使用通行密钥登录','Sign in with a passkey')}</button><p class="help">${t('支持已绑定的指纹、面容与实体安全密钥。','Supports registered device biometrics and security keys.')}</p><div class="separator">${t('团队员工','Team staff')}</div><a href="/login" data-nav class="button secondary full">${icon('mail')}${t('使用受邀邮箱登录','Sign in with your invited email')}</a><p class="help">${t('请先接受管理员发给你的邀请，再使用自己的账户登录。','Accept the administrator’s invitation first, then sign in with your own account.')}</p>`:`<form data-form="admin-bootstrap"><div class="field"><label for="bootstrap-password">${t('一次性密码','One-time password')}</label><input class="input" type="password" id="bootstrap-password" name="password" autocomplete="one-time-code" required></div><button class="button full" type="submit">${t('验证并绑定通行密钥','Verify and add a passkey')}${icon('arrow')}</button></form><p class="help">${t('管理员需要先在 Linux 服务器中运行初始化命令。密码短期有效，仅用于首次绑定。','An administrator must run the initialization command on the Linux server first. The password expires soon and is only for the first passkey setup.')}</p>`}</section></main>`;}
+  if(['team','keys','agents'].includes(tab)&&!state.super_admin)return shell(`${heading(t('此页面由超级管理员管理','This page is managed by the super administrator'),t('你可以继续在消息、匹配及其他业务页面协作。','Continue working in messages, introductions, and other business pages.'))}<a class="button" href="/admin?tab=messages" data-nav>${t('打开消息','Open messages')}${icon('arrow')}</a>`,'messages',true);
+  if(tab==='team')return team().teamPage();if(tab==='messages')return service.messagesPage(true);if(tab==='mandates')return service.adminMandates();if(tab==='agents')return service.adminTokens();if(tab==='users')return adminUsers();if(tab==='jobs')return adminJobs();if(tab==='orders')return adminOrders();if(tab==='keys')return adminKeys();if(tab==='matches')return matchesPage(true);return adminOverview();
 }
 function dateFilter(tab,extra='') {return `<form data-form="admin-filter" data-tab="${tab}" class="filter-row"><label>${t('开始 (UTC)','From (UTC)')} <input class="input" type="date" name="from" value="${esc(qs().get('from')||'')}"></label><label>${t('结束 (UTC)','To (UTC)')} <input class="input" type="date" name="to" value="${esc(qs().get('to')||'')}"></label>${extra}<button class="button secondary small" type="submit">${t('查看','Apply')}</button><a href="/admin?tab=${tab}" data-nav class="text-button">${t('历史全部','All time')}</a></form>`;}
 function apiFilter(path) {const p=new URLSearchParams();for(const k of ['from','to','status','q','role','page','mode','currency'])if(qs().get(k))p.set(k,qs().get(k));return path+(p.size?'?'+p:'');}
@@ -610,6 +633,7 @@ document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const submit=event.submitter||form.querySelector('[type=submit]'),data=new FormData(form),kind=form.dataset.form;setBusy(submit,true);
   try {
     if(kind.startsWith('hg-'))await humanGrant().submit(form,data);
+    else if(kind.startsWith('team-'))await team().submit(form,data);
     else if(kind==='email-start'){const email=String(data.get('email')).trim();const r=await api('/api/auth/email/start',{method:'POST',body:{email}});emailCode(email,r.dev_code);}
     else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();if(!resumeCliLogin(true))go(afterSignIn());}
     else if(kind==='profile'){state.user=await api('/api/profile',{method:'PUT',body:{name:data.get('name'),public_email:data.get('public_email'),resume_md:data.get('resume_md')||'',visible:false}});notify(t('已保存。你的下一站，又近了一点。','Saved. One step closer to what’s next.'));}
@@ -654,19 +678,20 @@ document.addEventListener('pointerdown',event=>{if(event.button===0)prefetchNavi
 document.addEventListener('click',async event=>{
   const brandLink=event.target.closest('[data-brand]');if(brandLink){logoClicks++;clearTimeout(logoTimeout);logoTimeout=setTimeout(()=>logoClicks=0,1800);if(logoClicks>=5){logoClicks=0;event.preventDefault();go('/admin');return;}if(location.pathname==='/'){event.preventDefault();return;}}
   const scroll=event.target.closest('[data-scroll]');if(scroll){event.preventDefault();if(location.pathname!=='/')go('/#'+scroll.dataset.scroll);else document.getElementById(scroll.dataset.scroll)?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});return;}
-  if(event.target.closest('[data-google-sign-in]')&&state.config?.google_enabled)rememberBillingReturn();
+  if(event.target.closest('[data-google-sign-in]')&&state.config?.google_enabled){rememberBillingReturn();team().returnAfterLogin();}
   const nav=event.target.closest('[data-nav]');if(nav&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&event.button===0){event.preventDefault();go(nav.getAttribute('href'));return;}
   const scene=event.target.closest('[data-scene]');if(scene){state.homeStory?.select(Number(scene.dataset.scene));return;}
   const button=event.target.closest('[data-action]');if(!button||button.disabled)return;event.preventDefault();const action=button.dataset.action,id=button.dataset.id;
   try{
     if(action.startsWith('hg-'))await humanGrant().action(action,button);
+    else if(action.startsWith('team-')){setBusy(button,true);await team().action(action,button);}
     else if(action==='language'){state.lang=state.lang==='en'?'zh':'en';localStorage.setItem('hireferry-language',state.lang);closeDialog();await render();}
     else if(action==='close-dialog')closeDialog();
     else if(action==='pause')state.sculpture?.pause();
     else if(action==='retry'||action==='billing-refresh'){setBusy(button,true);await render();}
     else if(action==='google-unavailable')notify(t('Google 登录暂未开放，请使用邮箱。','Google sign-in is not available yet. Please use email.'),true);
     else if(action==='restart-login')await render();
-    else if(action==='logout'){await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,bootstrap:false,csrf:null});go('/');}
+    else if(action==='logout'){await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,super_admin:false,staff:null,bootstrap:false,csrf:null});go('/');}
     else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;closeDialog();go(afterSignIn());}
     else if(action==='role-employer'){if(state.user?.role==='unassigned'){const r=await api('/api/role',{method:'POST',body:{role:'employer'}});state.user=r.user;closeDialog();await render();}if(state.user?.employer_paid)go('/app');else employerActivation();}
     else if(action==='svg-avatar')openDialog(`<div class="eyebrow">YOUR AVATAR</div><h2 id="dialog-title">${t('用一段 SVG 表达自己。','An avatar, in SVG.')}</h2><p class="dialog-intro">${t('支持静态 SVG。脚本、外部资源和动画会被拒绝。','Static SVG only. Scripts, external resources, and animation are rejected.')}</p><form data-form="svg-avatar"><div class="field"><label for="avatar-svg">${t('SVG 文本','SVG source')}</label><textarea class="input code" name="svg" id="avatar-svg" rows="8" required maxlength="50000" placeholder="&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 64 64&quot;&gt;…&lt;/svg&gt;"></textarea></div><div class="form-actions"><button class="button" type="submit">${t('保存头像','Save avatar')}${icon('check')}</button></div></form>`);
@@ -724,9 +749,10 @@ document.addEventListener('change',event=>{
 });
 document.addEventListener('change',async event=>{if(event.target.id!=='avatar-upload')return;const file=event.target.files[0];if(!file)return;if(file.size>2*1024*1024){notify(t('图片不能超过 2 MB。','The image must be 2 MB or smaller.'),true);return;}const data=new FormData();data.append('file',file);try{state.user=await api('/api/profile/avatar',{method:'POST',body:data});document.querySelector('.avatar-editor .avatar').outerHTML=avatar(state.user,'large');notify(t('头像已更新。','Avatar updated.'));}catch(error){notify(error.message,true);}event.target.value='';});
 window.addEventListener('popstate',()=>{closeDialog();render();});
-window.addEventListener('pagehide',event=>{service.stopChat();if(dialogs.querySelector('#webhook-signing-secret'))closeDialog();if(!event.persisted)state.sculpture?.dispose();});
+window.addEventListener('hashchange',()=>{if(location.pathname==='/team/invite'){closeDialog();void render();}});
+window.addEventListener('pagehide',event=>{service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted)state.sculpture?.dispose();});
 function resetPrivateView() {
-  invalidateIdentity();Object.assign(state,{user:null,admin:false,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
+  invalidateIdentity();Object.assign(state,{user:null,admin:false,super_admin:false,staff:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
 }
 async function refreshVisibleSession() {
   if(document.hidden||!state.config)return;

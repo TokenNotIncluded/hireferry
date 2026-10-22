@@ -116,8 +116,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function messageHtml(m, admin) {
-    const own = admin ? m.sender_kind === 'platform' : m.sender_id === state.user?.id;
-    const author = m.sender_kind === 'platform' ? t('聘渡团队', 'HireFerry team') : m.sender_name || t('参与者', 'Participant');
+    const own = admin ? (typeof m.is_own === 'boolean' ? m.is_own : m.sender_kind === 'platform') : m.sender_id === state.user?.id;
+    const staffLabels = { '超级管理员': t('超级管理员', 'Super administrator'), '平台AI': t('平台 AI', 'Platform AI'), '员工': t('员工', 'Staff') };
+    const staffName = admin && m.staff_name ? (Object.hasOwn(staffLabels, m.staff_name) ? staffLabels[m.staff_name] : m.staff_name) : t('聘渡团队', 'HireFerry team');
+    const author = m.sender_kind === 'platform' ? staffName : m.sender_name || t('参与者', 'Participant');
     return `<article class="chat-message ${own ? 'own' : ''} ${m.sender_kind === 'platform' ? 'from-platform' : ''}" data-message-id="${Number(m.id)}"><div class="message-meta"><strong>${esc(author)}</strong>${m.via_ai ? `<span class="ai-label">${icon('bot')} ${t('AI 代发', 'via AI')}</span>` : ''}</div><div class="message-body markdown">${m.body_html || esc(m.body).replace(/\n/g, '<br>')}</div><time class="message-time" title="${esc(humanTime(m.created_at))}">${esc(compactTime(m.created_at))}</time></article>`;
   }
 
