@@ -2,10 +2,11 @@
  * profiles and payment results stay behind the existing live request/session checks. */
 export const PUBLIC_CONFIG_CACHE_KEY = 'hireferry-public-config-v1';
 const schema = 1;
-const maxLength = 64 * 1024;
+// Four localized welcome screens and their bounded Markdown can exceed 64 KiB.
+const maxLength = 512 * 1024;
 const strings = ['name', 'public_origin', 'default_language', 'support_email', 'source_url'];
 const flags = ['google_enabled', 'humangrant_enabled', 'email_enabled', 'development'];
-const maps = ['payment_currencies', 'payment_modes', 'waffo_regions', 'cli_distribution', 'pricing', 'limits'];
+const maps = ['payment_currencies', 'payment_modes', 'waffo_regions', 'cli_distribution', 'pricing', 'limits', 'chat'];
 const fields = [...strings, ...flags, ...maps, 'providers'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const stringList = value => Array.isArray(value) && value.every(item => typeof item === 'string');
@@ -14,6 +15,35 @@ const stable = value => JSON.stringify(value, function (_key, item) {
   return object(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item;
 });
 export const samePublicConfig = (left, right) => stable(left) === stable(right);
+
+function publicChat(value) {
+  if (!object(value.welcome)) throw new TypeError('Invalid public chat configuration');
+  const audiences = ['platform_seeker', 'platform_employer', 'matched', 'staff'];
+  const textLimits = { title: 160, title_en: 160, body_md: 4000, body_md_en: 4000, body_html: 65536, body_html_en: 65536 };
+  const promptLimits = { label: 80, label_en: 80, body: 2000, body_en: 2000 };
+  const textFields = (source, limits) => {
+    const selected = {};
+    for (const [key, limit] of Object.entries(limits)) {
+      if (!Object.hasOwn(source, key)) continue;
+      const text = source[key];
+      if (text !== null && (typeof text !== 'string' || [...text].length > limit)) throw new TypeError('Invalid public chat text');
+      selected[key] = text;
+    }
+    return selected;
+  };
+  return { welcome: Object.fromEntries(Object.entries(value.welcome).map(([audience, entry]) => {
+    if (!audiences.includes(audience) || !object(entry)) throw new TypeError('Invalid public chat audience');
+    const selected = textFields(entry, textLimits);
+    if (entry.prompts !== undefined && entry.prompts !== null) {
+      if (!Array.isArray(entry.prompts) || entry.prompts.length > 6) throw new TypeError('Invalid public chat prompts');
+      selected.prompts = entry.prompts.map(prompt => {
+        if (!object(prompt) || typeof prompt.label !== 'string' || !prompt.label.trim() || typeof prompt.body !== 'string' || !prompt.body.trim()) throw new TypeError('Invalid public chat prompt');
+        return textFields(prompt, promptLimits);
+      });
+    }
+    return [audience, selected];
+  })) };
+}
 
 function publicConfig(value) {
   if (!object(value) || typeof value.name !== 'string' || !value.name.trim()) throw new TypeError('Invalid public configuration');
@@ -32,6 +62,7 @@ function publicConfig(value) {
   if (selected.waffo_regions && !Object.values(selected.waffo_regions).every(value => object(value) && stringList(value.currencies) && stringList(value.payment_methods))) throw new TypeError('Invalid payment regions');
   if (selected.cli_distribution && (typeof selected.cli_distribution.release_repository !== 'string' ||
       !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(selected.cli_distribution.release_repository))) throw new TypeError('Invalid CLI source');
+  if (selected.chat) selected.chat = publicChat(selected.chat);
   const encoded = JSON.stringify(selected);
   if (encoded.length > maxLength) throw new TypeError('Public configuration is too large');
   return JSON.parse(encoded);

@@ -60,6 +60,10 @@ pub struct StorageInfo {
 }
 
 impl Store {
+    pub(crate) fn directory(&self) -> &Path {
+        &self.directory
+    }
+
     pub fn new(directory: PathBuf, origin: &str, client_id: &str, choice: StorageChoice) -> Self {
         let key = format!(
             "{:x}",

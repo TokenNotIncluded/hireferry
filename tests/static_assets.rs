@@ -74,6 +74,10 @@ async fn release_urls_cache_the_entire_module_graph_without_changing_legacy_asse
         "runtime/timeline.js",
         "theme.css",
         "favicon.svg",
+        "chat-renderer.js",
+        "chat-renderer.css",
+        "chat-openui.json",
+        "chat-renderer-fonts/KaTeX_Main-Regular.woff2",
     ] {
         let versioned = request(
             &app,

@@ -73,7 +73,7 @@ test('expired data, future timestamps, schema changes and corrupted JSON are dis
   assert.equal(cache.peek(), null);
   assert.equal(cache.isVerified(), false);
   assert.equal(disk.getItem(PUBLIC_CONFIG_CACHE_KEY), null);
-  for (const invalid of [good, '{broken', JSON.stringify({ schema: 999, savedAt: clock, value: configuration() }), JSON.stringify({ schema: 1, savedAt: clock + 1, value: configuration() }), JSON.stringify({ schema: 1, savedAt: clock, value: { ...configuration(), pricing: { currency_options: 'not an array' } } }), 'x'.repeat(65537)]) {
+  for (const invalid of [good, '{broken', JSON.stringify({ schema: 999, savedAt: clock, value: configuration() }), JSON.stringify({ schema: 1, savedAt: clock + 1, value: configuration() }), JSON.stringify({ schema: 1, savedAt: clock, value: { ...configuration(), pricing: { currency_options: 'not an array' } } }), 'x'.repeat(512 * 1024 + 1)]) {
     disk.setItem(PUBLIC_CONFIG_CACHE_KEY, invalid);
     const reloaded = createPublicConfigCache(() => {}, { storage: disk, now: () => clock, maxAge: 1000 });
     assert.equal(reloaded.peek(), null);
@@ -125,4 +125,28 @@ test('a malformed server response never replaces a usable snapshot', async () =>
   response = { ...configuration('Bad'), limits: { list_page_size: 'many' } };
   await assert.rejects(cache.refresh(), /Invalid public limits/);
   assert.equal(cache.peek().name, 'HireFerry');
+});
+
+test('localized chat welcomes survive fresh loads and reloads without storing conversation data', async () => {
+  const disk = storage();
+  const welcome = { title: '欢迎', title_en: 'Welcome', body_md: '**说明**', body_html: '<p><strong>说明</strong></p>', body_md_en: null, prompts: [{ label: '聊聊方向', body: '我想聊聊求职方向。', label_en: 'My next role', body_en: 'My next role.', private_token: 'secret' }] };
+  const cache = createPublicConfigCache(async () => ({ ...configuration(), chat: { welcome: { platform_seeker: { ...welcome, messages: ['private'] }, matched: { prompts: [] } }, conversations: ['private'] } }), { storage: disk });
+  const fresh = (await cache.refresh()).value.chat;
+  assert.equal(fresh.welcome.platform_seeker.title_en, 'Welcome');
+  assert.equal(fresh.welcome.platform_seeker.body_html, welcome.body_html);
+  assert.equal(fresh.welcome.platform_seeker.prompts[0].body_en, 'My next role.');
+  assert.deepEqual(fresh.welcome.matched.prompts, []);
+  assert.deepEqual(createPublicConfigCache(() => {}, { storage: disk }).peek().chat, fresh);
+  assert.doesNotMatch(disk.getItem(PUBLIC_CONFIG_CACHE_KEY), /private|secret|conversations|messages/);
+});
+
+test('invalid welcome fields are rejected while bounded multilingual settings can exceed the old cache size', async () => {
+  for (const welcome of [{ typo: {} }, { staff: { title: 42 } }, { staff: { prompts: [{ label: 'Hello', body: '' }] } }, { matched: { prompts: Array(7).fill({ label: 'Hello', body: 'World' }) } }]) {
+    await assert.rejects(createPublicConfigCache(async () => ({ ...configuration(), chat: { welcome } }), { storage: storage() }).refresh(), /Invalid public chat/);
+  }
+  const welcome = Object.fromEntries(['platform_seeker', 'platform_employer', 'matched', 'staff'].map(key => [key, { body_md: '好'.repeat(4000), body_md_en: 'a'.repeat(4000), prompts: Array(6).fill({ label: 'Ask', body: '好'.repeat(2000), body_en: 'a'.repeat(2000) }) }]));
+  const disk = storage();
+  await createPublicConfigCache(async () => ({ ...configuration(), chat: { welcome } }), { storage: disk }).refresh();
+  assert.ok(disk.getItem(PUBLIC_CONFIG_CACHE_KEY).length > 64 * 1024);
+  assert.deepEqual(createPublicConfigCache(() => {}, { storage: disk }).peek().chat.welcome, welcome);
 });
