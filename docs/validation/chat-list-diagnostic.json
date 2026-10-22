@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "recorded_date_utc": "2026-10-21",
+  "scope": "Actual Rust list_conversations local diagnostic; not HTTP or production latency",
+  "baseline": {
+    "commit": "f0c8127039396890092a615dca6ecb7fd0b0ad9e",
+    "path": "src/chat.rs",
+    "sha256": "84afd6d8393df180f7068377d8223ba154cbc8f03d183c2f1f830edc69a6ccfe"
+  },
+  "current": {
+    "path": "src/chat.rs",
+    "sha256": "db560fcb97b20f0e2e70ee1147ac27fc290bbdacbd6d889f17fd68a6957c8a11"
+  },
+  "build": {
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "invocation": "direct rustc",
+    "opt_level": 0,
+    "debuginfo": 0,
+    "dependency_artifact_profile": "existing target/debug artifacts reused read-only",
+    "sqlite_version": "3.50.2",
+    "compile_exit": 0,
+    "run_exit": 0
+  },
+  "fixture": {
+    "database": ":memory:",
+    "conversation_kind": "platform",
+    "conversations": 2000,
+    "messages_per_conversation": 50,
+    "total_messages": 100000,
+    "reader": "admin",
+    "read_cursor": "25th message per conversation",
+    "updated_at_ties": true,
+    "some_avatars": true,
+    "unicode_message_bodies": true,
+    "same_app_state_for_both_versions": true,
+    "preseeded_rooms": true
+  },
+  "method": {
+    "warmups_per_version_per_limit": 8,
+    "measured_pairs_per_limit": 61,
+    "alternating_order": true,
+    "timed_region": "entire public list_conversations call, including mutex/transaction/authorization/ensure_matches/query preparation and execution/JSON Value construction/commit",
+    "excluded": [
+      "setup",
+      "seeding",
+      "JSON equality comparison",
+      "returned Value destruction",
+      "JSON wire serialization",
+      "HTTP",
+      "network"
+    ],
+    "full_json_parity_checked": "initial result and every measured pair",
+    "percentile_indices_sorted_zero_based": {
+      "p10": 6,
+      "median": 30,
+      "p90": 54
+    }
+  },
+  "results": [
+    {
+      "baseline_ms": {
+        "median": 5.78983,
+        "p10": 5.457542,
+        "p90": 6.636932
+      },
+      "current_ms": {
+        "median": 4.318653,
+        "p10": 4.0652919999999995,
+        "p90": 4.712214
+      },
+      "json_parity": true,
+      "limit": 20,
+      "median_current_over_baseline": 0.7459032475910347,
+      "pairs": 61
+    },
+    {
+      "baseline_ms": {
+        "median": 33.464819999999996,
+        "p10": 32.034474,
+        "p90": 36.487828
+      },
+      "current_ms": {
+        "median": 16.134868,
+        "p10": 15.213125,
+        "p90": 18.472255999999998
+      },
+      "json_parity": true,
+      "limit": 200,
+      "median_current_over_baseline": 0.4821441740908812,
+      "pairs": 61
+    }
+  ],
+  "raw_samples_ms": null,
+  "raw_samples_note": "Per-call samples were retained only inside the completed process. The original harness emitted p10/median/p90, not raw vectors. No raw samples were recovered or fabricated, and no additional run was made for this record.",
+  "artifacts": {
+    "harness": "chat-list-diagnostic.rs.txt",
+    "harness_sha256": "8a091eace15fe0ba63d3b88e631d7a91f14f79ac19749343e631170c3ce02e36",
+    "baseline_source_command": "git show f0c8127039396890092a615dca6ecb7fd0b0ad9e:src/chat.rs",
+    "output": "chat-list-diagnostic-output.txt",
+    "path_note": "The fixture preserves the exact source used during this diagnostic. Its absolute include paths identify the historical invocation and must be updated for a new owned checkout/output directory."
+  },
+  "limitations": [
+    "synthetic administrator/platform-room workload",
+    "warmed in-memory database",
+    "unoptimized Rust code with debug dependency artifacts",
+    "no project-wide test or browser visual claim"
+  ],
+  "required_gate": "Project-wide CI"
+}
