@@ -1,0 +1,624 @@
+{
+  "generatedAt": "2026-10-21T23:58:55.183Z",
+  "baselineCommit": "f0c8127039396890092a615dca6ecb7fd0b0ad9e",
+  "revisedRef": "ce0145d3a9a3fc59cca47ff0cf22205824f9707a-plus-hotpath-working-tree",
+  "environment": {
+    "node": "v24.19.0",
+    "v8": "13.6.233.17-node.51",
+    "icu": "78.3",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "timeZone": "Europe/Madrid"
+  },
+  "samples": 5,
+  "warmupsPerVariantAndSize": 1,
+  "conversationCounts": [
+    20,
+    200
+  ],
+  "messagesPerConversationView": 100,
+  "scope": "Actual app/service JavaScript with synthetic fixtures and a minimal HTML publication adapter; requested fetch delay is 0 ms.",
+  "limitations": [
+    "No browser, HTML parser, CSS, DOM reconciliation, layout, paint, input latency, transfer, or production backend timing is measured.",
+    "Date instrumentation adds overhead to both variants; values are diagnostics for this runtime and fixture, not device or production guarantees.",
+    "The after-last-chat-read metric includes response cloning, promise scheduling and page HTML generation/publication. Zero-delay timers still contribute to total route time.",
+    "Explicit Intl constructor calls are counted separately from format calls. Native Date locale methods may construct internal formatters, but those internal constructions are not observable or counted here.",
+    "The baseline is the first workspace redesign at f0c8127; revised app HTML also contains later upstream palette/checkout changes. This is a chat-route generation comparison, not a framework benchmark.",
+    "Both samples are fresh workspace page renders with primed identity. Same-room fast navigation and keyed polling mutations are validated by correctness tests and are outside this CPU timing."
+  ],
+  "sourceHashes": {
+    "baseline": {
+      "app.js": "0e02e748489c95e6c445a76e31628789effcff6262fb2e5b242924b0221aa9b8",
+      "service-ui.js": "3d65bd356263fb2146075b65344b1a60bcb2aaf02c190b850eb7c39a5e6f545c",
+      "money.js": "abc2e6efc2ab3e2b1b52b6e5da53d56f088a5766a305c5bd3ad4dc52a18cedc5",
+      "navigation.js": "53d6c366599e8e436e5857a07373c606775dee9225e3bdd7880b3e05228ae138",
+      "humangrant-ui.js": "faf8efe7c65736f4d9b53fcf2692ea876ed693412354bd1f78a1c3ab5b772dce",
+      "requests.js": "fed3806b691569ba5f6def04ddf34380c811a9fac8a59e505e04e1e1e74c93fa",
+      "cli-auth-return.js": "9674040916a4375cd665cffb820bd720dd22306f24b299ea917afe526935bb51"
+    },
+    "revised": {
+      "app.js": "c8217e65d8834b24b1f647691c51d20f7ff1382f160200406c4ab80f9e63b07f",
+      "service-ui.js": "92b1f345025b97e31faa0425808b2423fa9652d814eebfac18cd01d76b551d03",
+      "money.js": "abc2e6efc2ab3e2b1b52b6e5da53d56f088a5766a305c5bd3ad4dc52a18cedc5",
+      "navigation.js": "cbf07b0823719b5e46e507eb3f312f30316db9ce4e8d17f177faea1a11c31b9a",
+      "humangrant-ui.js": "faf8efe7c65736f4d9b53fcf2692ea876ed693412354bd1f78a1c3ab5b772dce",
+      "requests.js": "fed3806b691569ba5f6def04ddf34380c811a9fac8a59e505e04e1e1e74c93fa",
+      "cli-auth-return.js": "9674040916a4375cd665cffb820bd720dd22306f24b299ea917afe526935bb51"
+    }
+  },
+  "variants": {
+    "baseline": {
+      "20": [
+        {
+          "routeMs": 12.672993999999989,
+          "afterLastChatReadToHtmlMs": 10.569478000000004,
+          "formatting": {
+            "nativeLocaleStringCalls": 240,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 9.223273000000091,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 51248,
+          "openingTags": 998,
+          "htmlPublications": 2,
+          "submittedBytes": 61612,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 11.897690000000011,
+          "afterLastChatReadToHtmlMs": 10.321957999999995,
+          "formatting": {
+            "nativeLocaleStringCalls": 240,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 9.210051000000078,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 51248,
+          "openingTags": 998,
+          "htmlPublications": 2,
+          "submittedBytes": 61612,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 13.118638000000004,
+          "afterLastChatReadToHtmlMs": 11.592421000000002,
+          "formatting": {
+            "nativeLocaleStringCalls": 240,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 10.44602000000009,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 51248,
+          "openingTags": 998,
+          "htmlPublications": 2,
+          "submittedBytes": 61612,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 10.970652999999999,
+          "afterLastChatReadToHtmlMs": 9.420860000000005,
+          "formatting": {
+            "nativeLocaleStringCalls": 240,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 8.563502000000199,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 51248,
+          "openingTags": 998,
+          "htmlPublications": 2,
+          "submittedBytes": 61612,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 13.106078000000025,
+          "afterLastChatReadToHtmlMs": 10.179573000000005,
+          "formatting": {
+            "nativeLocaleStringCalls": 240,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 9.079553999999916,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 51248,
+          "openingTags": 998,
+          "htmlPublications": 2,
+          "submittedBytes": 61612,
+          "requiredChatRequests": 2
+        }
+      ],
+      "200": [
+        {
+          "routeMs": 33.10258600000003,
+          "afterLastChatReadToHtmlMs": 31.602178000000038,
+          "formatting": {
+            "nativeLocaleStringCalls": 600,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 26.49866800000052,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 143351,
+          "openingTags": 2573,
+          "htmlPublications": 2,
+          "submittedBytes": 153715,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 26.895794000000024,
+          "afterLastChatReadToHtmlMs": 24.947700999999995,
+          "formatting": {
+            "nativeLocaleStringCalls": 600,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 22.157593999999847,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 143351,
+          "openingTags": 2573,
+          "htmlPublications": 2,
+          "submittedBytes": 153715,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 25.16630200000003,
+          "afterLastChatReadToHtmlMs": 23.66664400000002,
+          "formatting": {
+            "nativeLocaleStringCalls": 600,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 21.063056999999844,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 143351,
+          "openingTags": 2573,
+          "htmlPublications": 2,
+          "submittedBytes": 153715,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 28.297208000000012,
+          "afterLastChatReadToHtmlMs": 26.624355000000037,
+          "formatting": {
+            "nativeLocaleStringCalls": 600,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 23.763189999999724,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 143351,
+          "openingTags": 2573,
+          "htmlPublications": 2,
+          "submittedBytes": 153715,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 25.285134000000028,
+          "afterLastChatReadToHtmlMs": 23.330737000000056,
+          "formatting": {
+            "nativeLocaleStringCalls": 600,
+            "nativeLocaleDateStringCalls": 1,
+            "explicitIntlConstructions": 0,
+            "cachedIntlFormatCalls": 0,
+            "formatMs": 20.70202099999881,
+            "explicitConstructionMs": 0
+          },
+          "htmlBytes": 143351,
+          "openingTags": 2573,
+          "htmlPublications": 2,
+          "submittedBytes": 153715,
+          "requiredChatRequests": 2
+        }
+      ]
+    },
+    "revised": {
+      "20": [
+        {
+          "routeMs": 3.9357940000000156,
+          "afterLastChatReadToHtmlMs": 1.9311870000000226,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 241,
+            "formatMs": 0.3243320000000267,
+            "explicitConstructionMs": 0.39360099999998965
+          },
+          "htmlBytes": 55061,
+          "openingTags": 1023,
+          "htmlPublications": 2,
+          "submittedBytes": 68392,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 4.582167999999996,
+          "afterLastChatReadToHtmlMs": 1.9387279999999976,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 241,
+            "formatMs": 0.3050079999999866,
+            "explicitConstructionMs": 0.44739400000000273
+          },
+          "htmlBytes": 55061,
+          "openingTags": 1023,
+          "htmlPublications": 2,
+          "submittedBytes": 68392,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 5.887321999999983,
+          "afterLastChatReadToHtmlMs": 1.5871389999999792,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 241,
+            "formatMs": 0.3083570000000577,
+            "explicitConstructionMs": 0.34380900000002157
+          },
+          "htmlBytes": 55061,
+          "openingTags": 1023,
+          "htmlPublications": 2,
+          "submittedBytes": 68392,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 3.2947599999999966,
+          "afterLastChatReadToHtmlMs": 1.822654,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 241,
+            "formatMs": 0.43706900000015025,
+            "explicitConstructionMs": 0.3742419999999811
+          },
+          "htmlBytes": 55061,
+          "openingTags": 1023,
+          "htmlPublications": 2,
+          "submittedBytes": 68392,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 3.3584450000000174,
+          "afterLastChatReadToHtmlMs": 1.593437999999992,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 241,
+            "formatMs": 0.28439399999911075,
+            "explicitConstructionMs": 0.37155799999999317
+          },
+          "htmlBytes": 55061,
+          "openingTags": 1023,
+          "htmlPublications": 2,
+          "submittedBytes": 68392,
+          "requiredChatRequests": 2
+        }
+      ],
+      "200": [
+        {
+          "routeMs": 5.954692000000023,
+          "afterLastChatReadToHtmlMs": 4.4457610000000045,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 601,
+            "formatMs": 0.781434000000047,
+            "explicitConstructionMs": 0.5238369999999009
+          },
+          "htmlBytes": 154284,
+          "openingTags": 2598,
+          "htmlPublications": 2,
+          "submittedBytes": 167615,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 5.888572999999951,
+          "afterLastChatReadToHtmlMs": 4.3072329999999965,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 601,
+            "formatMs": 0.694486999999981,
+            "explicitConstructionMs": 0.3933329999999273
+          },
+          "htmlBytes": 154284,
+          "openingTags": 2598,
+          "htmlPublications": 2,
+          "submittedBytes": 167615,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 4.773965999999973,
+          "afterLastChatReadToHtmlMs": 3.3056059999999547,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 601,
+            "formatMs": 0.6504879999997115,
+            "explicitConstructionMs": 0.36352700000003324
+          },
+          "htmlBytes": 154284,
+          "openingTags": 2598,
+          "htmlPublications": 2,
+          "submittedBytes": 167615,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 5.2465779999999995,
+          "afterLastChatReadToHtmlMs": 3.6818720000000553,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 601,
+            "formatMs": 0.9243720000002327,
+            "explicitConstructionMs": 0.42723399999999856
+          },
+          "htmlBytes": 154284,
+          "openingTags": 2598,
+          "htmlPublications": 2,
+          "submittedBytes": 167615,
+          "requiredChatRequests": 2
+        },
+        {
+          "routeMs": 4.954707999999982,
+          "afterLastChatReadToHtmlMs": 3.418525999999929,
+          "formatting": {
+            "nativeLocaleStringCalls": 0,
+            "nativeLocaleDateStringCalls": 0,
+            "explicitIntlConstructions": 5,
+            "cachedIntlFormatCalls": 601,
+            "formatMs": 0.6760419999994838,
+            "explicitConstructionMs": 0.4754249999999729
+          },
+          "htmlBytes": 154284,
+          "openingTags": 2598,
+          "htmlPublications": 2,
+          "submittedBytes": 167615,
+          "requiredChatRequests": 2
+        }
+      ]
+    }
+  },
+  "summary": {
+    "baseline": {
+      "20": {
+        "routeMs": {
+          "median": 12.673,
+          "min": 10.971,
+          "max": 13.119
+        },
+        "afterLastChatReadToHtmlMs": {
+          "median": 10.322,
+          "min": 9.421,
+          "max": 11.592
+        },
+        "dateFormatMs": {
+          "median": 9.21,
+          "min": 8.564,
+          "max": 10.446
+        },
+        "explicitDateConstructionMs": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "formattingCounts": {
+          "nativeLocaleStringCalls": [
+            240
+          ],
+          "nativeLocaleDateStringCalls": [
+            1
+          ],
+          "explicitIntlConstructions": [
+            0
+          ],
+          "cachedIntlFormatCalls": [
+            0
+          ]
+        },
+        "output": {
+          "htmlBytes": [
+            51248
+          ],
+          "openingTags": [
+            998
+          ],
+          "htmlPublications": [
+            2
+          ],
+          "submittedBytes": [
+            61612
+          ],
+          "requiredChatRequests": [
+            2
+          ]
+        }
+      },
+      "200": {
+        "routeMs": {
+          "median": 26.896,
+          "min": 25.166,
+          "max": 33.103
+        },
+        "afterLastChatReadToHtmlMs": {
+          "median": 24.948,
+          "min": 23.331,
+          "max": 31.602
+        },
+        "dateFormatMs": {
+          "median": 22.158,
+          "min": 20.702,
+          "max": 26.499
+        },
+        "explicitDateConstructionMs": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "formattingCounts": {
+          "nativeLocaleStringCalls": [
+            600
+          ],
+          "nativeLocaleDateStringCalls": [
+            1
+          ],
+          "explicitIntlConstructions": [
+            0
+          ],
+          "cachedIntlFormatCalls": [
+            0
+          ]
+        },
+        "output": {
+          "htmlBytes": [
+            143351
+          ],
+          "openingTags": [
+            2573
+          ],
+          "htmlPublications": [
+            2
+          ],
+          "submittedBytes": [
+            153715
+          ],
+          "requiredChatRequests": [
+            2
+          ]
+        }
+      }
+    },
+    "revised": {
+      "20": {
+        "routeMs": {
+          "median": 3.936,
+          "min": 3.295,
+          "max": 5.887
+        },
+        "afterLastChatReadToHtmlMs": {
+          "median": 1.823,
+          "min": 1.587,
+          "max": 1.939
+        },
+        "dateFormatMs": {
+          "median": 0.308,
+          "min": 0.284,
+          "max": 0.437
+        },
+        "explicitDateConstructionMs": {
+          "median": 0.374,
+          "min": 0.344,
+          "max": 0.447
+        },
+        "formattingCounts": {
+          "nativeLocaleStringCalls": [
+            0
+          ],
+          "nativeLocaleDateStringCalls": [
+            0
+          ],
+          "explicitIntlConstructions": [
+            5
+          ],
+          "cachedIntlFormatCalls": [
+            241
+          ]
+        },
+        "output": {
+          "htmlBytes": [
+            55061
+          ],
+          "openingTags": [
+            1023
+          ],
+          "htmlPublications": [
+            2
+          ],
+          "submittedBytes": [
+            68392
+          ],
+          "requiredChatRequests": [
+            2
+          ]
+        }
+      },
+      "200": {
+        "routeMs": {
+          "median": 5.247,
+          "min": 4.774,
+          "max": 5.955
+        },
+        "afterLastChatReadToHtmlMs": {
+          "median": 3.682,
+          "min": 3.306,
+          "max": 4.446
+        },
+        "dateFormatMs": {
+          "median": 0.694,
+          "min": 0.65,
+          "max": 0.924
+        },
+        "explicitDateConstructionMs": {
+          "median": 0.427,
+          "min": 0.364,
+          "max": 0.524
+        },
+        "formattingCounts": {
+          "nativeLocaleStringCalls": [
+            0
+          ],
+          "nativeLocaleDateStringCalls": [
+            0
+          ],
+          "explicitIntlConstructions": [
+            5
+          ],
+          "cachedIntlFormatCalls": [
+            601
+          ]
+        },
+        "output": {
+          "htmlBytes": [
+            154284
+          ],
+          "openingTags": [
+            2598
+          ],
+          "htmlPublications": [
+            2
+          ],
+          "submittedBytes": [
+            167615
+          ],
+          "requiredChatRequests": [
+            2
+          ]
+        }
+      }
+    }
+  },
+  "harnessSha256": "f7a1c36c743a82771a2ff8a292660bb2a23baf029d0fa6662614c93629506677",
+  "diagnosticSha256": "fb5eee2979ce1bc4ab2fff8fcb372ecae0a1eb6f9168f5f1edbfff9e7f7e86ff"
+}

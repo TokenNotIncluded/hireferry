@@ -87,6 +87,44 @@ test('switching conversation resources clears the old draft and keeps the conver
   assert.equal(thread.firstChild.value,'');
 });
 
+test('mixed unkeyed siblings keep their identity and live values when groups move', () => {
+  const first = e('input', {value:'First'}), second = e('input', {value:'Second'});
+  first.value = 'Draft one'; second.value = 'Draft two';
+  const button = e('button', {type:'button'}), notice = e('aside', {'data-dom-key':'notice'});
+  const removed = e('small');
+  const root = e('div', {}, [first, button, removed, second, notice]);
+  reconcileChildren(root, e('div', {}, [e('aside', {'data-dom-key':'notice'}), e('button', {type:'submit'}), e('input', {value:'First'}), e('span'), e('input', {value:'Second'})]));
+  assert.equal(root.childNodes[0], notice);
+  assert.equal(root.childNodes[1], button);
+  assert.equal(button.getAttribute('type'), 'submit');
+  assert.equal(root.childNodes[2], first);
+  assert.equal(root.childNodes[4], second);
+  assert.equal(first.value, 'Draft one');
+  assert.equal(second.value, 'Draft two');
+  assert.equal(removed.parentNode, null);
+});
+
+test('matching long mixed sibling lists does not repeatedly read unrelated node keys', () => {
+  const count = 200;
+  const inputs = Array.from({length:count}, (_, i) => e('input', {value:String(i)}));
+  const buttons = Array.from({length:count}, () => e('button'));
+  const root = e('div', {}, [...inputs, ...buttons]);
+  const next = e('div', {}, [...buttons.map(() => e('button')), ...inputs.map((_, i) => e('input', {value:String(i)}))]);
+  let keyReads = 0;
+  for (const node of [...root.childNodes, ...next.childNodes]) {
+    const getAttribute = node.getAttribute.bind(node);
+    node.getAttribute = name => {
+      if (name === 'data-dom-key') keyReads++;
+      return getAttribute(name);
+    };
+  }
+  reconcileChildren(root, next);
+  assert.deepEqual(root.childNodes, [...buttons, ...inputs]);
+  // Count DOM reads rather than timing a fake DOM: doubling siblings must not
+  // introduce a scan through every unrelated input for every button.
+  assert.ok(keyReads <= count * 6, `Unexpected repeated sibling-key reads: ${keyReads}`);
+});
+
 test('page placeholders follow the route layout without a fullscreen loading screen', () => {
   assert.equal(pageIdentity('/admin', null), 'admin:overview');
   assert.equal(pageIdentity('/app', 'jobs'), 'app:jobs');
