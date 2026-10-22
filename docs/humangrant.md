@@ -2,7 +2,7 @@
 
 聘渡实现 [HumanGrant Protocol 0.1 Draft](https://github.com/LIghtJUNction/humangrant/tree/c4a730480d2aae93a636889a144a025fe98becb8)：AI 使用自己的 Ed25519 密钥申请访问，本人登录聘渡、逐项选择权限和有效期，AI 再领取独立凭据。协议实现以该固定版本为依据，后续草案变动需重新核对兼容性。
 
-登录页新增 **Continue with human beings** 入口。它进入使用说明或待确认的申请；本人身份仍由现有 Google／邮箱验证码流程验证。打开链接、登录成功或浏览器记住返回地址，都不会自动批准申请。管理员继续使用 Passkey，HumanGrant 不提供管理员权限。
+登录页新增 **人类辅助登录 / Human Login** 入口。它进入使用说明或待确认的申请；本人身份仍由现有 Google／邮箱验证码流程验证。打开链接、登录成功或浏览器记住返回地址，都不会自动批准申请。管理员继续使用 Passkey，HumanGrant 不提供管理员权限。
 
 ## 使用流程
 

@@ -30,7 +30,7 @@ function fixture(api, { state: changes = {}, ...extra } = {}) {
   globalThis.sessionStorage = memory();
   const state = { config: { humangrant_enabled: true }, user: { id: 'person-one', role: 'seeker', name: 'A person' }, lang: 'en', admin: false, ...changes };
   const events = [];
-  const ui = createHumanGrantUI({ state, api, t: (_, en) => en, esc: escape,
+  const ui = createHumanGrantUI({ state, api, t: (zh, en) => state.lang === 'en' ? en : zh, esc: escape,
     icon: name => `<i data-icon="${name}"></i>`, notice: text => `<aside>${text}</aside>`,
     empty: (title, text) => `<h2>${title}</h2><p>${text}</p>`, notify: text => events.push(['notify', text]),
     go: path => events.push(['go', path]), render: async () => events.push(['render']), session: async () => {},
@@ -153,13 +153,26 @@ test('revocation is confirmed and uses the grant-list token with the chosen gran
   await assert.rejects(ui.action('hg-revoke', { dataset: { id: 'other-user-grant' } }), /Refresh the access list/);
 });
 
-test('the new sign-in option uses the exact HumanGrant label and respects server configuration', () => {
-  const { ui } = fixture(async () => ({}));
-  assert.match(ui.loginButton(), /Continue with human beings/);
-  assert.match(ui.loginButton(), /href="\/humangrant"/);
-  const disabled = fixture(async () => { throw new Error('must not load'); }, { state: { config: { humangrant_enabled: false } } });
-  assert.equal(disabled.ui.loginButton(), '');
-  assert.match(disabled.ui.intro(), /HumanGrant is not available/);
+test('Human Login is translated consistently and respects server configuration', () => {
+  for (const [lang, name, unavailable] of [
+    ['zh', '人类辅助登录', '人类辅助登录暂未开放'],
+    ['en', 'Human Login', 'Human Login is not available'],
+  ]) {
+    const { ui } = fixture(async () => ({}), { state: { lang } });
+    const button = ui.loginButton();
+    assert.ok(button.includes(name), lang);
+    assert.match(button, /href="\/humangrant"/);
+    assert.doesNotMatch(button, /Continue with human beings|lang="en"/);
+    const intro = ui.intro();
+    const heading = intro.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1];
+    assert.ok(heading?.includes(name), lang);
+    assert.doesNotMatch(intro, /Continue with human beings/);
+    const disabled = fixture(async () => { throw new Error('must not load'); }, {
+      state: { lang, config: { humangrant_enabled: false } },
+    });
+    assert.equal(disabled.ui.loginButton(), '');
+    assert.ok(disabled.ui.intro().includes(unavailable), lang);
+  }
 });
 
 
