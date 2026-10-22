@@ -108,6 +108,8 @@ The Tauri 2 desktop client uses the system WebView and connects to the official 
 
 ### Install `hfy`
 
+On Arch Linux, use `yay -S hireferry-cli-bin`, or `hireferry-cli-git` for main builds. Install the server separately with `hireferry-server-bin` or `hireferry-server-git`. See the [AUR guide](../aur.md).
+
 Linux / macOS:
 
 ```sh

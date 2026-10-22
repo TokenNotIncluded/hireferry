@@ -108,6 +108,8 @@ Tauri 2 桌面版使用系統 WebView，連接官方或自架的 HireFerry 站�
 
 ### 安裝 `hfy`
 
+Arch Linux 可用 `yay -S hireferry-cli-bin`，開發版使用 `hireferry-cli-git`。自架服務端另行安裝 `hireferry-server-bin` 或 `hireferry-server-git`，詳見 [AUR 指南](../aur.md)。
+
 Linux / macOS：
 
 ```sh

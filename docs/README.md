@@ -20,7 +20,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [桌面版与 CLI 下载矩阵](downloads.md) | 自动生成的系统、软件包、架构、大小和下载链接 |
+| [桌面版、CLI 与服务端下载矩阵](downloads.md) | 自动生成的系统、软件包、架构、大小和下载链接 |
 | [桌面安装与发布](desktop.md) | Tauri 2、Linux 兼容范围、签名与 Release 流程 |
 | [Arch Linux / AUR](aur.md) | 服务端与 CLI 分开安装、-git / -bin、systemd 初始化与自动发布 |
 | [命令行客户端 `hfy`](cli.md) | 安装、登录、JSON、连接管理、升级与卸载 |
