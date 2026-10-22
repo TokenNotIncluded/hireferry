@@ -387,8 +387,13 @@ fn old_activation_deadlines_are_backfilled_without_extending_existing_sessions()
     let (waffo, stripe, unstarted) = (waffo.unwrap(), stripe.unwrap(), unstarted.unwrap());
     {
         let db = f.state.conn().unwrap();
-        db.execute_batch("ALTER TABLE orders DROP COLUMN checkout_expires_at;")
-            .unwrap();
+        // The legacy schema predates both this column and its housekeeping
+        // index; remove the dependent index before recreating that snapshot.
+        db.execute_batch(
+            "DROP INDEX orders_onboarding_expiry;
+             ALTER TABLE orders DROP COLUMN checkout_expires_at;",
+        )
+        .unwrap();
         db.execute("UPDATE orders SET provider='waffo',checkout_started_at=1000,checkout_url='https://checkout.waffo.ai/old' WHERE id=?1", [&waffo.id]).unwrap();
         db.execute("UPDATE orders SET checkout_started_at=2000,checkout_url='https://checkout.stripe.com/old' WHERE id=?1", [&stripe.id]).unwrap();
         db.execute(

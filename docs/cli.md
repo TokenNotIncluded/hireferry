@@ -160,7 +160,9 @@ hfy feedback send "连接页没有跟随我的主题色" --category bug
 # 审阅和处理只向明确授权的管理员开放
 hfy --scope admin auth login
 hfy --scope admin feedback list --limit 25 --status open --json
+hfy --scope admin feedback list --category bug --source cli --json
 hfy --scope admin feedback list --before-id 123 --json
+hfy --scope admin feedback get 123 --json
 hfy --scope admin feedback resolve 123
 ```
 

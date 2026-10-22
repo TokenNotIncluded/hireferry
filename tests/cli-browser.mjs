@@ -405,6 +405,37 @@ try {
     check(pageErrors === beforeErrors, 'Theme navigation raised a browser error');
   });
 
+  await step('Website quick feedback submits with CSRF and retains duplicate drafts', async () => {
+    await page.goto(`${origin}/oauth/connections`);
+    await page.locator('#feedback-launch').click();
+    const message = 'Browser gate: website quick feedback submission';
+    await page.locator('#feedback-message').fill(message);
+    await page.locator('#feedback-category').selectOption('idea');
+    async function sendFeedback() {
+      const [response] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/feedback' && response.request().method() === 'POST'),
+        page.locator('.feedback-send').click(),
+      ]);
+      check(Boolean(await response.request().headerValue('x-csrf-token')), 'Website feedback omitted session CSRF protection');
+      const submitted = response.request().postDataJSON();
+      check(submitted.page === '/oauth/connections' && submitted.category === 'idea' && submitted.message === message, 'Website feedback changed the selected report');
+      return response;
+    }
+    const response = await sendFeedback();
+    await requireResponseSuccess(response, 'Website feedback failed');
+    const saved = await response.json();
+    check(Number.isSafeInteger(saved.id) && saved.id > 0, 'Website feedback did not return a saved report ID');
+    await eventually(async () => (await page.locator('#feedback-result').textContent()).includes(`#${saved.id}`), 'Website feedback did not display its receipt');
+    check(await page.locator('#feedback-message').inputValue() === '', 'Successful website feedback retained its draft');
+    await page.locator('#feedback-message').fill(message);
+    await page.locator('#feedback-category').selectOption('idea');
+    check((await sendFeedback()).status() === 409, 'Duplicate website feedback was accepted');
+    await eventually(async () => (await page.locator('#feedback-result').textContent()) === 'This feedback was already received.', 'Website feedback did not explain the duplicate');
+    check(await page.locator('#feedback-message').inputValue() === message, 'Rejected website feedback lost its draft');
+    await page.keyboard.press('Escape');
+    check(await page.locator('#feedback-panel').isHidden(), 'Feedback panel did not close with Escape');
+  });
+
   await step('Real connection page renders dates and revokes the token family', async () => {
     await page.goto(`${origin}/oauth/connections`);
     const button = page.locator('#connections .connection button').first();
