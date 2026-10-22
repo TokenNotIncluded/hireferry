@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 9 {
+    if version > 10 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -134,6 +134,13 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         let tx = db.unchecked_transaction()?;
         crate::promos::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 9)?;
+        tx.commit()?;
+    }
+    // Version 10 adds short-lived reports without modifying finance tables.
+    if version < 10 {
+        let tx = db.unchecked_transaction()?;
+        crate::feedback::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 10)?;
         tx.commit()?;
     }
     Ok(())

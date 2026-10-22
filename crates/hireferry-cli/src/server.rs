@@ -4,6 +4,7 @@ use crate::{
     settings::Settings,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::{Value, json};
 use std::time::Duration;
 use url::{Host, Url};
 
@@ -142,6 +143,63 @@ impl Server {
             let _: serde_json::Value = decode(response).await?;
             Err(Error::invalid_response())
         }
+    }
+
+    pub async fn submit_feedback(
+        &self,
+        token: &str,
+        category: &str,
+        message: &str,
+    ) -> Result<Value> {
+        let response = self
+            .client
+            .post(self.endpoint("/api/feedback"))
+            .bearer_auth(token)
+            .json(&json!({"category":category,"message":message}))
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode(response).await
+    }
+
+    pub async fn list_feedback(
+        &self,
+        token: &str,
+        limit: Option<i64>,
+        before_id: Option<i64>,
+        status: Option<&str>,
+    ) -> Result<Value> {
+        let mut query = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(before_id) = before_id {
+            query.push(("before_id", before_id.to_string()));
+        }
+        if let Some(status) = status {
+            query.push(("status", status.to_owned()));
+        }
+        let response = self
+            .client
+            .get(self.endpoint("/api/admin/feedback"))
+            .bearer_auth(token)
+            .query(&query)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode(response).await
+    }
+
+    pub async fn update_feedback(&self, token: &str, id: i64, status: &str) -> Result<Value> {
+        let response = self
+            .client
+            .patch(self.endpoint(&format!("/api/admin/feedback/{id}")))
+            .bearer_auth(token)
+            .json(&json!({"status":status}))
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode(response).await
     }
 }
 

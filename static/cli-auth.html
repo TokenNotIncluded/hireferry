@@ -1,18 +1,26 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="light" data-theme="light" data-palette="blue">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f9f9f9">
   <meta name="referrer" content="no-referrer">
   <title>连接 hfy · HireFerry CLI</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/theme-palettes.css">
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/cli-auth.css">
+  <link rel="stylesheet" href="/static/feedback.css">
   <script type="module" src="/static/cli-auth.js"></script>
+  <script type="module" src="/static/feedback-ui.js"></script>
 </head>
 <body>
-  <header><a href="/" class="brand">聘渡 <span>HireFerry</span></a><button id="language" type="button" aria-label="Switch language">EN</button></header>
-  <main>
+  <a class="skip-link" href="#main">跳转到主要内容 / Skip to content</a>
+  <header class="cli-header"><a href="/" class="brand" aria-label="HireFerry home"><svg class="brand-mark" viewBox="0 0 40 40" fill="currentColor" aria-hidden="true"><path d="M5 24h30l-8 10H13zM18 4v17H4zM22 8l12 13H22z"/></svg><span>聘渡</span><span class="brand-divider"></span><span class="brand-en">HireFerry</span></a><div class="cli-header-controls"><a class="cli-help-link" href="/cli">CLI 指南 / Guide</a><details class="theme-menu"><summary aria-label="切换主题 / Change theme" title="Theme">◐</summary><div class="theme-panel"><div class="palette-options" role="group" aria-label="Color palette"><button type="button" class="palette-swatch" data-palette-choice="blue" title="Ocean blue" aria-label="Ocean blue" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="violet" title="Violet" aria-label="Violet" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="amber" title="Amber" aria-label="Amber" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="teal" title="Teal" aria-label="Teal" aria-pressed="false"><span class="swatch-color">✓</span></button></div><div class="mode-options" role="group" aria-label="Appearance"><button type="button" data-theme-choice="light" aria-label="Light" title="Light" aria-pressed="false">☀</button><button type="button" data-theme-choice="dark" aria-label="Dark" title="Dark" aria-pressed="false">☾</button><button type="button" data-theme-choice="system" aria-label="System" title="System" aria-pressed="false">▣</button></div></div></details><button id="language" type="button" class="language" aria-label="Switch language">EN</button></div></header>
+  <main id="main" class="cli-content">
     <p class="eyebrow">HIREFERRY CLI</p>
     <h1 data-text="title">连接你的命令行</h1>
     <p class="intro" data-text="intro">确认账户和权限后，回到终端继续。</p>
