@@ -1,4 +1,5 @@
 import { CLI_RETURN_KEY, rememberCliReturn } from './cli-auth-return.js';
+import { mountBrandMotion } from './brand-motion.js';
 
 const $ = id => document.getElementById(id);
 let language = 'zh';
@@ -221,3 +222,4 @@ $('switch-account').addEventListener('click', async () => {
 });
 translate();
 load();
+mountBrandMotion(document.querySelector('header'));

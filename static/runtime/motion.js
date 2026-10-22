@@ -2,14 +2,14 @@
 import { createRenderer } from './renderer.js';
 
 /** Own exactly one RAF. Pointer coordinates and velocity are in CSS pixels. */
-export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState = () => {} } = {}) {
-  const renderer = createRenderer(canvas, timeline);
+export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState = () => {}, onReady = () => {}, rendererOptions = {}, pointerTarget = canvas, suspended: initiallySuspended = false } = {}) {
+  const renderer = createRenderer(canvas, timeline, onReady, rendererOptions);
   if (!renderer) { onState('unsupported'); return null; }
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const fine = matchMedia('(hover: hover) and (pointer: fine)');
   const pointer = { x: 0, y: 0, previousX: 0, previousY: 0, vx: 0, vy: 0, active: false };
   let target = { x: 0, y: 0, active: false };
-  let frame = null, disposed = false, visible = true, dirty = true;
+  let frame = null, disposed = false, visible = true, dirty = true, suspended = initiallySuspended;
   let paused = navigator.connection?.saveData === true, last = 0, time = 0, selected = null;
   const state = () => reduced.matches ? 'reduced' : paused ? 'paused' : 'playing';
   let announced;
@@ -18,7 +18,7 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
     if (current !== announced) { announced = current; onState(current); }
   };
   const schedule = () => {
-    if (frame === null && !disposed && visible && !document.hidden) frame = requestAnimationFrame(render);
+    if (frame === null && !disposed && visible && !suspended && !document.hidden) frame = requestAnimationFrame(render);
   };
   const refresh = () => { dirty = true; schedule(); };
   const resetClock = () => {
@@ -28,7 +28,7 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
   };
   function render(now) {
     frame = null;
-    if (disposed || document.hidden || !visible) return;
+    if (disposed || document.hidden || !visible || suspended) return;
     announce();
     const budget = fine.matches && innerWidth > 900 ? 1000 / 60 : 1000 / 30;
     const elapsed = last ? Math.min(80, now - last) : budget;
@@ -71,14 +71,14 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
   });
   const theme = new MutationObserver(refresh);
   resize.observe(canvas); intersection.observe(canvas);
-  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-palette'] });
-  canvas.addEventListener('pointermove', move, { passive: true });
-  canvas.addEventListener('pointerdown', move, { passive: true });
-  for (const name of ['pointerleave', 'pointercancel', 'pointerup']) canvas.addEventListener(name, leave);
-  canvas.addEventListener('touchstart', touch, { passive: true });
-  canvas.addEventListener('touchmove', touch, { passive: true });
-  canvas.addEventListener('touchend', leave, { passive: true });
-  canvas.addEventListener('touchcancel', leave, { passive: true });
+  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-palette'] });
+  pointerTarget.addEventListener('pointermove', move, { passive: true });
+  pointerTarget.addEventListener('pointerdown', move, { passive: true });
+  for (const name of ['pointerleave', 'pointercancel', 'pointerup']) pointerTarget.addEventListener(name, leave);
+  pointerTarget.addEventListener('touchstart', touch, { passive: true });
+  pointerTarget.addEventListener('touchmove', touch, { passive: true });
+  pointerTarget.addEventListener('touchend', leave, { passive: true });
+  pointerTarget.addEventListener('touchcancel', leave, { passive: true });
   document.addEventListener('visibilitychange', resetClock);
   reduced.addEventListener('change', resetClock);
   announce(); schedule();
@@ -86,14 +86,15 @@ export function mountSculpture(canvas, timeline, { onFrame = () => {}, onState =
     select(index) { selected = index; time = 0; resetClock(); },
     seek(position) { selected = position; refresh(); },
     pause(value = !paused) { paused = Boolean(value); resetClock(); },
+    suspend(value) { if (suspended !== Boolean(value)) { suspended = Boolean(value); resetClock(); } },
     inspect() { return { ...renderer.inspect(), state: state(), visible, selected }; },
     dispose() {
       disposed = true; if (frame !== null) cancelAnimationFrame(frame);
       resize.disconnect(); intersection.disconnect(); theme.disconnect();
-      canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerdown', move);
-      for (const name of ['pointerleave', 'pointercancel', 'pointerup']) canvas.removeEventListener(name, leave);
-      canvas.removeEventListener('touchstart', touch); canvas.removeEventListener('touchmove', touch);
-      canvas.removeEventListener('touchend', leave); canvas.removeEventListener('touchcancel', leave);
+      pointerTarget.removeEventListener('pointermove', move); pointerTarget.removeEventListener('pointerdown', move);
+      for (const name of ['pointerleave', 'pointercancel', 'pointerup']) pointerTarget.removeEventListener(name, leave);
+      pointerTarget.removeEventListener('touchstart', touch); pointerTarget.removeEventListener('touchmove', touch);
+      pointerTarget.removeEventListener('touchend', leave); pointerTarget.removeEventListener('touchcancel', leave);
       document.removeEventListener('visibilitychange', resetClock);
       reduced.removeEventListener('change', resetClock); renderer.dispose();
     },

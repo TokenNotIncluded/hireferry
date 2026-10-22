@@ -1,4 +1,5 @@
 import { rememberCliReturn } from './cli-auth-return.js';
+import { mountBrandMotion } from './brand-motion.js';
 
 const $ = id => document.getElementById(id);
 let language = 'zh';
@@ -142,3 +143,4 @@ $('language').addEventListener('click', () => {
 });
 draw();
 load();
+mountBrandMotion(document.querySelector('header'));

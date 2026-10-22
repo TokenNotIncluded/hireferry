@@ -21,7 +21,6 @@ body:has(.workspace-layout) { overflow: hidden; }
 .workspace-header .brand { font-size: 20px; gap: 9px; }
 .workspace-header .brand-mark { width: 29px; height: 29px; }
 .workspace-header .brand-en { font-size: 13px; letter-spacing: -.025em; }
-.workspace-header .brand-divider { height: 18px; background: var(--line); }
 .workspace-location { display: flex; gap: 22px; align-items: center; color: var(--muted); font-size: 12px; flex: 1; }
 .workspace-location-divider { color: var(--line); font-size: 21px; font-weight: 300; }
 .workspace-header .nav-right { margin-left: auto; gap: 16px; }
@@ -68,7 +67,7 @@ body:has(.workspace-layout) { overflow: hidden; }
 .workspace-sidebar .sidebar-nav button:hover { color: var(--ink); background: var(--raised); }
 .workspace-sidebar .sidebar-nav a.active { color: var(--on-accent-soft); background: var(--workspace-selected); font-weight: 600; }
 .workspace-sidebar .sidebar-nav a.active > svg { color: var(--accent); }
-.nav-current-dot { margin-left: auto; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
 .workspace-secondary { display: grid; gap: 3px; margin-top: 29px; }
 .workspace-secondary .workspace-nav-label { margin-bottom: 8px; }
 .workspace-more { display: none; }
@@ -150,7 +149,7 @@ body:has(.workspace-layout) { overflow: hidden; }
   .workspace-header { --workspace-header-height: 56px; padding: 0 16px; gap: 12px; }
   .workspace-header .brand { font-size: 18px; gap: 7px; }
   .workspace-header .brand-mark { width: 25px; height: 25px; }
-  .workspace-header .brand-divider, .workspace-header .brand-en, .workspace-location, .workspace-help { display: none; }
+  .workspace-header .brand-en, .workspace-location, .workspace-help { display: none; }
   .workspace-header .nav-right { gap: 7px; }
   .workspace-header .theme-menu > summary { font-size: 11px; padding: 7px 10px; }
   .workspace-header .theme-panel { right: -40px; }
@@ -168,7 +167,6 @@ body:has(.workspace-layout) { overflow: hidden; }
   .workspace-sidebar .sidebar-nav > a.active { background: var(--accent-soft); color: var(--on-accent-soft); border-radius: 12px; }
   .workspace-sidebar .sidebar-nav > a.active:before { content: none; }
   .workspace-sidebar .sidebar-nav > a > svg, .workspace-more > summary > svg { width: 20px; height: 20px; }
-  .workspace-sidebar .nav-current-dot { display: none; }
   .workspace-more { display: flex; flex: 1; min-width: 0; }
   .workspace-more > summary { height: 100%; list-style: none; cursor: pointer; }
   .workspace-more > summary::-webkit-details-marker { display: none; }

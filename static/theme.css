@@ -14,7 +14,6 @@
 ::selection {background:var(--accent-soft);color:var(--on-accent-soft);}
 :is(button,a,input,textarea,select,summary):focus-visible {outline:2px solid var(--accent);outline-offset:4px;}
 .brand,.hero h1 em {color:var(--accent);}
-.brand-divider {background:var(--line);}
 .button {background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
 .button:hover {background:color-mix(in srgb,var(--accent) 88%,var(--paper));border-color:var(--accent);color:var(--on-accent);}
 .button.secondary {background:var(--raised);color:var(--accent);border-color:transparent;}
@@ -83,7 +82,7 @@
 @keyframes theme-appear {from {opacity:0;transform:translateY(-4px);}to {opacity:1;transform:translateY(0);}}
 @media(prefers-reduced-motion:reduce) {.theme-menu[open] .theme-panel {animation:none;}.swatch-color {transition:none;}}
 @media(max-width:560px) {
-  .site-header .brand-en,.site-header .brand-divider {display:none;}
+  .site-header .brand-en {display:none;}
   .site-header {gap:10px;}.nav-right {gap:8px;}
   .theme-panel {right:-48px;width:min(280px,calc(100vw - 40px));}
 }

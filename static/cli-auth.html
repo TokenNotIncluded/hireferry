@@ -13,13 +13,38 @@
   <link rel="stylesheet" href="/static/theme-palettes.css">
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/cli-auth.css">
+  <link rel="stylesheet" href="/static/brand-motion.css">
   <link rel="stylesheet" href="/static/feedback.css">
   <script type="module" src="/static/cli-auth.js"></script>
   <script type="module" src="/static/feedback-ui.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳转到主要内容 / Skip to content</a>
-  <header class="cli-header"><a href="/" class="brand" aria-label="HireFerry home"><svg class="brand-mark" viewBox="0 0 40 40" fill="currentColor" aria-hidden="true"><path d="M5 24h30l-8 10H13zM18 4v17H4zM22 8l12 13H22z"/></svg><span>聘渡</span><span class="brand-en">HireFerry</span></a><div class="cli-header-controls"><a class="cli-help-link" href="/cli">CLI 指南 / Guide</a><details class="theme-menu"><summary aria-label="切换主题 / Change theme" title="Theme">◐</summary><div class="theme-panel"><div class="palette-options" role="group" aria-label="Color palette"><button type="button" class="palette-swatch" data-palette-choice="neutral" title="纸墨 / Paper &amp; ink" aria-label="纸墨 / Paper &amp; ink" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="blue" title="Ocean blue" aria-label="Ocean blue" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="violet" title="Violet" aria-label="Violet" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="amber" title="Amber" aria-label="Amber" aria-pressed="false"><span class="swatch-color">✓</span></button><button type="button" class="palette-swatch" data-palette-choice="teal" title="Teal" aria-label="Teal" aria-pressed="false"><span class="swatch-color">✓</span></button></div><div class="mode-options" role="group" aria-label="Appearance"><button type="button" data-theme-choice="light" aria-label="Light" title="Light" aria-pressed="false">☀</button><button type="button" data-theme-choice="dark" aria-label="Dark" title="Dark" aria-pressed="false">☾</button><button type="button" data-theme-choice="system" aria-label="System" title="System" aria-pressed="false">▣</button></div></div></details><button id="language" type="button" class="language" aria-label="Switch language">EN</button></div></header>
+  <header class="cli-header">
+    <a href="/" class="brand" aria-label="HireFerry home"><svg class="brand-mark" viewBox="0 0 40 40" fill="currentColor" aria-hidden="true"><path d="M5 24h30l-8 10H13zM18 4v17H4zM22 8l12 13H22z"/></svg><span>聘渡</span><span class="brand-en">HireFerry</span></a>
+    <div class="cli-header-controls">
+      <a class="cli-help-link" href="/cli">CLI 指南 / Guide</a>
+      <details class="theme-menu">
+        <summary aria-label="切换主题 / Change theme" title="Theme">◐</summary>
+        <div class="theme-panel">
+          <div class="palette-options" role="group" aria-label="Color palette">
+            <button type="button" class="palette-swatch" data-palette-choice="neutral" title="纸墨 / Paper &amp; ink" aria-label="纸墨 / Paper &amp; ink" aria-pressed="false"><span class="swatch-color">✓</span></button>
+            <button type="button" class="palette-swatch" data-palette-choice="blue" title="Ocean blue" aria-label="Ocean blue" aria-pressed="false"><span class="swatch-color">✓</span></button>
+            <button type="button" class="palette-swatch" data-palette-choice="violet" title="Violet" aria-label="Violet" aria-pressed="false"><span class="swatch-color">✓</span></button>
+            <button type="button" class="palette-swatch" data-palette-choice="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="swatch-color">✓</span></button>
+            <button type="button" class="palette-swatch" data-palette-choice="amber" title="Amber" aria-label="Amber" aria-pressed="false"><span class="swatch-color">✓</span></button>
+            <button type="button" class="palette-swatch" data-palette-choice="teal" title="Teal" aria-label="Teal" aria-pressed="false"><span class="swatch-color">✓</span></button>
+          </div>
+          <div class="mode-options" role="group" aria-label="Appearance">
+            <button type="button" data-theme-choice="light" aria-label="Light" title="Light" aria-pressed="false">☀</button>
+            <button type="button" data-theme-choice="dark" aria-label="Dark" title="Dark" aria-pressed="false">☾</button>
+            <button type="button" data-theme-choice="system" aria-label="System" title="System" aria-pressed="false">▣</button>
+          </div>
+        </div>
+      </details>
+      <button id="language" type="button" class="language" aria-label="Switch language">EN</button>
+    </div>
+  </header>
   <main id="main" class="cli-content">
     <h1 data-text="title">连接 hfy</h1>
     <p class="intro" data-text="intro">确认账户与权限后继续。</p>
@@ -37,7 +62,7 @@
         <div class="actions"><a href="/login" id="member-login" class="button primary" data-text="memberLogin">Google / 邮箱登录</a><a href="/admin" id="admin-login" class="button" data-text="adminLogin">管理员 Passkey 登录</a></div>
       </div>
       <div id="consent" aria-describedby="status error" hidden>
-        <dl><dt data-text="siteLabel">网站</dt><dd id="site"></dd><dt data-text="accountLabel">当前账户</dt><dd id="account"></dd><dt data-text="clientLabel">客户端</dt><dd id="client"></dd><dt data-text="scopeLabel">权限范围</dt><dd id="scope"></dd></dl>
+        <dl><dt data-text="siteLabel">网站</dt><dd id="site"></dd><dt data-text="accountLabel">账户</dt><dd id="account"></dd><dt data-text="clientLabel">客户端</dt><dd id="client"></dd><dt data-text="scopeLabel">权限</dt><dd id="scope"></dd></dl>
         <div id="code-confirm" class="code-confirm" hidden><span data-text="compareCode">请确认设备码与你的终端一致</span><strong id="display-code"></strong></div>
         <p id="permissions"></p>
         <p class="warning" data-text="ownRequest">请确认请求来自你正在登录的终端。</p>
