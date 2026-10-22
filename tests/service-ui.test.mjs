@@ -337,6 +337,16 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const requests = [];
   const listeners = new Map();
   const modelContext = { registerTool: tool => registered.set(tool.name, tool), unregisterTool: name => registered.delete(name) };
+  // These tests inspect business schemas and handlers synchronously. The actual
+  // async registration lifecycle has its own unit suite and real Chrome gate.
+  const createWebMCPOwner = () => {
+    let currentScope = null;
+    return {
+      sync({ scope, tools }) { registered.clear();currentScope = scope;for (const tool of tools) registered.set(tool.name, tool); },
+      clear() { currentScope = null;registered.clear(); },
+      isCurrent: scope => scope === currentScope,
+    };
+  };
   const node = { innerHTML: '', replaceChildren() { this.innerHTML = ''; } };
   const document = { querySelector: () => node, addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); }, removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }, body: { style: {} }, documentElement: {}, modelContext };
   const fetch = async (path, options) => {
@@ -351,8 +361,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
