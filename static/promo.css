@@ -1,0 +1,59 @@
+.promo-page { max-width: 1040px; }
+.promo-section { padding: 24px 0; }
+.promo-section + .promo-section { margin-top: 20px; }
+.promo-section > h2, .promo-section > .promo-row { margin-bottom: 16px; }
+.promo-section > .help { margin-bottom: 24px; max-width: 65ch; }
+.promo-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.promo-row h3 { margin: 0; font-size: 16px; }
+.promo-row .help { margin: 0; }
+.promo-code-card { padding: 24px; border: 0; border-radius: 16px; background: var(--raised); margin: 16px 0; }
+.promo-code { display: flex; align-items: center; gap: 14px; margin: 12px 0; overflow-wrap: anywhere; }
+.promo-code code { font-size: 16px; letter-spacing: .025em; color: var(--ink); }
+.promo-code .text-button { flex: none; min-width: 40px; min-height: 40px; justify-content: center; }
+.promo-state { font-size: 12px; color: var(--muted); }
+.promo-usage { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; margin: 24px 0; }
+.promo-usage dt { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.promo-usage dd { margin: 0; font-size: 25px; font-weight: 550; }
+.promo-usage small { display: inline-block; margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.promo-application { padding: 20px 0 28px; }
+.promo-application + .promo-application { margin-top: 8px; }
+.promo-prose { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 16px 0; }
+.promo-disclosure { margin: 20px 0; border: 0; }
+.promo-disclosure > summary { cursor: pointer; font-size: 14px; font-weight: 550; padding: 12px 0; min-height: 44px; }
+.promo-disclosure[open] > summary { margin-bottom: 12px; }
+.promo-disclosure .field { margin-bottom: 22px; }
+.promo-disclosure input, .promo-disclosure textarea, .promo-form .input, .promo-page .input { border-color: transparent; background: var(--raised); }
+.promo-form .input:focus, .promo-page .input:focus, .promo-disclosure .input:focus { border-color: var(--accent); }
+.promo-code-entry { display: flex; align-items: stretch; gap: 12px; }
+.promo-code-entry .input { min-width: 0; flex: 1; }
+.promo-code-entry .button { flex: none; }
+.promo-quote:empty { display: none; }
+.promo-quote { padding: 16px 20px; margin: 16px 0; border-radius: 12px; background: var(--accent-soft); color: var(--on-accent-soft); }
+.promo-quote .help { color: inherit; margin-top: 8px; }
+.promo-quote.promo-error { background: var(--danger-soft); color: var(--md-on-error-container); }
+.promo-tabs { display: flex; gap: 28px; margin: 8px 0 24px; }
+.promo-tabs a { padding: 12px 0; color: var(--muted); }
+.promo-tabs [aria-current=page] { color: var(--accent); font-weight: 600; }
+.promo-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.promo-filter select { width: auto; min-width: 150px; }
+.promo-form { margin-top: 28px; }
+.promo-form .form-actions, .promo-page .form-actions { border-top: 0; }
+.promo-check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; font-size: 14px; }
+.promo-check input { accent-color: var(--accent); width: 18px; height: 18px; }
+.promo-allowance { margin: 12px 0 24px; }
+.promo-allowance .field { margin-top: 12px; }
+.promo-entry { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 18px 0; }
+.promo-entry .help { margin: 0; }
+.promo-activation-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 24px; flex: none; background: var(--raised); font-size: 12px; }
+.promo-activation-banner > span { margin-right: auto; }
+@media (max-width: 600px) {
+  .promo-usage { grid-template-columns: 1fr; gap: 14px; }
+  .promo-usage > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .promo-usage dt { margin-bottom: 0; }
+  .promo-usage dd { font-size: 21px; }
+  .promo-code-card { padding: 20px; }
+  .promo-code-entry { flex-direction: column; }
+  .promo-page .form-actions { align-items: stretch; }
+  .promo-page .form-actions .button { flex: 1; }
+  .promo-activation-banner { padding: 12px 16px; gap: 8px 16px; }
+}

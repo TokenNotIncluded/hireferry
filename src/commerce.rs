@@ -6,6 +6,7 @@ use crate::{
     models::{self, Job, Order, User},
     now,
     payments::{PaymentReceipt, RefundReceipt},
+    promos,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
@@ -179,7 +180,7 @@ fn employer(db: &Connection, id: &str) -> AppResult<User> {
     }
     Ok(u)
 }
-fn insert_order(
+pub(crate) fn insert_order(
     db: &Connection,
     user: &str,
     kind: &str,
@@ -212,6 +213,25 @@ pub fn choose_role_with_currency(
     provider: Option<&str>,
     currency: Option<&str>,
 ) -> AppResult<(User, Option<Order>)> {
+    choose_role_with_promo(state, uid, role, provider, currency, None)
+}
+
+pub fn choose_role_with_promo(
+    state: &AppState,
+    uid: &str,
+    role: &str,
+    provider: Option<&str>,
+    currency: Option<&str>,
+    promo_code: Option<&str>,
+) -> AppResult<(User, Option<Order>)> {
+    if let Some(code) = promo_code {
+        if role != "employer" {
+            return Err(AppError::bad_request(
+                "Promotion activation is only for employer accounts",
+            ));
+        }
+        return promos::redeem_activation(state, uid, code, currency);
+    }
     if !matches!(role, "seeker" | "employer") {
         return Err(AppError::bad_request("Choose seeker or employer"));
     }
@@ -333,13 +353,37 @@ pub fn new_job_with_currency(
     headcount: i64,
     currency: Option<&str>,
 ) -> AppResult<(Job, Order)> {
-    validate_configured_headcount(state, headcount)?;
+    new_job_with_promo(
+        state, uid, title, jd, salary, provider, headcount, currency, None, None, None,
+    )
+}
+
+pub(crate) fn publication_amount(state: &AppState, salary: i64, currency: &str) -> AppResult<i64> {
     let pricing = &state.cfg.pricing;
-    let currency = currency.unwrap_or(&pricing.currency);
     if !pricing.permits_currency(currency) {
         return Err(AppError::bad_request("Choose an enabled salary currency"));
     }
-    let amounts = pricing.amounts(currency)?;
+    configured_fee(
+        salary,
+        &pricing.publish_mode,
+        pricing.publish_bps,
+        pricing.amounts(currency)?.publish_fixed_minor,
+    )
+}
+
+pub fn new_job_with_promo(
+    state: &AppState,
+    uid: &str,
+    title: &str,
+    jd: &str,
+    salary: i64,
+    provider: &str,
+    headcount: i64,
+    currency: Option<&str>,
+    promo_code: Option<&str>,
+    request_key: Option<&str>,
+    expected_amount_cents: Option<i64>,
+) -> AppResult<(Job, Order)> {
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 120 {
         return Err(AppError::bad_request("Job title must be 1–120 characters"));
@@ -348,18 +392,47 @@ pub fn new_job_with_currency(
     if jd.trim().is_empty() {
         return Err(AppError::bad_request("Job description is required"));
     }
-    let amount = configured_fee(
-        salary,
-        &pricing.publish_mode,
-        pricing.publish_bps,
-        amounts.publish_fixed_minor,
-    )?;
-    if amount > 0 {
-        provider_currency_enabled(state, provider, currency)?;
-    }
+    let promo_code = promo_code.map(promos::normalize_code).transpose()?;
+    let key = promo_code
+        .as_ref()
+        .map(|_| promos::validate_request_key(request_key))
+        .transpose()?;
+    let request_hash = promos::request_hash(
+        &json!({"title":title,"jd_md":jd,"salary_cents":salary,"provider":provider,"headcount":headcount,"currency":currency,"promo_code":promo_code,"expected_amount_cents":expected_amount_cents}),
+    );
     let mut db = state.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     employer(&tx, uid)?;
+    promos::expire_reservations(&tx)?;
+    if let Some(key) = key {
+        if let Some(result) = promos::replay_publication(&tx, uid, key, &request_hash)? {
+            tx.commit()?;
+            return Ok(result);
+        }
+    }
+    // A retry restores its immutable result even if current pricing, available
+    // currencies or headcount limits have changed since the original operation.
+    validate_configured_headcount(state, headcount)?;
+    let pricing = &state.cfg.pricing;
+    let currency = currency.unwrap_or(&pricing.currency);
+    let original_amount = publication_amount(state, salary, currency)?;
+    let amounts = pricing.amounts(currency)?;
+    let promo = promo_code
+        .as_deref()
+        .map(|code| promos::available_code(&tx, code, "publish"))
+        .transpose()?;
+    let amount = match &promo {
+        Some(code) => promos::discounted_amount(original_amount, code.discount_percent)?,
+        None => original_amount,
+    };
+    if expected_amount_cents.is_some_and(|expected| expected != amount) {
+        return Err(AppError::conflict(
+            "The price changed; preview the promotion again before publishing",
+        ));
+    }
+    if amount > 0 {
+        provider_currency_enabled(state, provider, currency)?;
+    }
     let count: i64 = tx.query_row(
         "SELECT count(*) FROM orders WHERE user_id=?1 AND status='pending'",
         [uid],
@@ -370,7 +443,11 @@ pub fn new_job_with_currency(
     }
     let id = uuid::Uuid::new_v4().to_string();
     tx.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,version,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",params![id,uid,title,jd,salary,currency,amounts.employer_ai_min_salary_minor,headcount,if amount == 0 {"published"} else {"draft"},if amount == 0 {1} else {0},now()])?;
-    let order = insert_order(
+    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
+    if let Some(code) = &promo {
+        snapshot["promo"] = json!({"code_id":code.id,"code":code.code,"discount_percent":code.discount_percent,"original_amount_cents":original_amount});
+    }
+    let mut order = insert_order(
         &tx,
         uid,
         "publish",
@@ -379,8 +456,12 @@ pub fn new_job_with_currency(
         provider,
         provider_live(state, provider),
         currency,
-        json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor}),
+        snapshot,
     )?;
+    if let (Some(code), Some(key)) = (&promo, key) {
+        promos::record_publication(&tx, code, &order, key, &request_hash)?;
+        order = models::load_order(&tx, &order.id)?;
+    }
     let job = models::load_job(&tx, &id)?;
     audit(
         &tx,
@@ -648,7 +729,7 @@ pub fn delete_job_record(
         // Pending and historical edit snapshots contain JD text. Receipts keep
         // amount/reference fields, but must not retain deleted job content.
         db.execute(
-            "UPDATE orders SET snapshot_json='{}',checkout_url=NULL,status=CASE WHEN status='pending' THEN 'cancelled' ELSE status END WHERE job_id=?1",
+            "UPDATE orders SET snapshot_json=CASE WHEN json_valid(snapshot_json) AND json_type(snapshot_json,'$.promo')='object' THEN json_object('promo',json_extract(snapshot_json,'$.promo')) ELSE '{}' END,checkout_url=NULL,status=CASE WHEN status='pending' THEN 'cancelled' ELSE status END WHERE job_id=?1",
             [id],
         )?;
     } else {
@@ -750,6 +831,7 @@ pub async fn checkout_with_region(
     let (order, email) = {
         let mut db = state.conn()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        promos::expire_reservations(&tx)?;
         let order = models::load_order(&tx, id)?;
         if order.user_id != uid {
             return Err(AppError::forbidden("This order belongs to another account"));
@@ -774,6 +856,7 @@ pub async fn checkout_with_region(
             }
         }
         if order.status != "pending" {
+            tx.commit()?;
             return Err(AppError::conflict("This order is not pending"));
         }
         ensure_checkout_job(&tx, &order)?;
@@ -826,11 +909,13 @@ pub async fn checkout_with_region(
     // may have changed the local state while it was in flight.
     let mut db = state.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    promos::expire_reservations(&tx)?;
     let current = models::load_order(&tx, id)?;
     if models::load_user(&tx, uid)?.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
     if current.status != "pending" {
+        tx.commit()?;
         return Err(AppError::conflict("This order is not pending"));
     }
     ensure_checkout_job(&tx, &current)?;
@@ -887,6 +972,7 @@ pub(crate) fn job_checkout_available(db: &Connection, order: &Order) -> AppResul
 pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppResult<()> {
     let mut db = state.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    promos::expire_reservations(&tx)?;
     let order = models::load_order(&tx, &receipt.order_id)?;
     if order.live_mode != receipt.live_mode
         || order.provider != receipt.provider
