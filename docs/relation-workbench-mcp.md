@@ -52,7 +52,7 @@ The state contains `mode`, `filters`, `grouping`, `ordering`, `edge_display`,
 | `set_grouping` | Set left and right grouping |
 | `set_mode` | Select `overview`, `focus`, `matrix`, or `list` |
 | `set_ordering` | Select `stable`, `name`, or `degree` |
-| `set_edge_display` | Set the rendering preference; `hidden` suppresses all lines |
+| `set_edge_display` | Set `auto` for the selected view mode, or `hidden` to suppress all lines |
 | `set_focus` | Focus a typed left/right entity, or clear with `null` |
 | `set_visibility` | Hide or show 1–100 explicit IDs on `left`, `right`, or `edges` |
 | `set_presentation` | Select `standard` or `immersive` application layout |
@@ -62,8 +62,10 @@ The state contains `mode`, `filters`, `grouping`, `ordering`, `edge_display`,
 `stable` preserves ordering during scrolling and may improve crossings when a
 scope is loaded. Ordering operates on groups in overview/matrix and on the
 loaded page in focus/list; it is not a global alphabetical sort of the entire
-database. `focused` and `bundled` are rendering preferences within the selected
-mode, rather than instructions to change modes.
+database. Use `set_mode` to choose focused relationships or a grouped overview;
+line visibility is a separate `auto`/`hidden` control. Early checkpoint values
+`focused` and `bundled` are accepted as aliases of `auto` so saved views remain
+readable; they are not advertised as additional rendering features.
 
 Left grouping supports `role`, `industry`, and `roles`; right grouping supports
 `status` and `owner`. Supported filters are the graph endpoint's typed user/job

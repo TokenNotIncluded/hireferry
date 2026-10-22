@@ -247,7 +247,10 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
       if (view.edge_display === 'hidden' || box.width < 620 || view.mode === 'list') return;
       const style = getComputedStyle(host), colors = Object.fromEntries(STAGES.map(s => [s, style.getPropertyValue('--pj-' + s).trim()])), x1 = columns.left.bounds.right - box.left + 3, x2 = columns.right.bounds.left - box.left - 3;
       for (const line of paths) {
-        const y1 = columns.left.bounds.top - box.top + line.a.y, y2 = columns.right.bounds.top - box.top + line.b.y;
+        // Separate stage bundles slightly so a thicker late-drawn stage does
+        // not conceal the colors and dash patterns of the same group pair.
+        const lane = view.mode === 'overview' ? (STAGES.indexOf(line.status) - (STAGES.length - 1) / 2) * 4 : 0;
+        const y1 = columns.left.bounds.top - box.top + line.a.y + lane, y2 = columns.right.bounds.top - box.top + line.b.y + lane;
         context.beginPath();context.moveTo(x1, y1);context.bezierCurveTo(x1 + (x2 - x1) * .48, y1, x2 - (x2 - x1) * .48, y2, x2, y2);
         context.strokeStyle = colors[line.status] || colors.introduced;context.globalAlpha = view.mode === 'overview' ? .6 : .9;context.lineWidth = view.mode === 'overview' ? Math.min(5, 1 + Math.log2(1 + line.count) / 3) : Math.min(4, 1.6 + Math.log2(line.count) / 3);context.setLineDash(line.status === 'declined' ? [2, 5] : line.status === 'interview' ? [7, 4] : []);context.stroke();
       }

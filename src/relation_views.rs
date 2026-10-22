@@ -31,7 +31,16 @@ macro_rules! choice {
 }
 choice!(ViewMode, Overview, Focus, Matrix, List);
 choice!(Ordering, Stable, Name, Degree);
-choice!(EdgeDisplay, Auto, Focused, Bundled, Hidden);
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeDisplay {
+    // Early checkpoint clients used these names as automatic mode preferences.
+    // Keep saved views readable; the advertised controls use the actual modes.
+    #[default]
+    #[serde(alias = "focused", alias = "bundled")]
+    Auto,
+    Hidden,
+}
 choice!(Presentation, Standard, Immersive);
 choice!(OpenMode, Active, Create, Resume, Activate);
 choice!(ResponseMode, Summary, Rows, State);
@@ -1159,7 +1168,10 @@ async fn http_tool_call(
     Json(args): Json<Value>,
 ) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &headers, true)?;
-    Ok(Json(call(&s, &p, &name, args)?))
+    let value = tokio::task::spawn_blocking(move || call(&s, &p, &name, args))
+        .await
+        .map_err(AppError::internal)??;
+    Ok(Json(value))
 }
 
 pub fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> AppResult<Value> {
@@ -1240,7 +1252,7 @@ pub fn tools() -> Vec<Value> {
         ),
         (
             "set_edge_display",
-            json!({"edge_display":{"enum":["auto","focused","bundled","hidden"],"description":"Rendering preference within the selected mode; hidden suppresses all lines."}}),
+            json!({"edge_display":{"enum":["auto","hidden"],"description":"Automatic lines for the selected view mode, or hide all lines. Use set_mode for focus or grouped overview."}}),
             vec!["edge_display"],
         ),
         (

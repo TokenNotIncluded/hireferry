@@ -666,7 +666,12 @@ fn take_string(args: &mut Value, key: &str, required: bool) -> AppResult<Option<
 pub async fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> AppResult<Value> {
     access::ensure_active(&*s.conn()?, p)?;
     if name.starts_with("hf_") {
-        return relation_views::call(s, p, name, args);
+        let (state, principal, tool) = (s.clone(), p.clone(), name.to_owned());
+        return tokio::task::spawn_blocking(move || {
+            relation_views::call(&state, &principal, &tool, args)
+        })
+        .await
+        .map_err(AppError::internal)?;
     }
     match name {
         "get_site_config" => return Ok(api::public_config(s)),

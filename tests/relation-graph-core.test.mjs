@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('../static/relation-graph-core.js', import.meta.url), 'utf8');
-const { graphWindow, graphEndpoint, graphProjection, emptyGraphView, applyGraphCommands, graphGroupOrder } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const { graphWindow, graphEndpoint, graphProjection, emptyGraphView, applyGraphCommands, graphGroupOrder, graphStateKey } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
 test('a thousand-row directory mounts a viewport and overscan, not the whole list', () => {
   const first = graphWindow(1000, 0, 440), middle = graphWindow(1000, 36000, 440), last = graphWindow(1000, 71980, 440);
@@ -40,6 +40,12 @@ test('changing view mode never silently drops a filter, and hiding is not deleti
   const next = applyGraphCommands(initial, [{ op: 'set_mode', mode: 'matrix' }, { op: 'set_visibility', side: 'left', ids: ['u'], visible: false }, { op: 'set_edge_display', edge_display: 'hidden' }]);
   assert.deepEqual(next.filters, initial.filters);assert.deepEqual(initial.hidden.left, []);assert.deepEqual(next.hidden.left, ['u']);
   assert.equal(applyGraphCommands(next, [{ op: 'set_visibility', side: 'left', ids: ['u'], visible: true }]).hidden.left.length, 0);
+});
+test('canonical server state does not reload the graph for JSON key order or omitted optional filters', () => {
+  const local = { filters: { role: 'seeker', left_group_ids: ['b', 'a'] }, hidden: { left: ['u2', 'u1'], right: [], edges: [] } };
+  const server = { hidden: { edges: [], right: [], left: ['u1', 'u2'] }, filters: { user_q: null, left_group_ids: ['a', 'b'], role: 'seeker', job_q: null } };
+  assert.equal(graphStateKey(local), graphStateKey(server));
+  assert.notEqual(graphStateKey({ filters: {} }), graphStateKey({ filters: { user_ids: [] } }));
 });
 test('fullscreen requests await a browser gesture and ending immersive mode clears the request', () => {
   const requested = applyGraphCommands(emptyGraphView(), [{ op: 'request_fullscreen' }]);
