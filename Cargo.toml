@@ -3,7 +3,7 @@ name = "hireferry"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "HireFerry — a small, private-by-default human recruitment service"
+description = "HireFerry — an AI-native, private-by-default talent matching platform"
 license = "AGPL-3.0-or-later"
 
 [workspace]

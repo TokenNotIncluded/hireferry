@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="690" viewBox="0 0 800 690" role="img" aria-labelledby="title desc">
   <title id="title">HireFerry recruiting workflow</title>
-  <desc id="desc">Candidates and employers each have a separate private conversation with platform HR. Human staff and authorized AI work within the current permissions. A platform introduction opens a new shared conversation for the matched candidate and employer. Their earlier HR conversations remain separate.</desc>
+  <desc id="desc">Candidates and employers each have a separate private platform conversation. Authorized AI agents screen and match through MCP within current permissions. An AI introduction opens a shared conversation for the matched candidate and employer. Their earlier platform conversations remain separate.</desc>
   <style>
     .paper { fill: #f5f3ed; }
     .panel { fill: #eeece5; stroke: #d0cec3; }
@@ -45,12 +45,12 @@
   <text class="muted" x="225" y="270" font-size="21">Private chat</text>
   <text class="muted" x="464" y="270" font-size="21">Private chat</text>
   <rect class="focus" x="210" y="319" width="380" height="123" rx="18"/>
-  <text class="ink" x="400" y="366" text-anchor="middle" font-size="33" font-weight="600">Platform HR</text>
+  <text class="ink" x="400" y="366" text-anchor="middle" font-size="33" font-weight="600">Platform AI</text>
   <text class="muted" x="400" y="409" text-anchor="middle" font-size="23">Human team + authorized AI</text>
   <path class="route" d="M400 442 V519" marker-end="url(#arrow)"/>
   <text class="muted" x="421" y="487" font-size="22">Authorized introduction</text>
   <rect class="panel" x="160" y="525" width="480" height="107" rx="18"/>
   <text class="ink" x="400" y="568" text-anchor="middle" font-size="29" font-weight="600">New shared conversation</text>
   <text class="muted" x="400" y="607" text-anchor="middle" font-size="23">Matched profile + role</text>
-  <text class="muted" x="400" y="666" text-anchor="middle" font-size="21">Earlier HR chats stay in their own conversations.</text>
+  <text class="muted" x="400" y="666" text-anchor="middle" font-size="21">Earlier platform chats stay in their own conversations.</text>
 </svg>

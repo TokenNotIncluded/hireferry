@@ -4,7 +4,7 @@
 
 <h1 align="center">HireFerry · 聘渡</h1>
 
-<p align="center">Human HR and AI working together to connect people with opportunities.</p>
+<p align="center">AI-native screening and matching to connect people with opportunities.</p>
 
 <p align="center">
   <a href="../../README.md">简体中文</a> ·
@@ -28,7 +28,7 @@
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">Report an issue</a>
 </p>
 
-HireFerry is a recruitment platform you can host yourself. Job seekers and employers each talk to the HR team. Human HR and authorized AI organize requirements, make introductions and follow progress. Once introduced, both parties can view the relevant profile and job and start a separate conversation.
+HireFerry is a recruitment platform you can host yourself. Job seekers and employers each communicate with the platform AI. Authorized AI agents connected through MCP automate requirement analysis, résumé screening, matching and follow-up. Connected agent clients run the automation loop; the server provides permissions, business tools and records. Once introduced, both parties can view the relevant profile and job and start a separate conversation.
 
 The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seekers use the service for free. Employer fees follow the site's configuration.
 

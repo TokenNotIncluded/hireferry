@@ -899,7 +899,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   async function matchesPage(admin = false) {
     if (admin) return matchingWorkbench();
     const { items: matches = [] } = await api('/api/matches');
-    const head = heading(t('认真了解，再相互认识。', 'A thoughtful introduction comes first.'), t('只有平台建立匹配后，双方才可以查看资料并进入独立会话。', 'Profiles and a shared room become available after HireFerry makes an introduction.'), '', 'HUMAN INTRODUCTIONS');
+    const head = heading(t('认真了解，再相互认识。', 'A thoughtful introduction comes first.'), t('只有平台建立匹配后，双方才可以查看资料并进入独立会话。', 'Profiles and a shared room become available after HireFerry makes an introduction.'), '', 'AI MATCHING');
     return shell(`${head}${matches.length ? `<div class="user-match-grid">${matches.map(m => matchCard(m, false)).join('')}</div>` : `<section class="panel">${empty(t('值得聊的人，我们认真找。', 'We’re looking for a conversation worth having.'), t('先和平台说清期待。有合适的匹配，会在这里为你介绍。', 'Tell the team what matters. Your introductions will appear here.'), `<a href="/app?tab=messages" data-nav class="button secondary">${t('与平台沟通', 'Talk to the team')}${icon('message')}</a>`, 'link')}</section>`}`, 'matches');
   }
 
