@@ -2,10 +2,9 @@
    semantic colors and saved palette/mode as the main application. */
 body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-content [hidden] {display:none!important;}
-.cli-header {max-width:1180px;height:90px;margin:auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);}
+.cli-header {max-width:1180px;height:90px;margin:auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;}
 .cli-header .brand {display:flex;align-items:center;gap:10px;color:var(--accent);white-space:nowrap;font-size:21px;font-weight:650;}
 .cli-header .brand-mark {width:32px;height:32px;}
-.cli-header .brand-divider {height:20px;width:1px;margin:0 3px;background:var(--line);}
 .cli-header .brand-en {color:var(--ink);font-size:15px;letter-spacing:-.02em;}
 .cli-header-controls {display:flex;align-items:center;gap:16px;}
 .cli-help-link {font-size:12px;color:var(--muted);}
@@ -18,11 +17,12 @@ body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-header .palette-swatch[aria-pressed="true"] .swatch-color {font-size:14px;}
 .cli-header .mode-options button {font-size:14px;font-weight:550;}
 .cli-content {width:min(760px,calc(100% - 48px));margin:64px auto 85px;}
-.cli-content .eyebrow {color:var(--accent);font-size:11px;letter-spacing:.14em;}
-.cli-content h1 {font-size:clamp(32px,5vw,48px);letter-spacing:-.055em;line-height:1.15;margin:16px 0 17px;}
+.cli-content h1 {font-size:clamp(32px,5vw,48px);letter-spacing:-.055em;line-height:1.15;margin:0 0 17px;}
 .cli-content h2 {font-size:20px;margin-bottom:10px;}
 .cli-content .intro {font-size:14px;color:var(--muted);line-height:1.9;max-width:630px;margin-bottom:34px;}
-.cli-content .card {padding:34px 38px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);}
+.cli-content .card {padding:34px 38px;background:var(--surface);border:0;border-radius:var(--radius);}
+.cli-content #status:empty {display:none;}
+.cli-content #account {overflow-wrap:anywhere;}
 .cli-content #status {font-size:13px;line-height:1.8;color:var(--muted);margin:8px 0 19px;}
 .cli-content #error {margin:10px 0 18px;padding:13px 15px;background:var(--danger-soft);color:var(--md-on-error-container);border-radius:10px;font-size:13px;overflow-wrap:anywhere;}
 .cli-content .actions {display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:26px;}
@@ -40,18 +40,16 @@ body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-content .code-confirm span {font-size:12px;color:var(--muted);}
 .cli-content .code-confirm strong {font:600 25px var(--mono);letter-spacing:.12em;}
 .cli-content .warning {background:var(--warning-soft);color:var(--warning);padding:15px 18px;border-radius:12px;font-size:12px;line-height:1.8;}
-.cli-content .hint,.cli-content .footer {font-size:12px;color:var(--muted);line-height:1.8;}
+.cli-content .hint {font-size:12px;color:var(--muted);line-height:1.8;}
 .cli-content .hint {display:inline-block;margin:12px 0;}
-.cli-content .footer {display:block;margin-top:24px;padding:0;border:0;}
 .cli-content .complete {color:var(--accent)!important;font-weight:600;}
 .connection-list {display:grid;gap:10px;margin-top:16px;}
-.connection {border:1px solid var(--line);background:var(--raised);border-radius:13px;padding:20px;min-width:0;}
+.connection {border:0;background:var(--raised);border-radius:13px;padding:20px;min-width:0;}
 .connection-heading {display:flex;align-items:center;justify-content:space-between;gap:14px;}
 .connection h3 {font-size:16px;letter-spacing:-.025em;overflow-wrap:anywhere;}
 .connection-scope {font:12px/1.7 var(--mono);color:var(--muted);overflow-wrap:anywhere;margin:9px 0 13px;}
 .connection-meta {display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--muted);font-size:11px;}
 .connection-status {display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--on-accent-soft);border-radius:30px;padding:5px 11px;font-size:11px;white-space:nowrap;}
-.connection-status:before {content:"";width:5px;height:5px;border-radius:50%;background:currentColor;}
 .connection-status.inactive {background:var(--md-surface-container-high);color:var(--muted);}
 .connection-actions {display:flex;justify-content:flex-end;margin-top:16px;}
 .cli-content .connection-actions button {background:transparent!important;color:var(--danger)!important;border:1px solid var(--line)!important;}
@@ -59,7 +57,7 @@ body {min-height:100vh;background:var(--paper);color:var(--ink);}
 @media(max-width:640px) {
   .cli-header {height:76px;padding:0 18px;gap:10px;}
   .cli-header .brand {font-size:19px;gap:7px;}
-  .cli-header .brand-en,.cli-header .brand-divider,.cli-help-link {display:none;}
+  .cli-header .brand-en,.cli-help-link {display:none;}
   .cli-header-controls {gap:4px;}
   .cli-content {width:calc(100% - 32px);margin:34px auto 75px;}
   .cli-content h1 {font-size:34px;}

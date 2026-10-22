@@ -372,8 +372,9 @@ fn require_active_session(db: &Connection, s: &Session) -> AppResult<()> {
 fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) -> AppResult<()> {
     let t = now();
     db.execute(
-        "DELETE FROM auth_limits WHERE window_start<?1",
-        [t - 86_400],
+        "DELETE FROM auth_limits WHERE rowid IN
+         (SELECT rowid FROM auth_limits WHERE window_start<?1 ORDER BY window_start LIMIT ?2)",
+        params![t - 86_400, crate::maintenance::DEFAULT_BATCH_SIZE],
     )?;
     db.execute(
         "INSERT INTO auth_limits(key,window_start,count) VALUES(?1,?2,1)
@@ -395,8 +396,15 @@ fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) -> AppResult<
 }
 
 fn cleanup(db: &Connection) -> AppResult<()> {
-    db.execute("DELETE FROM sessions WHERE expires_at<=?1", [now()])?;
-    db.execute("DELETE FROM auth_challenges WHERE expires_at<=?1", [now()])?;
+    for table in ["sessions", "auth_challenges"] {
+        db.execute(
+            &format!(
+                "DELETE FROM {table} WHERE rowid IN
+                (SELECT rowid FROM {table} WHERE expires_at<=?1 ORDER BY expires_at LIMIT ?2)"
+            ),
+            params![now(), crate::maintenance::DEFAULT_BATCH_SIZE],
+        )?;
+    }
     Ok(())
 }
 

@@ -475,7 +475,10 @@ pub struct Limits {
 #[serde(default, deny_unknown_fields)]
 pub struct Feedback {
     pub enabled: bool,
+    /// Unresolved reports; the original config key remains compatible.
     pub retention_days: i64,
+    pub resolved_retention_days: i64,
+    pub duplicate_window_seconds: i64,
     pub max_records: i64,
     pub max_per_account_per_hour: i64,
     pub max_guest_per_hour: i64,
@@ -484,8 +487,10 @@ impl Default for Feedback {
     fn default() -> Self {
         Self {
             enabled: true,
-            retention_days: 90,
-            max_records: 5000,
+            retention_days: 180,
+            resolved_retention_days: 30,
+            duplicate_window_seconds: 600,
+            max_records: 10_000,
             max_per_account_per_hour: 5,
             max_guest_per_hour: 30,
         }
@@ -496,15 +501,19 @@ impl Default for Feedback {
 #[serde(default, deny_unknown_fields)]
 pub struct Maintenance {
     pub interval_minutes: u64,
+    pub batch_size: i64,
     pub expired_credentials_grace_days: i64,
     pub human_grant_history_days: i64,
+    pub staff_invitation_history_days: i64,
 }
 impl Default for Maintenance {
     fn default() -> Self {
         Self {
             interval_minutes: 60,
+            batch_size: crate::maintenance::DEFAULT_BATCH_SIZE,
             expired_credentials_grace_days: 30,
             human_grant_history_days: 90,
+            staff_invitation_history_days: 30,
         }
     }
 }
@@ -842,7 +851,9 @@ impl Config {
             return Err(AppError::bad_request("Invalid outbound webhook limits"));
         }
         let f = &self.feedback;
-        if !(1..=365).contains(&f.retention_days)
+        if !(1..=3650).contains(&f.retention_days)
+            || !(1..=3650).contains(&f.resolved_retention_days)
+            || !(1..=86_400).contains(&f.duplicate_window_seconds)
             || !(100..=100_000).contains(&f.max_records)
             || !(1..=100).contains(&f.max_per_account_per_hour)
             || !(1..=1000).contains(&f.max_guest_per_hour)
@@ -853,8 +864,10 @@ impl Config {
         }
         let m = &self.maintenance;
         if !(15..=1440).contains(&m.interval_minutes)
+            || !(1..=1000).contains(&m.batch_size)
             || !(1..=365).contains(&m.expired_credentials_grace_days)
             || !(1..=365).contains(&m.human_grant_history_days)
+            || !(1..=365).contains(&m.staff_invitation_history_days)
         {
             return Err(AppError::bad_request(
                 "Invalid housekeeping intervals or retention",

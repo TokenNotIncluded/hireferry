@@ -242,8 +242,9 @@ fn validate_client(cfg: &Config, client_id: &str) -> Result<(), OAuthError> {
 fn rate_limit(db: &Connection, key: &str, limit: u64, window: u64) -> AppResult<()> {
     let time = now();
     db.execute(
-        "DELETE FROM auth_limits WHERE window_start<?1",
-        [time - 86400],
+        "DELETE FROM auth_limits WHERE rowid IN
+         (SELECT rowid FROM auth_limits WHERE window_start<?1 ORDER BY window_start LIMIT ?2)",
+        params![time - 86400, crate::maintenance::DEFAULT_BATCH_SIZE],
     )?;
     db.execute(
         "INSERT INTO auth_limits(key,window_start,count) VALUES(?1,?2,1)
@@ -264,15 +265,13 @@ fn rate_limit(db: &Connection, key: &str, limit: u64, window: u64) -> AppResult<
 }
 fn cleanup(db: &Connection) -> AppResult<()> {
     db.execute(
-        "DELETE FROM cli_grants WHERE expires_at<?1",
-        [now() - 86400],
+        "DELETE FROM cli_grants WHERE rowid IN
+         (SELECT rowid FROM cli_grants WHERE expires_at<?1 ORDER BY expires_at LIMIT ?2)",
+        params![now() - 86400, crate::maintenance::DEFAULT_BATCH_SIZE],
     )?;
-    // Used refresh hashes stay for the full family lifetime, including after
-    // rotation, so an older credential can still trigger reuse detection.
-    db.execute(
-        "DELETE FROM cli_authorizations WHERE expires_at<?1",
-        [now() - 86400],
-    )?;
+    // The maintenance worker removes expired families and their children in
+    // separate batches after the configured grace period. An unbounded CASCADE
+    // here would lock every request behind a large rotation history.
     Ok(())
 }
 fn grant_capacity(db: &Connection, cfg: &Config) -> AppResult<()> {

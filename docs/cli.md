@@ -2,7 +2,7 @@
 
 包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.2`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
 
-服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希；schema 9 新增优惠码，schema 10 新增有限期快速反馈记录，schema 11 新增团队成员邀请。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
+服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希；schema 9 新增优惠码，schema 10 新增有限期快速反馈记录，schema 11 新增团队成员邀请，schema 12 增加反馈配额、重复保护与有界清理。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
 
 ## 安装、升级与卸载
 

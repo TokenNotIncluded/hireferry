@@ -267,10 +267,16 @@ fn reserve_nonce(state: &AppState, proof: &crypto::Proof) -> Result<()> {
             "The request signature has expired.",
         ));
     }
-    tx.execute("DELETE FROM hg_nonces WHERE expires_at<=?1", [time])?;
+    tx.execute(
+        "DELETE FROM hg_nonces WHERE rowid IN
+         (SELECT rowid FROM hg_nonces WHERE expires_at<=?1 ORDER BY expires_at LIMIT ?2)",
+        params![time, state.cfg.maintenance.batch_size],
+    )?;
     if tx.execute(
-        "INSERT OR IGNORE INTO hg_nonces(actor_id,nonce,expires_at) VALUES(?1,?2,?3)",
-        params![proof.actor_id, proof.nonce, proof.expires_at],
+        "INSERT INTO hg_nonces(actor_id,nonce,expires_at) VALUES(?1,?2,?3)
+         ON CONFLICT(actor_id,nonce) DO UPDATE SET expires_at=excluded.expires_at
+         WHERE hg_nonces.expires_at<=?4",
+        params![proof.actor_id, proof.nonce, proof.expires_at, time],
     )? != 1
     {
         return Err(Error::new(
@@ -588,13 +594,21 @@ async fn signed_inner(state: &AppState, request: Request) -> Result<Response> {
             if !(60..=state.cfg.humangrant.max_grant_seconds).contains(&ttl) {
                 return Err(Error::invalid());
             }
-            tx.execute("DELETE FROM hg_limits WHERE created_at<=?1", [time - 3600])?;
+            tx.execute(
+                "DELETE FROM hg_limits WHERE rowid IN
+                 (SELECT rowid FROM hg_limits WHERE created_at<=?1 ORDER BY created_at LIMIT ?2)",
+                params![time - 3600, state.cfg.maintenance.batch_size],
+            )?;
             let actor_count: i64 = tx.query_row(
-                "SELECT count(*) FROM hg_limits WHERE actor_id=?1",
-                [&proof.actor_id],
+                "SELECT count(*) FROM hg_limits WHERE actor_id=?1 AND created_at>?2",
+                params![proof.actor_id, time - 3600],
                 |r| r.get(0),
             )?;
-            let total: i64 = tx.query_row("SELECT count(*) FROM hg_limits", [], |r| r.get(0))?;
+            let total: i64 = tx.query_row(
+                "SELECT count(*) FROM hg_limits WHERE created_at>?1",
+                [time - 3600],
+                |r| r.get(0),
+            )?;
             if actor_count >= state.cfg.humangrant.request_limit_per_hour
                 || total >= state.cfg.humangrant.service_limit_per_hour
             {

@@ -28,12 +28,13 @@ function browser(saved=null,systemDark=false,storageBlocked=false,savedPalette=n
     escape(){documentEvents.keydown({key:'Escape'});},
   };
 }
-test('new visitors get light blue even on a dark OS; explicit mode choices persist',()=>{
+test('new visitors get paper and ink; explicit mode choices persist',()=>{
   const b=browser(null,true);
-  assert.equal(b.root.dataset.theme,'light');assert.equal(b.root.dataset.palette,'blue');
-  assert.equal(b.metadata.content,'#f9f9f9');
+  assert.equal(b.root.dataset.theme,'light');assert.equal(b.root.dataset.palette,'neutral');
+  assert.equal(b.metadata.content,'#f8f7f3');
   b.choose('dark');assert.equal(b.stored['hireferry-theme'],'dark');b.system(false);
-  assert.equal(b.root.dataset.theme,'dark');b.renderHeader();assert.ok(b.controls.every(x=>x.attrs['aria-pressed']==='true'));
+  assert.equal(b.root.dataset.theme,'dark');assert.equal(b.root.dataset.palette,'neutral');assert.equal(b.metadata.content,'#171715');
+  b.renderHeader();assert.ok(b.controls.every(x=>x.attrs['aria-pressed']==='true'));
   const reloaded=browser(b.stored['hireferry-theme'],false);assert.equal(reloaded.root.dataset.theme,'dark');
   b.choose('system');assert.equal(b.root.dataset.theme,'light');b.system(true);assert.equal(b.root.dataset.theme,'dark');
 });
@@ -44,33 +45,44 @@ test('palette changes retain appearance, survive navigation and reload, and sync
   assert.equal(browser('dark',false,false,b.stored['hireferry-palette']).root.dataset.palette,'violet');
   b.storage('rose','hireferry-palette');assert.equal(b.root.dataset.palette,'rose');
   b.storage('light');assert.equal(b.root.dataset.theme,'light');assert.equal(b.root.dataset.palette,'rose');
-  b.storage('invalid','hireferry-palette');assert.equal(b.root.dataset.palette,'blue');
+  b.storage('invalid','hireferry-palette');assert.equal(b.root.dataset.palette,'neutral');
   b.storage('invalid');assert.equal(b.root.dataset.themePreference,'light');
+});
+test('saved accent choices are respected and clearing preferences restores paper and ink',()=>{
+  const b=browser('dark',false,false,'blue');
+  assert.equal(b.root.dataset.palette,'blue');
+  b.choosePalette('neutral');assert.equal(b.stored['hireferry-palette'],'neutral');
+  assert.equal(browser('dark',false,false,b.stored['hireferry-palette']).root.dataset.palette,'neutral');
+  b.storage(null,null);assert.equal(b.root.dataset.theme,'light');assert.equal(b.root.dataset.palette,'neutral');
+  assert.equal(browser(null,false,false,'unknown').root.dataset.palette,'neutral');
 });
 test('blocked storage still permits independent appearance and palette changes for this visit',()=>{
   const b=browser(null,true,true);b.choose('dark');b.choosePalette('rose');b.renderHeader();
   assert.equal(b.root.dataset.theme,'dark');assert.equal(b.root.dataset.palette,'rose');
   assert.ok(b.controls.every(x=>x.attrs['aria-pressed']==='true'));assert.ok(b.paletteControls.every(x=>x.attrs['aria-pressed']==='true'));
 });
-test('all Material palette text and button pairs meet normal-text contrast',()=>{
+test('all palette text and button pairs meet normal-text contrast',()=>{
   const {palettes}=JSON.parse(readFileSync(new URL('../static/theme-palettes.json',import.meta.url)));
   function luminance(hex){const rgb=hex.slice(1).match(/../g).map(x=>parseInt(x,16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;}
-  for(const [name,p]of Object.entries(palettes))for(const mode of ['light','dark'])for(const [fg,bg]of [['onSurface','surface'],['onSurfaceVariant','surface'],['onPrimary','primary'],['onPrimaryContainer','primaryContainer'],['onErrorContainer','errorContainer']]){
+  for(const [name,p]of Object.entries(palettes))for(const mode of ['light','dark'])for(const [fg,bg]of [['onSurface','surface'],['onSurfaceVariant','surface'],['onSurfaceVariant','surfaceContainerLow'],['primary','surface'],['onPrimary','primary'],['onPrimaryContainer','primaryContainer'],['onSecondaryContainer','secondaryContainer'],['onTertiaryContainer','tertiaryContainer'],['onErrorContainer','errorContainer']]){
     const a=luminance(p[mode][fg]),b=luminance(p[mode][bg]);const contrast=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
     assert.ok(contrast>=4.5,`${name}/${mode}/${fg}: ${contrast}`);
   }
 });
 
-test('all five swatches work and dismiss on outside click or Escape',()=>{
+test('paper and ink and all accent swatches work and dismiss on outside click or Escape',()=>{
   const b=browser();
-  for(const palette of ['blue','violet','rose','amber','teal']){b.choosePalette(palette);assert.equal(b.root.dataset.palette,palette);assert.equal(b.menu.open,true);}
+  for(const palette of ['neutral','blue','violet','rose','amber','teal']){b.choosePalette(palette);assert.equal(b.root.dataset.palette,palette);assert.equal(b.menu.open,true);}
   b.outside();assert.equal(b.menu.open,false);assert.equal(b.menu.focused,false);
   b.menu.open=true;b.escape();assert.equal(b.menu.open,false);assert.equal(b.menu.focused,true);
 });
-test('every palette keeps page surfaces neutral in both appearances',()=>{
+test('every accent shares warm neutral surfaces with distinct paper and ink defaults',()=>{
   const {palettes}=JSON.parse(readFileSync(new URL('../static/theme-palettes.json',import.meta.url)));
+  assert.equal(palettes.neutral.light.primary,'#252420');
+  assert.equal(palettes.neutral.dark.primary,'#eeeae2');
   for(const palette of Object.values(palettes))for(const mode of ['light','dark']) {
-    const surface=palette[mode].surface;
-    assert.equal(surface.slice(1,3),surface.slice(3,5));assert.equal(surface.slice(3,5),surface.slice(5,7));
+    assert.equal(palette[mode].surface,palettes.neutral[mode].surface);
+    assert.equal(palette[mode].onSurface,palettes.neutral[mode].onSurface);
+    assert.notEqual(palette.light.primary,palette.dark.primary);
   }
 });

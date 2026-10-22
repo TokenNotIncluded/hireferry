@@ -635,7 +635,7 @@ fn hide_unavailable_checkout(
 pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order> {
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    crate::promos::expire_reservations(&tx)?;
+    crate::promos::expire_order_reservation(&tx, id)?;
     commerce::expire_onboarding_orders(&tx, uid)?;
     tx.commit()?;
     let mut order = models::load_order(&db, id)?;

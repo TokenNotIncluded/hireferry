@@ -2,12 +2,12 @@
 // Build the service and CLI, install Playwright + Chromium, then run:
 //   HFY_SERVER_BIN=target/debug/hireferry HFY_CLI_BIN=target/debug/hfy \
 //     node tests/cli-browser.mjs
-// Optional: HFY_PLAYWRIGHT_MODULE, HFY_BROWSER_EXECUTABLE,
+// Optional: HFY_PLAYWRIGHT_MODULE, HFY_BROWSER_EXECUTABLE, HFY_BROWSER_SCREENSHOTS,
 // HFY_BROWSER_ARGS_MODULE (a module exporting a Chromium class with .args).
 // No accounts, cookies, authorization codes, state values, or token values are
 // printed. All server data and CLI configuration are created in a temporary dir.
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -210,7 +210,7 @@ async function consent(page, link) {
   await page.locator('#consent').waitFor({ state: 'visible' });
   check((await page.locator('#scope').textContent()).trim() === 'identity', 'Consent displayed an unexpected scope');
   check((await page.locator('#site').textContent()).trim() === origin, 'Consent displayed the wrong issuer');
-  check((await page.locator('#permissions').textContent()).includes('Basic sign-in does not grant'), 'Consent did not distinguish basic identity from business permissions');
+  check((await page.locator('#permissions').textContent()).includes('No AI tools or business actions.'), 'Consent did not distinguish basic identity from business permissions');
   if (link.pathname === '/oauth/device') {
     check((await page.locator('#display-code').textContent()).trim() === link.searchParams.get('user_code'), 'Consent did not display the terminal device code');
   }
@@ -244,6 +244,8 @@ try {
     try { localStorage.setItem('hireferry-language', 'en'); } catch { /* Optional in the callback page. */ }
   });
   const page = await context.newPage();
+  let pageErrors = 0;
+  page.on('pageerror', () => { pageErrors += 1; });
   page.on('request', request => {
     const url = new URL(request.url());
     if (url.pathname === '/callback') {
@@ -290,7 +292,7 @@ try {
     await page.waitForURL(url => url.pathname === '/oauth/authorize' && url.searchParams.get('state') === link.searchParams.get('state'));
     await page.locator('#consent').waitFor({ state: 'visible' });
     check((await page.locator('#scope').textContent()).trim() === 'identity', 'Resumed authorization changed the requested scope');
-    check((await page.locator('#permissions').textContent()).includes('Basic sign-in does not grant'), 'Basic identity consent included unexpected business permissions');
+    check((await page.locator('#permissions').textContent()).includes('No AI tools or business actions.'), 'Basic identity consent included unexpected business permissions');
     await page.locator('#approve').click();
     const result = await finish(process_);
     check(result.authenticated && !result.reused, 'OAuth login did not create a new session');
@@ -323,6 +325,84 @@ try {
       check(before.access_token !== after.access_token && before.refresh_token !== after.refresh_token, 'Refresh did not rotate both saved credentials');
       check(after.refresh_expires_at <= before.refresh_expires_at, 'Refresh extended the absolute authorization deadline');
     }
+  });
+
+  await step('CLI feedback submits once and ordinary identities cannot review reports', async () => {
+    const message = 'Browser gate: command-line feedback submission';
+    const submitted = await finish(cli(oauthDirectory, ['feedback', 'send', message, '--category', 'bug']));
+    check(Number.isSafeInteger(submitted.feedback?.id) && submitted.feedback.id > 0, 'CLI feedback did not return a saved report ID');
+    await finish(cli(oauthDirectory, ['feedback', 'send', message, '--category', 'bug']), 'feedback_duplicate');
+    for (const command of [
+      ['feedback', 'list'],
+      ['feedback', 'get', String(submitted.feedback.id)],
+      ['feedback', 'resolve', String(submitted.feedback.id)],
+    ]) await finish(cli(oauthDirectory, command), 'admin_required');
+  });
+
+  await step('Shared paper and ink themes on desktop and mobile connection pages', async () => {
+    const beforeErrors = pageErrors;
+    const screenshots = process.env.HFY_BROWSER_SCREENSHOTS;
+    if (screenshots) await mkdir(resolve(screenshots), { recursive: true });
+    async function chooseTheme(mode) {
+      const menu = page.locator('.theme-menu');
+      if (!await menu.evaluate(element => element.open)) await menu.locator('summary').click();
+      await menu.locator(`[data-theme-choice="${mode}"]`).click();
+    }
+    async function checkAppearance(mode) {
+      await page.waitForFunction(expected => document.documentElement.dataset.theme === expected, mode);
+      const view = await page.evaluate(() => {
+        const root = document.documentElement, css = getComputedStyle(root);
+        const bodyBackground = getComputedStyle(document.body).backgroundColor;
+        return {
+          palette: root.dataset.palette,
+          preference: root.dataset.themePreference,
+          primary: css.getPropertyValue('--md-primary').trim(),
+          background: bodyBackground === 'rgba(0, 0, 0, 0)' ? css.backgroundColor : bodyBackground,
+          themeColor: document.querySelector('meta[name="theme-color"]').content,
+          overflow: root.scrollWidth > innerWidth,
+        };
+      });
+      check(view.palette === 'neutral', 'Default palette was not paper and ink');
+      check(view.primary === (mode === 'dark' ? '#eeeae2' : '#252420'), 'Paper and ink foreground did not follow appearance');
+      check(view.background === (mode === 'dark' ? 'rgb(23, 23, 21)' : 'rgb(248, 247, 243)'), 'Page background did not use the shared theme');
+      check(view.themeColor === (mode === 'dark' ? '#171715' : '#f8f7f3'), 'Browser theme color did not follow appearance');
+      check(!view.overflow, 'Connection page overflowed the viewport');
+      return view;
+    }
+    await page.goto(`${origin}/oauth/connections`);
+    await page.locator('#connections .connection').first().waitFor();
+    await checkAppearance('light');
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      for (const mode of ['light', 'dark']) {
+        await chooseTheme(mode);
+        await checkAppearance(mode);
+        const panel = await page.locator('.theme-panel').boundingBox();
+        check(panel && panel.x >= 0 && panel.x + panel.width <= width, 'Theme menu extended beyond the viewport');
+        await page.keyboard.press('Escape');
+        check(!await page.locator('.theme-menu').evaluate(element => element.open), 'Theme menu did not close with Escape');
+        if (screenshots) await page.screenshot({ path: resolve(screenshots, `connections-${width}-${mode}.png`), fullPage: true, animations: 'disabled' });
+      }
+    }
+    await chooseTheme('system');
+    await page.keyboard.press('Escape');
+    for (const mode of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: mode });
+      check((await checkAppearance(mode)).preference === 'system', 'System appearance changed the saved preference');
+    }
+    await page.reload();
+    await page.locator('#connections .connection').first().waitFor();
+    check((await checkAppearance('dark')).preference === 'system', 'Reload did not retain system appearance');
+    await page.goto(`${origin}/cli`);
+    await page.locator('.site-header .theme-menu').waitFor();
+    check((await checkAppearance('dark')).preference === 'system', 'Main website did not share the connection page preference');
+    await page.goto(`${origin}/oauth/connections`);
+    await page.locator('#connections .connection').first().waitFor();
+    await checkAppearance('dark');
+    await chooseTheme('light');
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    check(pageErrors === beforeErrors, 'Theme navigation raised a browser error');
   });
 
   await step('Real connection page renders dates and revokes the token family', async () => {

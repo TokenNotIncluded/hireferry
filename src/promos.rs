@@ -461,7 +461,25 @@ pub fn discounted_amount(original: i64, percent: i64) -> AppResult<i64> {
 /// Called inside a write transaction before spending quotas, reading orders or
 /// applying receipts. The trigger releases reservations on every terminal order.
 pub(crate) fn expire_reservations(db: &Connection) -> AppResult<()> {
-    db.execute("UPDATE orders SET status='expired',checkout_url=NULL WHERE status='pending' AND id IN (SELECT order_id FROM promo_redemptions WHERE status='reserved' AND reserved_until<=?1)", [now()])?;
+    db.execute(
+        "UPDATE orders SET status='expired',checkout_url=NULL WHERE rowid IN
+         (SELECT o.rowid FROM promo_redemptions r JOIN orders o ON o.id=r.order_id
+          WHERE r.status='reserved' AND r.reserved_until<=?1 AND o.status='pending'
+          ORDER BY r.reserved_until LIMIT ?2)",
+        params![now(), crate::maintenance::DEFAULT_BATCH_SIZE],
+    )?;
+    Ok(())
+}
+
+/// Business decisions about one order must not depend on its position in a
+/// global housekeeping backlog. This changes at most one order/redemption.
+pub(crate) fn expire_order_reservation(db: &Connection, id: &str) -> AppResult<()> {
+    db.execute(
+        "UPDATE orders SET status='expired',checkout_url=NULL WHERE id=?1 AND status='pending'
+         AND EXISTS(SELECT 1 FROM promo_redemptions WHERE order_id=?1
+                    AND status='reserved' AND reserved_until<=?2)",
+        params![id, now()],
+    )?;
     Ok(())
 }
 
@@ -496,6 +514,7 @@ pub(crate) fn replay_publication(
                 "This request_key was already used for different publication details",
             ));
         }
+        expire_order_reservation(db, &id)?;
         let order = models::load_order(db, &id)?;
         let job = models::load_job(
             db,
@@ -739,7 +758,7 @@ async fn cancel(
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     active_employer_or_unassigned(&tx, &uid)?;
-    expire_reservations(&tx)?;
+    expire_order_reservation(&tx, &id)?;
     let order = models::load_order(&tx, &id)?;
     if order.user_id != uid {
         return Err(AppError::not_found("Order not found"));

@@ -5,24 +5,23 @@ let language = 'zh';
 try { language = localStorage.getItem('hireferry-language') === 'en' ? 'en' : 'zh'; } catch { /* Optional preference. */ }
 const words = {
   title: ['命令行连接', 'Command-line connections'],
-  intro: ['查看当前账户的授权。撤销后，该设备的访问令牌和刷新令牌都会失效。', 'Review access granted by this account. Revoking a connection invalidates both its access and refresh tokens.'],
+  intro: ['管理已授权的终端连接。', 'Manage your authorized terminals.'],
   account: ['当前账户', 'Current account'],
   checking: ['正在检查登录状态…', 'Checking your sign-in…'],
-  signIn: ['请先登录要管理的账户。', 'Sign in to the account you want to manage.'],
-  ready: ['仅显示当前账户的命令行授权。', 'Showing only this account’s command-line authorizations.'],
-  empty: ['这个账户还没有命令行连接。', 'This account has no command-line connections.'],
-  failed: ['无法加载连接，请重试。', 'Unable to load connections. Please try again.'],
-  memberLogin: ['使用 Google 或邮箱登录', 'Sign in with Google or email'],
+  signIn: ['登录后管理连接。', 'Sign in to manage connections.'],
+  ready: ['', ''],
+  empty: ['还没有命令行连接。', 'No command-line connections yet.'],
+  failed: ['连接加载失败。请重试。', 'Connections failed to load. Try again.'],
+  memberLogin: ['Google / 邮箱登录', 'Google / email sign-in'],
   adminLogin: ['管理员 Passkey 登录', 'Administrator passkey sign-in'],
   administrator: ['平台管理员', 'Platform administrator'],
   refresh: ['刷新列表', 'Refresh list'],
   workspace: ['打开工作台', 'Open workspace'],
-  created: ['创建', 'Created'], expires: ['授权到期', 'Authorization expires'],
+  created: ['连接时间', 'Connected'], expires: ['到期', 'Expires'],
   revoked: ['已撤销', 'Revoked'], expired: ['已过期', 'Expired'], active: ['有效', 'Active'],
   revoke: ['撤销连接', 'Revoke connection'],
-  revokedNotice: ['已撤销，该设备需要重新授权才能连接。', 'Revoked. This device must be authorized again to connect.'],
-  footer: ['这里只显示授权记录，不显示任何凭据。身份登录、AI 工具权限和管理员权限分别授权。', 'This page shows authorization records, never credentials. Identity, AI tools, and administrator access are granted separately.'],
-  returnFailed: ['无法保存返回位置；登录后请重新打开本页。', 'Unable to save this page. Reopen it after signing in.'],
+  revokedNotice: ['已撤销。再次连接需要重新授权。', 'Revoked. Authorize again to reconnect.'],
+  returnFailed: ['返回位置未保存。登录后请重新打开本页。', 'Return page not saved. Reopen it after signing in.'],
 };
 const text = key => words[key][language === 'en' ? 1 : 0];
 let identity = null;

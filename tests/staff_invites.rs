@@ -325,7 +325,7 @@ fn version_ten_feedback_database_upgrades_to_staff_schema_eleven() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let existing_tables: i64 = db
         .query_row(
