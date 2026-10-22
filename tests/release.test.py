@@ -30,6 +30,33 @@ class ReleaseTests(unittest.TestCase):
             (folder/name).write_bytes(('real bytes for '+name).encode())
             release.checksums(folder)
 
+    def signing_reports(self, files, wanted):
+        reports = {}
+        for name, item in wanted.items():
+            if item['product'] != 'desktop' or item['format'] == 'flatpak':
+                continue
+            state = {'Windows':'authenticode','macOS':'developer-id-notarized','Linux':'checksum-only'}[item['platform']]
+            entry = dict(verification=state, sha256=release.digest(files[name]), size=files[name].stat().st_size)
+            if item['platform'] != 'Linux': entry['publisher'] = 'Test fixture; not a real signing assertion'
+            report = reports.setdefault(item['target'], dict(schema_version=1,target=item['target'],assets={}))
+            report['assets'][name] = entry
+        return reports
+
+    def add_signing_reports(self, unsigned=False):
+        files = release.verified_inputs(self.source, self.wanted)
+        reports = self.signing_reports(files, self.wanted)
+        for index, (target, report) in enumerate(reports.items()):
+            if unsigned:
+                for entry in report['assets'].values():
+                    if entry['verification']=='authenticode': entry['verification']='unsigned'
+                    elif entry['verification']=='developer-id-notarized': entry['verification']='ad-hoc'
+                    entry.pop('publisher', None)
+            folder = self.source/f'report-{index}'
+            folder.mkdir()
+            (folder/release.signing_report_name(target)).write_text(json.dumps(report))
+            release.checksums(folder)
+        return reports
+
     def test_complete_release_has_exact_links_hashes_and_sizes(self):
         files = release.verified_inputs(self.source, self.wanted)
         self.assertEqual(len(files), 21)
@@ -95,6 +122,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(args.destination.exists())
 
     def test_assembly_preserves_cli_version_and_hashes_metadata(self):
+        self.add_signing_reports()
         args=argparse.Namespace(source=self.source,destination=self.root/'out',tag='desktop-v0.1.0',repository=None,commit='abc')
         with patch.object(release,'package_version',side_effect=lambda product:self.versions[product]): release.assemble(args)
         self.assertEqual((args.destination/'VERSION').read_text(),'0.1.2\n')
@@ -102,6 +130,46 @@ class ReleaseTests(unittest.TestCase):
         for name in ('VERSION','downloads.md','downloads.json','release-matrix.svg'):
             self.assertIn(release.digest(args.destination/name)+'  '+name,sums)
         self.assertEqual(json.loads((args.destination/'downloads.json').read_text())['source_commit'],'abc')
+        release.verify_publication(argparse.Namespace(directory=args.destination))
+
+    def test_formal_desktop_assembly_rejects_missing_or_unsigned_reports(self):
+        args=argparse.Namespace(source=self.source,destination=self.root/'out',tag='desktop-v0.1.0',repository=None,commit='abc')
+        with patch.object(release,'package_version',side_effect=lambda product:self.versions[product]):
+            with self.assertRaisesRegex(ValueError, 'Incomplete release'):
+                release.assemble(args)
+            self.add_signing_reports(unsigned=True)
+            with self.assertRaisesRegex(ValueError, 'native publisher signing'):
+                release.assemble(args)
+        self.assertFalse(args.destination.exists())
+
+    def test_engineering_artifacts_never_become_public_downloads(self):
+        self.add_signing_reports(unsigned=True)
+        args=argparse.Namespace(source=self.source,destination=self.root/'out',tag='desktop-v0.1.0',repository=None,commit='abc',distribution='engineering')
+        with patch.object(release,'package_version',side_effect=lambda product:self.versions[product]):
+            release.assemble(args)
+        manifest_path = args.destination/'downloads.json'
+        manifest = release.validate_manifest(json.loads(manifest_path.read_text()))
+        self.assertEqual(manifest['distribution'], 'engineering')
+        text = (args.destination/'downloads.md').read_text()
+        self.assertIn('工程验证产物', text)
+        self.assertNotIn('/releases/download/', text)
+        with self.assertRaisesRegex(ValueError, 'Engineering artifacts'):
+            release.verify_publication(argparse.Namespace(directory=args.destination))
+        with self.assertRaisesRegex(ValueError, 'Engineering artifacts'):
+            release.docs(argparse.Namespace(manifest=manifest_path, check=False))
+
+    def test_signing_report_is_bound_to_final_asset_bytes(self):
+        self.add_signing_reports()
+        report_path = next(self.source.rglob('desktop-signing-*.json'))
+        report = json.loads(report_path.read_text())
+        next(iter(report['assets'].values()))['sha256'] = '0'*64
+        report_path.write_text(json.dumps(report))
+        release.checksums(report_path.parent)
+        args=argparse.Namespace(source=self.source,destination=self.root/'out',tag='desktop-v0.1.0',repository=None,commit='abc')
+        with patch.object(release,'package_version',side_effect=lambda product:self.versions[product]):
+            with self.assertRaisesRegex(ValueError, 'does not match package bytes'):
+                release.assemble(args)
+        self.assertFalse(args.destination.exists())
 
     def test_macos_app_archive_is_created_without_updater(self):
         bundles=self.root/'bundle'; app=bundles/'macos/HireFerry.app/Contents/MacOS'
@@ -173,7 +241,10 @@ class ReleaseTests(unittest.TestCase):
             (folder/name).write_bytes(('package '+name).encode())
             release.checksums(folder)
         files = release.verified_inputs(source, wanted)
-        return release.make_manifest(data, wanted, files, tag, data['repository'], commit), source
+        manifest = release.make_manifest(data, wanted, files, tag, data['repository'], commit)
+        if 'desktop' in versions:
+            manifest['desktop_signing'] = self.signing_reports(files, wanted)
+        return manifest, source
 
     def test_standalone_cli_assembly_has_six_assets_and_no_desktop_claim(self):
         _, source = self.released_fixture({'cli':'0.1.2'}, 'cli-v0.1.2')
@@ -245,6 +316,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.merge_manifests(merged, older), merged)
         self.assertEqual([a for a in merged['assets'] if a['product']=='desktop'],
                          [a for a in desktop['assets'] if a['product']=='desktop'])
+        self.assertEqual(merged['desktop_signing'], desktop['desktop_signing'])
 
     def test_documentation_merge_rejects_prereleases_and_cross_repository(self):
         stable, _ = self.released_fixture({'cli':'0.1.2'}, 'cli-v0.1.2')

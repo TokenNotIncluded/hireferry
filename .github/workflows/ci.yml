@@ -61,6 +61,7 @@ jobs:
         run: |
           python3 tests/cli-scripts.test.py
           python3 tests/release.test.py
+          python3 tests/desktop-signing.test.py
           python3 tests/aur.test.py
           python3 scripts/release.py docs --check
 
