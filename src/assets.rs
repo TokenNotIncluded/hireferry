@@ -1,5 +1,6 @@
 use axum::{
     body::{Body, Bytes},
+    extract::State,
     http::{HeaderMap, HeaderValue, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
@@ -81,7 +82,11 @@ fn bundle() -> &'static Bundle {
     })
 }
 
-pub(crate) async fn serve(uri: Uri, headers: HeaderMap) -> Response {
+pub(crate) async fn serve(
+    State(state): State<crate::AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path == "api"
         || path.starts_with("api/")
@@ -92,32 +97,64 @@ pub(crate) async fn serve(uri: Uri, headers: HeaderMap) -> Response {
         return crate::AppError::not_found("Route not found").into_response();
     }
     let bundle = bundle();
+    let page = path.is_empty() || !path.rsplit('/').next().unwrap_or("").contains('.');
     let explicit_asset = path.strip_prefix("static/");
     let (name, versioned) = match explicit_asset {
         Some(path) => match path.split_once('/') {
             Some((revision, name)) if revision == bundle.revision => (name, true),
             _ => (path, false),
         },
-        None if path.is_empty() || !path.rsplit('/').next().unwrap_or("").contains('.') => {
-            ("index.html", false)
-        }
+        None if page => ("index.html", false),
         None => (path, false),
     };
     // Explicit asset requests, including obsolete release URLs, never fall
     // back to HTML or receive a newer file under an immutable older URL.
-    let Some(asset) = bundle.assets.get(name) else {
+    let generated =
+        if explicit_asset.is_none() && (page || matches!(path, "robots.txt" | "sitemap.xml")) {
+            let (text, mime) = match path {
+                "robots.txt" => (crate::seo::robots(&state.cfg), "text/plain; charset=utf-8"),
+                "sitemap.xml" => (
+                    crate::seo::sitemap(&state.cfg),
+                    "application/xml; charset=utf-8",
+                ),
+                _ => {
+                    let template = std::str::from_utf8(&bundle.assets["index.html"].bytes)
+                        .expect("UTF-8 HTML template");
+                    let html = match crate::seo::page(template, uri.path(), &state.cfg) {
+                        Ok(html) => html,
+                        Err(error) => return error.into_response(),
+                    };
+                    (html, "text/html; charset=utf-8")
+                }
+            };
+            let etag = HeaderValue::from_str(&format!(
+                "W/\"{}\"",
+                hex::encode(Sha256::digest(text.as_bytes()))
+            ))
+            .expect("hexadecimal page ETag");
+            Some(Asset {
+                bytes: Bytes::from(text),
+                etag,
+                mime,
+            })
+        } else {
+            None
+        };
+    let Some(asset) = generated.as_ref().or_else(|| bundle.assets.get(name)) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let not_modified = headers.get_all(header::IF_NONE_MATCH).iter().any(|value| {
-        value.to_str().is_ok_and(|value| {
-            value.split(',').any(|candidate| {
-                let candidate = candidate.trim();
-                candidate == "*"
-                    || candidate.strip_prefix("W/").unwrap_or(candidate)
-                        == asset.etag.to_str().unwrap().trim_start_matches("W/")
+    let missing_page = explicit_asset.is_none() && page && !crate::seo::known_page(uri.path());
+    let not_modified = !missing_page
+        && headers.get_all(header::IF_NONE_MATCH).iter().any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split(',').any(|candidate| {
+                    let candidate = candidate.trim();
+                    candidate == "*"
+                        || candidate.strip_prefix("W/").unwrap_or(candidate)
+                            == asset.etag.to_str().unwrap().trim_start_matches("W/")
+                })
             })
-        })
-    });
+        });
     let cache = if versioned && !name.ends_with(".html") {
         "public, max-age=31536000, immutable"
     } else {
@@ -129,7 +166,9 @@ pub(crate) async fn serve(uri: Uri, headers: HeaderMap) -> Response {
     } else {
         Body::from(asset.bytes.clone())
     });
-    *response.status_mut() = if not_modified {
+    *response.status_mut() = if missing_page {
+        StatusCode::NOT_FOUND
+    } else if not_modified {
         StatusCode::NOT_MODIFIED
     } else {
         StatusCode::OK

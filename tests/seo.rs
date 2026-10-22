@@ -1,0 +1,131 @@
+use axum::{body::Body, http::Request};
+use hireferry::{AppState, config::Config};
+use http_body_util::BodyExt;
+use tower::ServiceExt;
+
+fn app(english: bool) -> axum::Router {
+    let mut cfg = Config {
+        database: ":memory:".into(),
+        public_url: "https://hireferry.example".into(),
+        ..Config::default()
+    };
+    cfg.webauthn_rp_id = "hireferry.example".into();
+    cfg.site.default_language = if english { "en" } else { "zh" }.into();
+    hireferry::app(AppState::new(cfg).unwrap())
+}
+
+async fn read(
+    app: &axum::Router,
+    path: &str,
+) -> (axum::http::StatusCode, axum::http::HeaderMap, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header("host", "untrusted.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let html = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    (status, headers, html)
+}
+
+#[tokio::test]
+async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() {
+    let app = app(false);
+    let (status, headers, xml) = read(&app, "/sitemap.xml").await;
+    assert_eq!(status, 200);
+    assert_eq!(headers["content-type"], "application/xml; charset=utf-8");
+    let xml = roxmltree::Document::parse(&xml).unwrap();
+    let urls: Vec<_> = xml
+        .descendants()
+        .filter(|n| n.has_tag_name(("http://www.sitemaps.org/schemas/sitemap/0.9", "loc")))
+        .map(|n| n.text().unwrap().to_owned())
+        .collect();
+    assert_eq!(urls.len(), 7);
+    let mut titles = std::collections::BTreeSet::new();
+    for url in urls {
+        let path = url.strip_prefix("https://hireferry.example").unwrap();
+        assert!(!path.contains(['?', '#']));
+        let (status, headers, html) = read(&app, path).await;
+        assert_eq!(status, 200, "{path}");
+        assert!(!headers.contains_key("x-robots-tag"));
+        assert!(html.contains(&format!("<link rel=\"canonical\" href=\"{url}\">")));
+        assert!(html.contains("<meta name=\"robots\" content=\"index, follow"));
+        assert!(html.contains("<h1"), "crawler-readable content: {path}");
+        assert!(html.contains("href=\"/contact\""));
+        let title = html
+            .split("<title>")
+            .nth(1)
+            .unwrap()
+            .split("</title>")
+            .next()
+            .unwrap()
+            .to_owned();
+        assert!(titles.insert(title), "unique page title: {path}");
+    }
+    let (_, _, robots) = read(&app, "/robots.txt").await;
+    assert!(robots.contains("User-agent: *\nAllow: /"));
+    assert!(robots.contains("Sitemap: https://hireferry.example/sitemap.xml"));
+    assert!(!robots.contains("Disallow:"));
+}
+
+#[tokio::test]
+async fn query_variants_share_canonical_and_private_pages_are_noindex() {
+    let app = app(false);
+    let (_, headers, home) = read(&app, "/").await;
+    let (_, variant_headers, variant) = read(&app, "/?utm_source=example&role=seeker").await;
+    assert_eq!(home, variant);
+    assert_eq!(headers["etag"], variant_headers["etag"]);
+    assert!(!home.contains("https://untrusted.example"));
+    for path in [
+        "/login",
+        "/admin",
+        "/app?tab=matches",
+        "/jobs/private-id",
+        "/people/private-id",
+        "/human/private-link",
+        "/team/invite",
+        "/billing/return?order_id=example",
+        "/oauth/device",
+        "/api/session",
+        "/static/index.html",
+    ] {
+        let (_, headers, html) = read(&app, path).await;
+        assert_eq!(headers["x-robots-tag"], "noindex, follow", "{path}");
+        assert!(!html.contains("rel=\"canonical\""), "{path}");
+    }
+    let (status, headers, _) = read(&app, "/does-not-exist").await;
+    assert_eq!(status, 404);
+    assert_eq!(headers["x-robots-tag"], "noindex, follow");
+}
+
+#[tokio::test]
+async fn configured_language_and_actual_legal_document_are_in_initial_html() {
+    let app = app(true);
+    let (_, _, html) = read(&app, "/privacy").await;
+    assert!(html.contains("lang=\"en\""));
+    assert!(html.contains("<title>Privacy policy"));
+    assert!(html.contains("<h1>"));
+    assert!(html.contains("Who is responsible for your information"));
+    assert!(html.contains("Information we collect"));
+    assert!(!html.contains("{{"));
+    let (_, _, home) = read(&app, "/").await;
+    assert!(home.contains("itemtype=\"https://schema.org/WebSite\""));
+    assert!(home.contains("itemprop=\"url\" href=\"https://hireferry.example\""));
+    assert!(home.contains("Free for job seekers"));
+}

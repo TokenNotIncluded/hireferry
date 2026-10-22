@@ -17,6 +17,7 @@ import { createTeamUI } from './team-ui.js';
 import { createControlsUI } from './controls.js';
 import { createFinanceUI } from './finance-ui.js';
 import { createPeopleJobsUI } from './people-jobs-ui.js';
+import { syncPageMetadata } from './seo.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
@@ -262,7 +263,10 @@ function applyConfig(config) {
   state.config=config;state.configCached=false;
   if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
   document.documentElement.lang=state.lang==='en'?'en':'zh-CN';
-  document.title=(config.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+  updatePageMetadata();
+}
+function updatePageMetadata() {
+  syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin});
 }
 function publicBody(path) {
   if(path==='/')return home();
@@ -450,7 +454,8 @@ function home() {
       description:t(`招聘账户 ${money(pricing().onboarding_cents)} 一次开通。<br>岗位发布按当前规则计费。`,`Activate an employer account for ${money(pricing().onboarding_cents)}.<br>Pay per job at the published rate.`)
     }
   ];
-  return `<main id="main" class="home-main">
+  return `<main id="main" class="home-main" itemscope itemtype="https://schema.org/WebSite">
+    <meta itemprop="name" content="HireFerry"><meta itemprop="alternateName" content="聘渡"><link itemprop="url" href="${esc(state.config?.public_origin||location.origin)}/">
     <section class="home-story" aria-label="${t('认识聘渡','Discover HireFerry')}">
       <div class="hero page-width">
         <div class="hero-copy">
@@ -701,7 +706,7 @@ async function render({navigation=false}={}) {
     record('shell');await fast;record('ready');return;
   }
   requests.cancel(`navigation:${state.render}`);
-  const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=(state.config?.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+  const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';updatePageMetadata();
   const path=location.pathname,tab=qs().get('tab');
   const publicPage=publicPages.has(path);
   const pageKey=pageIdentity(path,tab);
