@@ -86,9 +86,9 @@ test('archived administrator rooms display history but cannot be composed into',
     ? { items: [{ id: 'match_archived', kind: 'matched', title: 'Concluded search', writable: false, participants: [] }] }
     : { items: [], next_cursor: 0, has_older: false }, { admin: true });
   const html = await service.messagesPage(true);
-  assert.match(html, /Archived conversation · read-only/);
+  assert.match(html, /read.only/i);
   assert.match(html, /<textarea[^>]*disabled/);
-  assert.match(html, /<button class="button small" type="submit" disabled/);
+  assert.match(html, /<button\b(?=[^>]*class="button small")(?=[^>]*type="submit")(?=[^>]*\bdisabled)[^>]*>/);
   assert.match(html, /Private platform history stays separate/);
 });
 
@@ -351,7 +351,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
     document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -966,7 +966,7 @@ test('a conversation outside the latest 200 opens by authorized metadata and sta
   assert.equal(paths.filter(path => path === '/api/chat/conversations').length, 1);
   assert.equal(paths.filter(path => path === '/api/chat/conversations/match_old').length, 1);
   const originalDocument = globalThis.document, originalTimeout = globalThis.setTimeout, originalClear = globalThis.clearTimeout;
-  const nodes = { '#chat-scroll': { scrollTop: 0, scrollHeight: 500, clientHeight: 500 }, '#chat-messages': {}, '#conversation-list': { innerHTML: '' }, '#chat-connection': { textContent: '' }, '[data-action="chat-latest"]': { hidden: false } };
+  const nodes = { '#chat-scroll': { scrollTop: 0, scrollHeight: 500, clientHeight: 500 }, '#chat-messages': {}, '#conversation-list': { innerHTML: '' }, '#chat-connection': { textContent: '' }, '[data-chat-subtitle]': { textContent: '' }, '[data-chat-status]': { hidden: true }, '[data-action="chat-latest"]': { hidden: false } };
   const controls = [{ disabled: false, getAttribute: () => null }, { disabled: false, getAttribute: () => null }];
   let poll;
   try {
@@ -979,7 +979,7 @@ test('a conversation outside the latest 200 opens by authorized metadata and sta
     assert.equal(paths.filter(path => path === '/api/chat/conversations/match_old').length, 2);
     assert.match(nodes['#conversation-list'].innerHTML, /conversation=match_old/);
     assert.match(nodes['#conversation-list'].innerHTML, /Older authorized introduction/);
-    assert.match(nodes['#chat-connection'].textContent, /archived/i);
+    assert.match(nodes['[data-chat-subtitle]'].textContent, /archived/i);
     assert.ok(controls.every(control => control.disabled));
     service.stopChat();
   } finally {
@@ -1487,20 +1487,30 @@ test('post-mount currency synchronization uses retained live selections without 
 function chatDom() {
   const originals = { document: globalThis.document, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, matchMedia: globalThis.matchMedia };
   const listeners = new Map();
+  const scrollListeners = new Map();
   const controls = [{ disabled: false, getAttribute: () => null }, { disabled: false, getAttribute: () => null }];
   const nodes = {
-    '#chat-scroll': { scrollTop: 0, scrollHeight: 600, clientHeight: 300, setAttribute() {} },
+    '#chat-scroll': { scrollHeight: 600, clientHeight: 300, setAttribute() {}, addEventListener: (event, listener) => scrollListeners.set(event, listener), removeEventListener: event => scrollListeners.delete(event) },
     '#chat-messages': { innerHTML: '', insertAdjacentHTML(where, html) { this.innerHTML = where === 'afterbegin' ? html + this.innerHTML : this.innerHTML + html; }, querySelector: () => null },
-    '#chat-body': { value: '', disabled: false, style: {}, focus() {} },
-    '#conversation-list': { innerHTML: '' }, '#chat-connection': { textContent: '' },
+    '#chat-body': { id: 'chat-body', value: '', disabled: false, maxLength: 10000, scrollHeight: 24, style: {}, focus() {} },
+    '#conversation-list': { innerHTML: '' }, '#chat-connection': { textContent: '', closest: () => nodes['[data-chat-status]'] },
+    '[data-chat-status]': { hidden: true },
+    '[data-chat-subtitle]': { textContent: '' }, '[data-chat-resend]': { hidden: true, disabled: false },
     '[data-action="chat-latest"]': { hidden: true }, '[data-action="chat-older"]': { hidden: true },
     '.chat-workspace': { addEventListener: (event, listener) => listeners.set(event, listener), removeEventListener: event => listeners.delete(event), classList: { contains: () => true, toggle() {} }, querySelectorAll: () => [] },
   };
+  let scrollTop = 0;
+  Object.defineProperty(nodes['#chat-scroll'], 'scrollTop', {
+    get: () => scrollTop,
+    set: value => { scrollTop = Math.max(0, Math.min(value, nodes['#chat-scroll'].scrollHeight - nodes['#chat-scroll'].clientHeight)); },
+  });
   let threadHtml = '';
   nodes['.chat-thread'] = { attributes: new Map(), setAttribute(name, value) { this.attributes.set(name, value); }, getAttribute(name) { return this.attributes.get(name) || null; }, get innerHTML() { return threadHtml; }, set innerHTML(html) {
     threadHtml = html;
-    nodes['#chat-messages'].innerHTML = html.match(/id="chat-messages"[^>]*>([\s\S]*?)<\/div><\/div><button[^>]*data-action="chat-latest"/)?.[1] || '';
+    nodes['#chat-messages'].innerHTML = html.match(/id="chat-messages"[^>]*>([\s\S]*?)<\/div><\/div>\s*<form\b[^>]*>\s*<button[^>]*data-action="chat-latest"/)?.[1] || '';
     nodes['#chat-body'].value = html.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/)?.[1] || '';
+    nodes['#chat-body'].placeholder = html.match(/<textarea[^>]*placeholder="([^"]*)"/)?.[1] || '';
+    nodes['[data-chat-subtitle]'].textContent = html.match(/<p[^>]*data-chat-subtitle[^>]*>([^<]*)<\/p>/)?.[1] || '';
     nodes['#chat-body'].disabled = /<textarea[^>]*disabled/.test(html);
     controls.forEach(control => { control.disabled = nodes['#chat-body'].disabled; });
   } };
@@ -1509,12 +1519,251 @@ function chatDom() {
   globalThis.setTimeout = (callback, delay) => { if (delay === 0) { queueMicrotask(callback); return 2; } scheduled = callback; scheduledDelay = delay; return 1; };
   globalThis.clearTimeout = () => {};
   globalThis.matchMedia = () => ({ matches: false });
-  return { nodes, controls, listeners, poll: () => scheduled?.(), get delay() { return scheduledDelay; }, restore() { Object.assign(globalThis, originals); } };
+  return { nodes, controls, listeners, scrollListeners, poll: () => scheduled?.(), get delay() { return scheduledDelay; }, restore() { Object.assign(globalThis, originals); } };
 }
 
 const chatRoom = (id = 'platform_seeker-one', extra = {}) => ({ id, kind: id.startsWith('platform_') ? 'platform' : 'matched', title: id, writable: true, participants: [], ...extra });
 const historyPage = items => ({ items, next_cursor: items.at(-1)?.id || 0, first_cursor: items[0]?.id || 0, has_older: false });
 const chatMessage = (id, body) => ({ id, sender_kind: 'platform', sender_name: 'HireFerry', body, created_at: 1790000000 + id });
+
+test('reopening an archived matched conversation restores its subtitle, composer hint and ability to send', async () => {
+  let writable = false;
+  const writes = [];
+  const service = ui(async (path, options) => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom('match_reopened', { writable })] };
+    if (options?.method === 'POST' && path.endsWith('/messages')) {
+      writes.push({ path, body: options.body });
+      return { ...chatMessage(2, options.body.body), is_own: true, client_id: options.body.client_id };
+    }
+    if (path.includes('/messages?')) return historyPage(path.includes('after=') ? [] : [chatMessage(1, 'Earlier conversation')]);
+    return {};
+  }, { admin: true, search: '?tab=messages&conversation=match_reopened' });
+  const html = await service.messagesPage(true);
+  const dom = chatDom();
+  try {
+    const field = dom.nodes['#chat-body'];
+    field.getAttribute = () => null;
+    dom.controls[0] = field;
+    dom.nodes['.chat-thread'].innerHTML = html;
+    await service.mountChat();
+    assert.equal(dom.nodes['[data-chat-subtitle]'].textContent, 'Archived conversation · read-only');
+    assert.equal(field.placeholder, 'This conversation is archived');
+    assert.ok(dom.controls.every(control => control.disabled));
+    const form = { querySelector: () => field }, data = new FormData();
+    data.set('body', 'Confirming the next step after reopening');
+    await assert.rejects(service.sendMessage(form, data), /cannot be sent/);
+    assert.equal(writes.length, 0, 'an archived room cannot start a send');
+
+    writable = true;
+    await dom.poll();
+    assert.equal(dom.nodes['[data-chat-subtitle]'].textContent, 'You, your match & HireFerry');
+    assert.equal(field.placeholder, 'Write a message…');
+    assert.ok(dom.controls.every(control => !control.disabled), 'polling restores both the textarea and send control');
+    field.value = data.get('body');
+    dom.listeners.get('input')({ target: field });
+    await service.sendMessage(form, data);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].path, '/api/chat/conversations/match_reopened/messages');
+    assert.equal(writes[0].body.body, data.get('body'));
+    assert.equal(field.value, '');
+    assert.match(dom.nodes['#chat-messages'].innerHTML, /Confirming the next step after reopening/);
+  } finally { service.stopChat(); dom.restore(); }
+});
+
+test('new messages preserve a reader 100px above the bottom and manual scrolling dismisses the latest prompt', async () => {
+  let updates = [];
+  const service = ui(async path => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (path.includes('/messages?')) return historyPage(path.includes('after=') ? updates : [chatMessage(1, 'Earlier discussion')]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    const scroll = dom.nodes['#chat-scroll'], messages = dom.nodes['#chat-messages'];
+    const insert = messages.insertAdjacentHTML;
+    messages.insertAdjacentHTML = function (where, html) { insert.call(this, where, html); scroll.scrollHeight += 120; };
+    await service.mountChat();
+    scroll.scrollTop = scroll.scrollHeight - scroll.clientHeight - 100;
+    const readingPosition = scroll.scrollTop;
+    updates = [chatMessage(2, 'A new reply')];
+    await dom.poll();
+    assert.equal(scroll.scrollTop, readingPosition, 'an incoming reply must not pull a reader away from history');
+    assert.equal(dom.nodes['[data-action="chat-latest"]'].hidden, false);
+    assert.equal(typeof dom.scrollListeners.get('scroll'), 'function');
+    scroll.scrollTop = scroll.scrollHeight;
+    dom.scrollListeners.get('scroll')({ target: scroll });
+    assert.equal(dom.nodes['[data-action="chat-latest"]'].hidden, true, 'reaching the bottom manually acknowledges the prompt');
+    scroll.scrollTop = scroll.scrollHeight - scroll.clientHeight - 8;
+    updates = [chatMessage(3, 'Continue at the bottom')];
+    await dom.poll();
+    assert.equal(scroll.scrollTop, scroll.scrollHeight - scroll.clientHeight, 'a reader within 8px of the bottom continues following replies');
+    assert.equal(dom.nodes['[data-action="chat-latest"]'].hidden, true);
+  } finally { service.stopChat(); assert.equal(dom.scrollListeners.size, 0); dom.restore(); }
+});
+
+test('growing the composer keeps bottom readers at the latest message and preserves historical reading positions', async () => {
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [chatRoom()] } : historyPage([chatMessage(1, 'Keep this visible')]));
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    const scroll = dom.nodes['#chat-scroll'], field = dom.nodes['#chat-body'];
+    Object.defineProperty(scroll, 'clientHeight', { get: () => 324 - (Number.parseFloat(field.style.height) || 24) });
+    await service.mountChat();
+    scroll.scrollTop = scroll.scrollHeight;
+    field.value = 'A longer\nmessage\nwith several lines'; field.scrollHeight = 96;
+    dom.listeners.get('input')({ target: field });
+    assert.ok(Number.parseFloat(field.style.height) > 24, 'the composer actually grows');
+    assert.equal(scroll.scrollTop, scroll.scrollHeight - scroll.clientHeight, 'the last message remains visible while composing');
+    scroll.scrollTop = 90;
+    field.value += '\nAnother line'; field.scrollHeight = 140;
+    dom.listeners.get('input')({ target: field });
+    assert.equal(scroll.scrollTop, 90, 'writing does not pull someone out of older history');
+  } finally { service.stopChat(); dom.restore(); }
+});
+
+test('successful polling cannot erase an unconfirmed send and retry reuses its receipt key', async () => {
+  const attempts = [];
+  let fail = true;
+  const service = ui(async (path, options) => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (options?.method === 'POST' && path.endsWith('/messages')) {
+      attempts.push(options.body);
+      if (fail) throw new Error('Network uncertain');
+      return { ...chatMessage(2, options.body.body), sender_kind: 'user', sender_id: 'seeker-one', client_id: options.body.client_id };
+    }
+    if (path.includes('/messages?')) return historyPage(path.includes('after=') ? [] : [chatMessage(1, 'Previous message')]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    await service.mountChat();
+    const field = dom.nodes['#chat-body'], form = { querySelector: () => field };
+    field.value = 'Please keep this message';
+    dom.listeners.get('input')({ target: field });
+    const data = new FormData(); data.set('body', field.value);
+    await assert.rejects(service.sendMessage(form, data), /Network uncertain/);
+    const failure = dom.nodes['#chat-connection'].textContent;
+    assert.ok(failure, 'an uncertain send has a visible explanation');
+    assert.equal(dom.nodes['[data-chat-status]'].hidden, false);
+    await dom.poll();
+    assert.equal(dom.nodes['#chat-connection'].textContent, failure, 'a successful history read is not a delivery receipt');
+    assert.equal(field.value, 'Please keep this message');
+    assert.equal(dom.nodes['[data-chat-status]'].hidden, false);
+    fail = false;
+    await service.sendMessage(form, data);
+    assert.equal(attempts.length, 2);
+    assert.equal(attempts[1].client_id, attempts[0].client_id, 'a retry must remain idempotent');
+    assert.equal(field.value, '');
+    assert.equal(dom.nodes['#chat-connection'].textContent, '');
+    assert.equal(dom.nodes['[data-chat-status]'].hidden, true);
+    assert.match(dom.nodes['#chat-messages'].innerHTML, /class="message-delivery"[^>]*>Sent</);
+    assert.equal((dom.nodes['#chat-messages'].innerHTML.match(/data-message-id="2"/g) || []).length, 1);
+  } finally { service.stopChat(); dom.restore(); }
+});
+
+test('only the current sender’s matching receipt can resolve a send whose response was lost', async () => {
+  let attempt, updates = [];
+  const service = ui(async (path, options) => {
+    if (path === '/api/chat/conversations') return { items: [chatRoom()] };
+    if (options?.method === 'POST' && path.endsWith('/messages')) { attempt = options.body; throw new Error('Response lost'); }
+    if (path.includes('/messages?')) return historyPage(path.includes('after=') ? updates : [chatMessage(1, 'Previous message')]);
+    return {};
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    await service.mountChat();
+    const field = dom.nodes['#chat-body']; field.value = 'Awaiting a receipt';
+    dom.listeners.get('input')({ target: field });
+    const data = new FormData(); data.set('body', field.value);
+    await assert.rejects(service.sendMessage({ querySelector: () => field }, data), /Response lost/);
+    const failure = dom.nodes['#chat-connection'].textContent;
+    updates = [{ ...chatMessage(2, attempt.body), client_id: attempt.client_id }];
+    await dom.poll();
+    assert.equal(dom.nodes['#chat-connection'].textContent, failure, 'another sender’s client ID is not our receipt');
+    assert.equal(field.value, 'Awaiting a receipt');
+    updates = [{ ...chatMessage(3, attempt.body), sender_kind: 'user', sender_id: 'seeker-one', client_id: attempt.client_id }];
+    await dom.poll();
+    assert.equal(dom.nodes['#chat-connection'].textContent, '');
+    assert.equal(dom.nodes['[data-chat-status]'].hidden, true);
+    assert.equal(field.value, '', 'a confirmed unchanged draft is cleared');
+    assert.equal((dom.nodes['#chat-messages'].innerHTML.match(/data-message-id="3"/g) || []).length, 1);
+  } finally { service.stopChat(); dom.restore(); }
+});
+
+test('conversation starters append to an existing draft without sending it', async () => {
+  const writes = [];
+  const service = ui(async (path, options) => {
+    if (options?.method === 'POST' && path.endsWith('/messages')) writes.push(options.body);
+    return path === '/api/chat/conversations' ? { items: [chatRoom()] } : historyPage([]);
+  });
+  await service.messagesPage();
+  const dom = chatDom();
+  try {
+    await service.mountChat();
+    const field = dom.nodes['#chat-body']; field.value = 'My original context';
+    const click = text => dom.listeners.get('click')({ target: { closest: selector => selector === '[data-chat-prompt]' ? { dataset: { chatPrompt: text } } : null } });
+    click('A useful starting question');
+    assert.ok(field.value.startsWith('My original context'));
+    assert.ok(field.value.includes('A useful starting question'));
+    assert.deepEqual(writes, [], 'choosing a prompt only edits the local draft');
+    field.value = 'x'.repeat(field.maxLength - 2);
+    click('A much longer suggestion');
+    assert.ok(field.value.startsWith('x'.repeat(field.maxLength - 2)), 'a nearly full draft is not replaced');
+    assert.ok(field.value.length <= field.maxLength, 'inserting a suggestion respects the message limit');
+  } finally { service.stopChat(); dom.restore(); }
+});
+
+test('empty conversations give seekers, employers and administrators relevant starting points', async () => {
+  const cases = [
+    { role: 'seeker', title: 'Start with what matters to you', prompt: /résumé|experience|search/i },
+    { role: 'employer', title: 'Let’s clarify your hiring needs', prompt: /hiring|recruit|role/i },
+    { role: 'seeker', admin: true, title: 'Confirm the next step', prompt: /brief|update|progress/i },
+    { role: 'seeker', matched: true, title: 'Discuss the role', prompt: /role|work/i },
+    { role: 'employer', matched: true, title: 'Discuss the role', prompt: /team|experience|background|interview/i },
+  ];
+  for (const item of cases) {
+    const room = chatRoom(item.matched ? 'match_role' : 'platform_seeker-one');
+    const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+      admin: !!item.admin, search: `?tab=messages&conversation=${room.id}`,
+      state: { user: { id: 'seeker-one', role: item.role, employer_paid: true } },
+    });
+    try {
+      const html = await service.messagesPage(!!item.admin);
+      assert.ok(html.includes(item.title), `${item.admin ? 'administrator' : item.role} receives the right introduction`);
+      const prompts = [...html.matchAll(/data-chat-prompt="([^"]+)"/g)].map(match => match[1]);
+      assert.ok(prompts.length > 0);
+      assert.match(prompts.join(' '), item.prompt);
+      if (item.role === 'employer' && item.matched) assert.doesNotMatch(prompts.join(' '), /Could you tell me more about the day-to-day work/);
+      assert.match(html, /<textarea\b[^>]*rows="1"/);
+      assert.match(html, /<details\b[^>]*class="chat-tools"/);
+    } finally { service.stopChat(); }
+  }
+});
+
+test('an inactive employer has one optional activation note inside the conversation rather than stacked fixed banners', async () => {
+  const { app } = webmcp({ role: 'employer' });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const room = chatRoom('platform_one');
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    search: '?tab=messages&conversation=platform_one', state: app.state, hooks: { shell: app.shell },
+  });
+  try {
+    const html = await service.messagesPage();
+    const note = html.match(/<details\b[^>]*class="chat-account-note"[^>]*>[\s\S]*?<\/details>/)?.[0];
+    assert.ok(note, 'activation remains available without blocking a conversation');
+    assert.doesNotMatch(note.slice(0, note.indexOf('>')), /\bopen\b/, 'the optional details start collapsed');
+    assert.equal((html.match(/class="chat-account-note"/g) || []).length, 1);
+    assert.ok(html.indexOf(note) > html.indexOf('id="chat-scroll"'));
+    assert.ok(html.indexOf(note) < html.indexOf('<form data-form="chat"'));
+    assert.match(note, /href="\/app\?tab=orders"/);
+    assert.match(note, /href="\/app\?tab=promos"/);
+    assert.doesNotMatch(html, /class="(?:workspace-activation|promo-activation-banner)"/);
+    assert.doesNotMatch(html.match(/<textarea[^>]*>/)?.[0] || '', /\bdisabled\b/, 'inactive employers can still discuss hiring needs');
+  } finally { service.stopChat(); }
+});
 
 test('conversation index and history start together; a slow history does not block the inbox or its thread shell', async () => {
   const index = deferred(), history = deferred(), requests = [];

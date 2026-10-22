@@ -3,6 +3,8 @@
 .feedback-launch:hover {filter:brightness(.94);}
 .feedback-launch.is-dragging {cursor:grabbing;}
 .feedback-launch:focus-visible {outline:2px solid var(--accent);outline-offset:4px;}
+/* Chat exposes feedback in its own controls, without covering the conversation. */
+body:has(.chat-workspace [data-chat-feedback]) .feedback-launch {display:none;}
 .feedback-launch svg {width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;}
 .feedback-panel {position:fixed;z-index:81;right:24px;bottom:80px;width:min(380px,calc(100vw - 32px));max-height:min(640px,calc(100dvh - 100px));overflow-y:auto;padding:25px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 70px #0003;}
 .feedback-panel-head {display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:12px;}
