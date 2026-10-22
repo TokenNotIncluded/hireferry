@@ -1,6 +1,8 @@
 /* One small, consistent feedback entrypoint on both SPA and OAuth pages. */
-.feedback-launch {position:fixed;z-index:80;right:24px;bottom:22px;display:inline-flex;align-items:center;gap:9px;min-height:45px;padding:11px 18px;border:0;border-radius:99px;background:var(--accent);color:var(--on-accent);box-shadow:0 7px 26px #0002;font:550 12px var(--font);cursor:pointer;}
-.feedback-launch:hover {filter:brightness(.94);transform:translateY(-1px);}
+.feedback-launch {position:fixed;z-index:80;right:24px;bottom:22px;display:inline-flex;align-items:center;gap:9px;width:max-content;min-height:45px;padding:11px 18px;border:0;border-radius:99px;background:var(--accent);color:var(--on-accent);box-shadow:0 7px 26px #0002;font:550 12px var(--font);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}
+.feedback-launch:hover {filter:brightness(.94);}
+.feedback-launch.is-dragging {cursor:grabbing;}
+.feedback-launch:focus-visible {outline:2px solid var(--accent);outline-offset:4px;}
 .feedback-launch svg {width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;}
 .feedback-panel {position:fixed;z-index:81;right:24px;bottom:80px;width:min(380px,calc(100vw - 32px));max-height:min(640px,calc(100dvh - 100px));overflow-y:auto;padding:25px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 70px #0003;}
 .feedback-panel-head {display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:12px;}
@@ -17,7 +19,9 @@
 .feedback-result {margin:12px 0 0;font-size:12px;line-height:1.8;color:var(--accent);overflow-wrap:anywhere;}
 .feedback-result.error {color:var(--danger);}
 @media(max-width:560px) {
-  .feedback-launch {right:16px;bottom:16px;min-height:44px;}
+  .feedback-launch {right:16px;bottom:calc(16px + env(safe-area-inset-bottom));min-height:44px;}
   .feedback-panel {right:16px;bottom:74px;padding:20px;max-height:calc(100dvh - 95px);}
 }
-@media(prefers-reduced-motion:reduce) {.feedback-launch:hover {transform:none;}}
+@media(max-width:760px) {
+  body:has(.workspace-layout) .feedback-launch {bottom:calc(78px + env(safe-area-inset-bottom));}
+}

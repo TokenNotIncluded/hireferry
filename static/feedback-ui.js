@@ -1,4 +1,4 @@
-// No content is persisted in the browser. Only a local pathname (no search or
+// No feedback content is persisted in the browser. Only a local pathname (no search or
 // fragment) accompanies a plain-text report. The server enforces every limit.
 export const safeFeedbackPage = pathname => typeof pathname === 'string' &&
   pathname.startsWith('/') && !pathname.startsWith('//') &&
@@ -6,14 +6,14 @@ export const safeFeedbackPage = pathname => typeof pathname === 'string' &&
 
 const translations = {
   zh: {
-    open:'快速反馈', title:'快速反馈',
+    open:'快速反馈', title:'快速反馈', move:'轻点反馈，拖动调整位置',
     category:'反馈类型', bug:'遇到问题', idea:'改进建议', other:'其他', message:'详细描述',
     placeholder:'你遇到了什么？希望我们如何改进？', hint:'仅填写问题或建议。',
     submit:'提交反馈', sending:'提交中…', close:'关闭', success:'已收到反馈', limit:'反馈提交过于频繁，请稍后再试。',
     duplicate:'这条反馈已收到。', unavailable:'反馈暂不可用，请稍后重试。', error:'提交失败，请稍后重试。', count:'字',
   },
   en: {
-    open:'Quick feedback', title:'Quick feedback',
+    open:'Quick feedback', title:'Quick feedback', move:'Click for feedback, drag to move',
     category:'Category', bug:'Something is broken', idea:'Suggestion', other:'Other', message:'Describe it',
     placeholder:'What happened? What would you like us to change?', hint:'Describe the problem or suggestion.',
     submit:'Send feedback', sending:'Sending…', close:'Close', success:'Feedback received', limit:'Too many reports. Please try again later.',
@@ -31,6 +31,80 @@ export function mountQuickFeedback(doc = document, win = window) {
   const $ = selector => root.querySelector(selector);
   const launch = $('#feedback-launch'), panel = $('#feedback-panel'), form = $('#feedback-form');
   const message = $('#feedback-message'), result = $('#feedback-result'), send = $('.feedback-send');
+  const positionKey = 'hireferry-feedback-position';
+  const clamp = (value, min, max) => Math.max(min, Math.min(value, Math.max(min, max)));
+  let position = null, drag = null, dragged = false;
+  try {
+    const saved = JSON.parse(win.localStorage.getItem(positionKey));
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      position = {x:clamp(saved.x, 0, 1), y:clamp(saved.y, 0, 1)};
+    }
+  } catch { /* Moving the button also works without browser storage. */ }
+  const viewport = () => {
+    const view = win.visualViewport;
+    const left = (view?.offsetLeft ?? 0) + 16, top = (view?.offsetTop ?? 0) + 16;
+    return {left, top, width:Math.max(0, (view?.width ?? win.innerWidth) - 32),
+      height:Math.max(0, (view?.height ?? win.innerHeight) - 32)};
+  };
+  function layout() {
+    const area = viewport();
+    if (position) {
+      Object.assign(launch.style, {right:'auto', bottom:'auto',
+        left:`${area.left + position.x * Math.max(0, area.width - launch.offsetWidth)}px`,
+        top:`${area.top + position.y * Math.max(0, area.height - launch.offsetHeight)}px`});
+    }
+    if (panel.hidden) return;
+    const anchor = launch.getBoundingClientRect();
+    const above = clamp(anchor.top - area.top - 12, 0, area.height);
+    const below = clamp(area.top + area.height - anchor.bottom - 12, 0, area.height);
+    const openAbove = above >= below;
+    panel.style.maxHeight = `${Math.min(640, openAbove ? above : below)}px`;
+    panel.style.maxWidth = `${area.width}px`;
+    const size = panel.getBoundingClientRect();
+    const top = openAbove ? anchor.top - size.height - 12 : anchor.bottom + 12;
+    Object.assign(panel.style, {right:'auto', bottom:'auto',
+      left:`${clamp(anchor.right - size.width, area.left, area.left + area.width - size.width)}px`,
+      top:`${clamp(top, area.top, area.top + area.height - size.height)}px`});
+  }
+  launch.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0 || drag) return;
+    const rect = launch.getBoundingClientRect();
+    dragged = false;
+    drag = {id:event.pointerId, x:event.clientX, y:event.clientY, left:rect.left, top:rect.top};
+    launch.setPointerCapture(event.pointerId);
+  });
+  launch.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    if (!dragged && Math.hypot(dx, dy) < 6) return;
+    dragged = true;
+    event.preventDefault();
+    launch.classList.add('is-dragging');
+    const area = viewport();
+    const width = Math.max(0, area.width - launch.offsetWidth), height = Math.max(0, area.height - launch.offsetHeight);
+    position = {x:width ? clamp((drag.left + dx - area.left) / width, 0, 1) : 0,
+      y:height ? clamp((drag.top + dy - area.top) / height, 0, 1) : 0};
+    layout();
+  });
+  function finishDrag(event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    launch.classList.remove('is-dragging');
+    if (launch.hasPointerCapture(event.pointerId)) launch.releasePointerCapture(event.pointerId);
+    if (dragged) {
+      // Store only relative button coordinates, so resizing keeps it in view.
+      try { win.localStorage.setItem(positionKey, JSON.stringify(position)); } catch { /* Optional preference. */ }
+    }
+  }
+  for (const type of ['pointerup','pointercancel','lostpointercapture']) launch.addEventListener(type, finishDrag);
+  win.addEventListener('resize', layout);
+  win.visualViewport?.addEventListener('resize', layout);
+  win.visualViewport?.addEventListener('scroll', layout);
+  if (win.ResizeObserver) {
+    const observer = new win.ResizeObserver(layout);
+    observer.observe(launch);
+    observer.observe(panel);
+  }
   let pending = false;
   const words = () => {
     try { return translations[win.localStorage.getItem('hireferry-language') === 'en' ? 'en' : 'zh']; }
@@ -40,16 +114,23 @@ export function mountQuickFeedback(doc = document, win = window) {
     const t = words();
     root.querySelectorAll('[data-feedback]').forEach(el => { el.textContent = t[el.dataset.feedback]; });
     message.placeholder = t.placeholder;
+    launch.title = t.move;
     $('[data-feedback-close]').ariaLabel = t.close;
   }
   function toggle(open) {
     panel.hidden = !open;
     launch.setAttribute('aria-expanded', String(open));
-    if (open) { translate(); message.focus(); }
+    if (open) { translate(); layout(); message.focus(); }
     else launch.focus();
   }
   translate();
-  launch.addEventListener('click', () => toggle(panel.hidden));
+  layout();
+  launch.addEventListener('click', event => {
+    // Keyboard and assistive-technology clicks have no pointer click count.
+    if (dragged && event.detail !== 0) { dragged = false; event.preventDefault(); return; }
+    dragged = false;
+    toggle(panel.hidden);
+  });
   $('[data-feedback-close]').addEventListener('click', () => toggle(false));
   doc.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) toggle(false); });
   doc.addEventListener('pointerdown', event => {
