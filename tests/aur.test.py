@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Exercise actual PKGBUILD package functions in an isolated filesystem."""
 from pathlib import Path
+import argparse
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +77,64 @@ class AurPackages(unittest.TestCase):
             self.assertIn('cargo build --frozen',text)
             self.assertNotIn('--workspace',text)
 
+    def test_desktop_git_builds_the_isolated_shell_and_installs_desktop_integration(self):
+        name, text = aur.render('desktop','git','0.1.0.r1.gabc')
+        self.assertIn('--manifest-path desktop/src-tauri/Cargo.toml --bin hireferry-desktop --features custom-protocol',text)
+        self.assertNotIn('--workspace',text)
+        folder = self.root/name
+        source = folder/'src/hireferry'
+        binary = source/'target/x86_64-unknown-linux-gnu/release/hireferry-desktop'
+        binary.parent.mkdir(parents=True)
+        binary.write_text('#!/bin/sh\nexit 0\n')
+        for file in ('LICENSE','packaging/flatpak/best.lmm.hireferry.desktop','desktop/src-tauri/icons/icon.svg','docs/desktop.md'):
+            destination = source/file
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(ROOT/file,destination)
+        (folder/'PKGBUILD').write_text(text)
+        out = folder/'pkg'
+        subprocess.run(['bash','-eu','-c','CARCH=x86_64; source ./PKGBUILD; srcdir=$1; pkgdir=$2; package',
+                        'package-test',str(folder/'src'),str(out)],cwd=folder,check=True,capture_output=True)
+        self.assertTrue((out/'usr/bin/hireferry-desktop').is_file())
+        self.assertFalse((out/'usr/bin/hfy').exists())
+        self.assertFalse((out/'usr/bin/hireferry').exists())
+        self.assertTrue((out/'usr/share/applications/best.lmm.hireferry.desktop').is_file())
+        self.assertTrue((out/'usr/share/icons/hicolor/scalable/apps/best.lmm.hireferry.svg').is_file())
+
+    def test_desktop_bin_extracts_deb_payload_without_installing_server_or_cli(self):
+        if not shutil.which('bsdtar'):
+            self.skipTest('bsdtar is not available on this platform')
+        manifest = self.manifest('desktop')
+        name, text = aur.render('desktop','bin',manifest['versions']['desktop'],manifest)
+        folder = self.root/name
+        source = folder/'src'
+        source.mkdir(parents=True)
+        binary = self.root/'payload/usr/bin/hireferry-desktop'
+        binary.parent.mkdir(parents=True)
+        binary.write_text('#!/bin/sh\nexit 0\n'); binary.chmod(0o755)
+        with tarfile.open(source/'data.tar.gz','w:gz') as archive:
+            archive.add(binary,arcname='usr/bin/hireferry-desktop')
+        shutil.copyfile(ROOT/'LICENSE',source/'LICENSE')
+        (folder/'PKGBUILD').write_text(text)
+        out = folder/'pkg'; out.mkdir()
+        subprocess.run(['bash','-eu','-c','CARCH=x86_64; source ./PKGBUILD; srcdir=$1; pkgdir=$2; package',
+                        'package-test',str(source),str(out)],cwd=folder,check=True,capture_output=True)
+        self.assertTrue((out/'usr/bin/hireferry-desktop').is_file())
+        self.assertTrue((out/f'usr/share/licenses/{name}/LICENSE').is_file())
+        self.assertFalse((out/'usr/bin/hfy').exists())
+        self.assertNotIn('.AppImage',text)
+        self.assertNotIn('SKIP',text)
+        self.assertNotIn('cargo ',text)
+
+    def test_desktop_bin_generator_rejects_unpublished_and_unsigned_inputs(self):
+        for distribution in ('engineering','release'):
+            manifest = self.manifest('desktop')
+            manifest['distribution'] = distribution
+            path = self.root/'manifest.json'; path.write_text(json.dumps(manifest))
+            args = argparse.Namespace(product='desktop',variant='bin',manifest=path,out=self.root/'out')
+            with self.subTest(distribution=distribution), self.assertRaises(ValueError):
+                aur.generate(args)
+            self.assertFalse(args.out.exists())
+
     def test_binary_generator_rejects_missing_or_wrong_architecture(self):
         manifest = self.manifest('server')
         manifest['assets'] = manifest['assets'][:1]
@@ -88,7 +149,10 @@ class AurPackages(unittest.TestCase):
         if not shutil.which('makepkg'):
             self.skipTest('makepkg is not available on this platform')
         for folder in (ROOT/'packaging/aur').glob('hireferry-*'):
-            generated = subprocess.check_output(['makepkg','--printsrcinfo'],cwd=folder,text=True)
+            # Read-only source checkouts are supported; makepkg expects a writable cwd.
+            temporary = self.root/folder.name
+            shutil.copytree(folder,temporary)
+            generated = subprocess.check_output(['makepkg','--printsrcinfo'],cwd=temporary,text=True)
             self.assertEqual(generated,(folder/'.SRCINFO').read_text(),str(folder))
 
 
