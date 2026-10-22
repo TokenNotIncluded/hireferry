@@ -8,17 +8,20 @@ import { effectiveOrderStatus, activationRecovery, createBillingUI } from './bil
 import { currencyMeta, currencyOptions, minorToDecimal, parseMinor, minorStep, formatMinor, calculateFee } from './money.js';
 import { createHumanGrantUI } from './humangrant-ui.js';
 import { createPromoUI } from './promo-ui.js';
+import { createStaffUI } from './staff-ui.js';
 import { createRequestClient, createSessionReader, navigationReads, RequestTimeoutError } from './requests.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
+let staffModule;
+function staffUI() { return staffModule ||= createStaffUI({state,api,t,esc,icon,date,heading,shell,empty,notice,notify,go,render,session,openDialog,confirmDialog,resetPrivateView}); }
 let promoModule;
 function promos() { return promoModule ||= createPromoUI({state,api,t,esc,icon,money,date,currency,currencySelect,centsInput,heading,shell,empty,notice,openDialog,closeDialog,notify,go,render,session,confirmDialog,createMessageId,refreshJobPrice}); }
 
 const root = document.querySelector('#root');
 const dialogs = document.querySelector('#dialog-root');
 const disclosureUI = createDisclosureUI({root, doc:document, win:window});
-const state = { lang: localStorage.getItem('hireferry-language') || 'zh', config:null, user:null, admin:false, bootstrap:false, csrf:null, sculpture:null, homeStory:null, render:0, eligibility:null, chat:null, chatTimer:null };
+const state = { lang: localStorage.getItem('hireferry-language') || 'zh', config:null, user:null, admin:false, owner:false, staffRole:null, bootstrap:false, csrf:null, sculpture:null, homeStory:null, render:0, eligibility:null, chat:null, chatTimer:null };
 const t = (zh,en) => state.lang === 'en' ? en : zh;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const currency = record => currencyMeta(state.config,record);
@@ -107,7 +110,8 @@ function safeBillingReturn(value) {
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
 function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}}
-function afterSignIn() {let saved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);}catch{}return safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app');}
+function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
+function afterSignIn() {let saved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);}catch{}return safeStaffReturn(qs().get('return_to'))||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(state.staffRole?'/admin?tab=matches':state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app');}
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {
   const rules=terms||pricing(),option=currencies().find(item=>item.currency===currency(record).currency);
@@ -253,8 +257,9 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
 async function session(renderVersion) {
   const s=await sessionReader.read({force:renderVersion===undefined});
   if(renderVersion===undefined||renderVersion===state.render){
-    if(identityOf(state)!==identityOf(s)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
-    Object.assign(state,{user:s.user,admin:s.admin,bootstrap:s.bootstrap,csrf:s.csrf});
+    const elevated={...s,admin:!!s.admin||s.staff_role==='manager'};
+    if(identityOf(state)!==identityOf(elevated)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
+    Object.assign(state,{user:s.user,admin:elevated.admin,owner:!!s.admin,staffRole:s.staff_role||null,bootstrap:s.bootstrap,csrf:s.csrf});
   }
   return s;
 }
@@ -335,9 +340,11 @@ async function mountHome() {
 }
 
 function sidebar(tab,admin=false) {
-  const entries=admin?[
-    ['overview','chart',t('总览','Overview')],['messages','message',t('消息','Messages')],['matches','board',t('匹配工作台','Matching')],['mandates','target',t('寻找委托','Search briefs')],['users','person',t('用户','People')],['jobs','briefcase',t('岗位','Jobs')],['orders','receipt',t('订单与流水','Orders')],['promos','receipt',t('优惠码','Promotions')],['agents','bot',t('平台 AI','Platform AI')],['keys','key',t('通行密钥','Passkeys')]
+  const entries=admin?(state.owner?[
+    ['overview','chart',t('总览','Overview')],['messages','message',t('消息','Messages')],['matches','board',t('匹配工作台','Matching')],['mandates','target',t('寻找委托','Search briefs')],['users','person',t('用户','People')],['jobs','briefcase',t('岗位','Jobs')],['orders','receipt',t('订单与流水','Orders')],['promos','receipt',t('优惠码','Promotions')],['agents','bot',t('平台 AI','Platform AI')],['keys','key',t('通行密钥','Passkeys')],['staff','person',t('团队员工','Team members')]
   ]:[
+    ['messages','message',t('消息','Messages')],['matches','board',t('匹配工作台','Matching')],['mandates','target',t('寻找委托','Search briefs')],['users','person',t('用户','People')],['jobs','briefcase',t('岗位','Jobs')]
+  ]):[
     ['messages','message',t('消息','Messages')],
     ...(state.user?.role==='seeker'?[['mandate','target',t('寻找委托','My search')]]:[]),
     ...(state.user?.role==='employer'?[['jobs','briefcase',t('我的招聘','My roles')]]:[]),
@@ -346,9 +353,9 @@ function sidebar(tab,admin=false) {
   ];
   const item=([key,ico,label])=>`<a href="${admin?'/admin':'/app'}?tab=${key}" data-nav class="${tab===key?'active':''}"${tab===key?' aria-current="page"':''}>${icon(ico)}<span>${label}</span>${tab===key?'<span class="nav-current-dot" aria-hidden="true"></span>':''}</a>`;
   const primary=entries.slice(0,4),secondary=entries.slice(4);
-  const cliConnection=`<a href="/oauth/connections">${icon('key')}<span>${t('命令行连接','Command-line connections')}</span></a>`;
+  const cliConnection=admin&&!state.owner?'':`<a href="/oauth/connections">${icon('key')}<span>${t('命令行连接','Command-line connections')}</span></a>`;
   const logout=`<button type="button" data-action="logout">${icon('logout')}<span>${t('退出登录','Sign out')}</span></button>`;
-  return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin?t('聘渡管理团队','HireFerry team'):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?t('管理员','Administrator'):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
+  return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><nav class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin&&state.owner?t('聘渡管理团队','HireFerry team'):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?(state.owner?t('超级管理员','Super administrator'):t('团队经理','Team manager')):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
 }
 function shell(body,tab,admin=false) {const activation=!admin&&state.user?.role==='employer'&&!state.user.employer_paid&&tab!=='orders'?`<div class="workspace-activation"><span>${t('招聘方账户尚未开通','Employer account not active')}</span><a href="/app?tab=orders" data-nav class="text-button">${t('查看开通与付款','Activation & payments')}${icon('arrow')}</a></div>`:'';return `<main id="main" class="page-width app-layout workspace-layout" data-workspace-page="${esc(tab)}">${sidebar(tab,admin)}<section class="app-content" tabindex="-1">${activation}${body}</section></main>`;}
 function paymentProviders(record) {
@@ -523,6 +530,7 @@ async function render({navigation=false}={}) {
     else if(path==='/humangrant')body=humanGrant().intro();
     else if(/^\/human\/[A-Za-z0-9_-]+$/.test(path)){await session(version);if(version!==state.render)return;body=await humanGrant().reviewPage(path.split('/')[2],version);}
     else if(path==='/login'){if(state.user){go(afterSignIn());return;}body=login();}
+    else if(/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(path)){await session(version);if(version!==state.render)return;body=await staffUI().invitePage(path.split('/')[3]);}
     else if(path==='/jobs'||path==='/people'){await session(version);if(version!==state.render)return;go(state.user?'/app?tab=matches':'/login');return;}
     else if(/^\/jobs\/[^/]+$/.test(path))body=await jobDetail(decodeURIComponent(path.split('/')[2]));
     else if(/^\/people\/[^/]+$/.test(path))body=await personDetail(decodeURIComponent(path.split('/')[2]));
@@ -563,6 +571,8 @@ async function render({navigation=false}={}) {
 async function adminPage(tab) {
   if(state.bootstrap&&!state.admin)return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('key')}</span><h1>${t('绑定第一把通行密钥','Add your first passkey')}</h1><p>${t('完成后，管理员登录只接受通行密钥。','After this step, administrator sign-in uses passkeys only.')}</p></div><section class="auth-card"><h2>${t('安全地开始。','A secure beginning.')}</h2><p class="subtitle">${t('使用设备指纹、面容或实体安全密钥。一次性密码不会再用于登录。','Use your device’s fingerprint, face recognition, or security key. The one-time password cannot be used to sign in again.')}</p><form data-form="passkey-register"><div class="field"><label for="passkey-name">${t('密钥名称','Passkey name')}</label><input class="input" id="passkey-name" name="name" value="${t('我的主设备','My primary device')}" maxlength="80" required></div><button class="button full" type="submit">${icon('key')}${t('绑定通行密钥','Create a passkey')}</button></form><p class="help">${t('请在可信设备上操作。首次绑定完成后可以再添加备用密钥。','Use a trusted device. You can add backup passkeys after this first one.')}</p></section></main>`;
   if(!state.admin){const s=await api('/api/admin/auth/status');return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('shield')}</span><h1>${t('聘渡总控台','HireFerry control room')}</h1><p>${t('每次相遇背后，都有人认真负责。','Real people, behind every connection.')}</p></div><section class="auth-card"><h2>${s.initialized?t('欢迎回来。','Welcome back.'):t('第一次，安全启程。','A secure first step.')}</h2><p class="subtitle">${s.initialized?t('使用已绑定的通行密钥登录。','Sign in with a registered passkey.'):t('输入在服务器上生成的一次性密码。','Enter the one-time password generated on the server.')}</p>${s.initialized?`<button class="button full" data-action="admin-passkey-login">${icon('key')}${t('使用通行密钥登录','Sign in with a passkey')}</button><p class="help">${t('支持已绑定的指纹、面容与实体安全密钥。','Supports registered device biometrics and security keys.')}</p>`:`<form data-form="admin-bootstrap"><div class="field"><label for="bootstrap-password">${t('一次性密码','One-time password')}</label><input class="input" type="password" id="bootstrap-password" name="password" autocomplete="one-time-code" required></div><button class="button full" type="submit">${t('验证并绑定通行密钥','Verify and add a passkey')}${icon('arrow')}</button></form><p class="help">${t('管理员需要先在 Linux 服务器中运行初始化命令。密码短期有效，仅用于首次绑定。','An administrator must run the initialization command on the Linux server first. The password expires soon and is only for the first passkey setup.')}</p>`}</section></main>`;}
+  if(!state.owner&&!['messages','matches','mandates','users','jobs'].includes(tab))return shell(notice(t('此区域仅限超级管理员。','This area is reserved for the super administrator.')),'matches',true);
+  if(tab==='staff')return staffUI().adminPage();
   if(tab==='promos')return promos().adminPage();
   if(tab==='messages')return service.messagesPage(true);if(tab==='mandates')return service.adminMandates();if(tab==='agents')return service.adminTokens();if(tab==='users')return adminUsers();if(tab==='jobs')return adminJobs();if(tab==='orders')return adminOrders();if(tab==='keys')return adminKeys();if(tab==='matches')return matchesPage(true);return adminOverview();
 }
@@ -699,7 +709,8 @@ function centsInput(value,record,options={}) {
 document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const submit=event.submitter||form.querySelector('[type=submit]'),data=new FormData(form),kind=form.dataset.form;setBusy(submit,true);
   try {
-    if(kind.startsWith('hg-'))await humanGrant().submit(form,data);
+    if(kind.startsWith('staff-'))await staffUI().submit(form,data);
+     else if(kind.startsWith('hg-'))await humanGrant().submit(form,data);
     else if(kind.startsWith('promo-'))await promos().submit(form,data);
     else if(kind==='email-start'){const email=String(data.get('email')).trim();const r=await api('/api/auth/email/start',{method:'POST',body:{email}});emailCode(email,r.dev_code);}
     else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();if(!resumeCliLogin(true))go(afterSignIn());}
@@ -750,7 +761,8 @@ document.addEventListener('click',async event=>{
   const scene=event.target.closest('[data-scene]');if(scene){state.homeStory?.select(Number(scene.dataset.scene));return;}
   const button=event.target.closest('[data-action]');if(!button||button.disabled)return;event.preventDefault();const action=button.dataset.action,id=button.dataset.id;
   try{
-    if(action.startsWith('hg-'))await humanGrant().action(action,button);
+    if(action.startsWith('staff-'))await staffUI().action(action,button);
+    else if(action.startsWith('hg-'))await humanGrant().action(action,button);
     else if(action.startsWith('promo-')){setBusy(button,true);await promos().action(action,button);}
     else if(action==='language'){state.lang=state.lang==='en'?'zh':'en';localStorage.setItem('hireferry-language',state.lang);closeDialog();await render();}
     else if(action==='close-dialog')closeDialog();
@@ -758,7 +770,7 @@ document.addEventListener('click',async event=>{
     else if(action==='retry'||action==='billing-refresh'){setBusy(button,true);if(action==='billing-refresh')await session();await render();}
     else if(action==='google-unavailable')notify(t('Google 登录暂未开放，请使用邮箱。','Google sign-in is not available yet. Please use email.'),true);
     else if(action==='restart-login')await render();
-    else if(action==='logout'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,bootstrap:false,csrf:null});go('/');}
+    else if(action==='logout'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,owner:false,staffRole:null,bootstrap:false,csrf:null});go('/');}
     else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;closeDialog();go(afterSignIn());}
     else if(action==='role-employer'){
       setBusy(button,true);
@@ -831,7 +843,7 @@ window.addEventListener('popstate',()=>{closeDialog();render();});
 window.addEventListener('pagehide',event=>{service.stopChat();if(dialogs.querySelector('#webhook-signing-secret'))closeDialog();if(!event.persisted)state.sculpture?.dispose();});
 function resetPrivateView() {
   disclosureUI.reset();
-  invalidateIdentity();Object.assign(state,{user:null,admin:false,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
+  invalidateIdentity();Object.assign(state,{user:null,admin:false,owner:false,staffRole:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
 }
 async function refreshVisibleSession() {
   if(document.hidden||!state.config)return;
