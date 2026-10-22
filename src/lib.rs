@@ -21,6 +21,7 @@ pub mod models;
 pub mod payments;
 pub mod promos;
 pub mod safety;
+mod seo;
 pub mod staff;
 pub mod team;
 pub mod webhooks;
@@ -138,6 +139,7 @@ pub fn app(state: AppState) -> Router {
         )
         .fallback_service(
             axum::routing::get(assets::serve)
+                .with_state(state.clone())
                 .layer(tower_http::compression::CompressionLayer::new()),
         )
         .layer(DefaultBodyLimit::max(3 * 1024 * 1024))
@@ -150,8 +152,12 @@ async fn security(State(state): State<AppState>, req: Request, next: Next) -> Re
             return AppError::forbidden("Origin is not allowed").into_response();
         }
     }
+    let indexable = seo::PUBLIC_PAGES.contains(&req.uri().path());
     let mut res = next.run(req).await;
     let h = res.headers_mut();
+    if !indexable {
+        h.insert("x-robots-tag", HeaderValue::from_static("noindex, follow"));
+    }
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
