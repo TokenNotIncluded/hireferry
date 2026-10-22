@@ -31,6 +31,26 @@ pub fn launcher_url(url: &Url) -> bool {
         && url.username().is_empty()
         && url.password().is_none()
         && url.port().is_none()
+        && matches!(url.path(), "" | "/" | "/index.html")
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+#[cfg(any(mobile, test))]
+pub fn settings_return(url: &Url) -> bool {
+    url.scheme() == "hireferry-settings"
+        && url.host_str() == Some("return")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && matches!(url.path(), "" | "/")
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+#[cfg(any(mobile, test))]
+pub fn service_navigation(origin: &Url, next: &Url) -> bool {
+    web_url(next) && next.origin() == origin.origin()
 }
 
 #[cfg(test)]
@@ -83,8 +103,53 @@ mod tests {
             "https://user@tauri.localhost/",
             "https://localhost/",
             "tauri://remote/",
+            "tauri://localhost/index.html?server=https://evil.example",
+            "tauri://localhost/index.html#token=secret",
+            "https://tauri.localhost/remote.html",
         ] {
             assert!(!launcher_url(&Url::parse(input).unwrap()), "{input}");
+        }
+    }
+
+    #[test]
+    fn mobile_return_is_a_constant_without_payload_or_login_credentials() {
+        for input in [
+            "hireferry-settings://return",
+            "hireferry-settings://return/",
+        ] {
+            assert!(settings_return(&Url::parse(input).unwrap()));
+        }
+        for input in [
+            "hireferry-settings://return?url=https://evil.example",
+            "hireferry-settings://return#session=secret",
+            "hireferry-settings://user@return",
+            "hireferry-settings://return/login",
+            "hireferry-settings://other",
+            "https://return/",
+        ] {
+            assert!(!settings_return(&Url::parse(input).unwrap()), "{input}");
+        }
+    }
+
+    #[test]
+    fn mobile_service_navigation_keeps_the_exact_selected_origin() {
+        let selected = server_origin("https://selfhost.example:8443").unwrap();
+        assert!(service_navigation(
+            &selected,
+            &Url::parse("https://selfhost.example:8443/login").unwrap()
+        ));
+        for input in [
+            "https://selfhost.example/login",
+            "https://selfhost.example.evil.test:8443/",
+            "https://user@selfhost.example:8443/",
+            "http://selfhost.example:8443/",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+        ] {
+            assert!(
+                !service_navigation(&selected, &Url::parse(input).unwrap()),
+                "{input}"
+            );
         }
     }
 }

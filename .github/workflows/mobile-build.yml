@@ -1,0 +1,146 @@
+name: Mobile engineering builds
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'scripts/mobile.py'
+      - 'tests/test_mobile.py'
+      - '.github/workflows/mobile-*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'scripts/mobile.py'
+      - 'tests/test_mobile.py'
+      - '.github/workflows/mobile-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android debug APK + AAB, install and launch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_STRIP: symbols
+      CARGO_BUILD_JOBS: '2'
+      NDK_VERSION: 29.0.13846066
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK and NDK
+        run: |
+          sdkmanager 'platforms;android-37' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Install locked Tauri CLI
+        run: npm ci
+        working-directory: desktop
+      - name: Test build/signing guardrails
+        run: python3 -m unittest discover -s tests -p test_mobile.py -v
+      - name: Build engineering artifacts (no release secrets)
+        run: python3 scripts/mobile.py build android --variant debug --target aarch64 --target x86_64 --format both --output artifacts/mobile/android
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Sideload APK and verify the real WebView launcher
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: python3 scripts/mobile.py smoke-android artifacts/mobile/android/hireferry-android-aarch64-x86_64-debug.apk --output artifacts/mobile/android/smoke
+      - name: Upload engineering packages and verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hireferry-android-debug-${{ github.sha }}
+          path: artifacts/mobile/android/
+          if-no-files-found: error
+          retention-days: 14
+
+  ios-simulator:
+    name: iOS simulator build (no signing identity)
+    runs-on: macos-15
+    timeout-minutes: 50
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_STRIP: symbols
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install iOS project tools
+        run: |
+          brew list cocoapods >/dev/null 2>&1 || brew install cocoapods
+          xcodebuild -version
+      - name: Install locked Tauri CLI
+        run: npm ci
+        working-directory: desktop
+      - name: Build simulator application without distribution credentials
+        run: python3 scripts/mobile.py build ios --simulator --variant debug --output artifacts/mobile/ios
+      - name: Boot simulator and install actual application
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, subprocess, tarfile, time
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
+          phones = [d for runtime, group in devices.items() if 'iOS' in runtime for d in group if d.get('isAvailable') and 'iPhone' in d['name']]
+          if not phones:
+              raise SystemExit('No available iPhone simulator runtime on runner')
+          device = phones[0]
+          udid = device['udid']
+          if device['state'] != 'Booted':
+              subprocess.run(['xcrun', 'simctl', 'boot', udid], check=True)
+          subprocess.run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], check=True)
+          archive = next(pathlib.Path('artifacts/mobile/ios').glob('*.app.tar.gz'))
+          out = pathlib.Path('artifacts/mobile/ios/smoke')
+          out.mkdir()
+          with tarfile.open(archive) as source:
+              source.extractall(out, filter='data')
+          app = next(out.glob('*.app'))
+          subprocess.run(['xcrun', 'simctl', 'install', udid, str(app)], check=True)
+          subprocess.run(['xcrun', 'simctl', 'launch', udid, 'best.lmm.hireferry'], check=True)
+          time.sleep(5)
+          subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', str(out / 'ios-launch.png')], check=True)
+          (out / 'ios-smoke.json').write_text(json.dumps({'simulator':device['name'], 'installed':True, 'launch_command_succeeded':True}, indent=2))
+          import shutil
+          shutil.rmtree(app)
+          PY
+      - name: Upload simulator app and launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hireferry-ios-simulator-${{ github.sha }}
+          path: artifacts/mobile/ios/
+          if-no-files-found: error
+          retention-days: 14

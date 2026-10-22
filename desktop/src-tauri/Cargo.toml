@@ -2,11 +2,19 @@
 name = "hireferry-desktop"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
-description = "HireFerry desktop client"
+rust-version = "1.90"
+description = "HireFerry desktop and mobile client"
 authors = ["HireFerry contributors"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/TokenNotIncluded/hireferry"
+
+[lib]
+# Mobile platforms load the library; keep the existing desktop binary name.
+name = "hireferry_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 # The desktop toolchain is deliberately independent of the server/CLI workspace.
 [workspace]
