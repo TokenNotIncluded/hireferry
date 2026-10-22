@@ -34,6 +34,31 @@ const messages = {
     unavailable:'Open this page in the HireFerry desktop application.', unexpected:'The action did not complete. Please try again.'
   }
 };
+const mobile = window.__HIREFERRY_MOBILE__ === true;
+if (mobile) {
+  document.documentElement.dataset.platform = 'mobile';
+  document.getElementById('platform-label').textContent = /Android/i.test(navigator.userAgent) ? 'ANDROID' : 'iOS';
+  Object.assign(messages.zh, {
+    eyebrow:'随身的聘渡工作台',
+    lead:'在手机上，继续每一次沟通。\n连接你的聘渡，开启下一段旅程。',
+    serverHelp:'使用 HTTPS 站点地址。自托管站点需要可信的 TLS 证书。',
+    loginNote:'应用内可使用邮箱验证码登录。Google 登录在系统浏览器中完成；返回应用后，两边登录状态仍各自独立。',
+    footerHelp:'站点右下角的“连接设置”可返回这里。重新启动应用也会打开此页。',
+    opened:'正在进入工作台。',
+    not_allowed:'只能在聘渡应用的连接页面执行此操作。',
+    unavailable:'请在 HireFerry 应用中打开此页面。'
+  });
+  Object.assign(messages.en, {
+    eyebrow:'YOUR WORKSPACE, ON THE GO',
+    lead:'Keep the conversation moving.\nConnect to HireFerry, wherever you are.',
+    serverHelp:'Use an HTTPS origin. Self-hosted services need a trusted TLS certificate.',
+    loginNote:'Use email-code sign-in inside the app. Google sign-in opens your system browser. Returning to the app does not transfer your browser session.',
+    footerHelp:'Use “Connection” at the bottom-right of the site to return here. Relaunching also opens this screen.',
+    opened:'Opening your workspace…',
+    not_allowed:'This action is available only from the HireFerry connection screen.',
+    unavailable:'Open this page in the HireFerry application.'
+  });
+}
 const storage = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
   set(key, value) { try { localStorage.setItem(key, value); } catch { /* A session still works without storage. */ } }
@@ -48,7 +73,7 @@ function render() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   for (const element of document.querySelectorAll('[data-i18n]')) {
     const lines = messages[language][element.dataset.i18n].split('\n');
-    element.replaceChildren(...lines.flatMap((text, index) => index ? [document.createElement('br'), document.createTextNode(text)] : [document.createTextNode(text)]));
+    element.replaceChildren(...lines.flatMap((text, index) => index ? [document.createTextNode(language === 'en' ? ' ' : ''), document.createElement('br'), document.createTextNode(text)] : [document.createTextNode(text)]));
   }
   const toggle = document.getElementById('language');
   toggle.textContent = language === 'zh' ? 'EN' : '中文';
@@ -68,6 +93,9 @@ async function run(command) {
   if (command === 'connect') status('opening');
   try {
     const address = server.value.trim();
+    // Mobile navigation unloads this document before an invoke response can
+    // resolve. Saving an address never connects automatically or grants access.
+    if (mobile) storage.set('hireferry.desktop.server', address);
     await invoke(command, { server: address });
     storage.set('hireferry.desktop.server', address);
     status(command === 'connect' ? 'opened' : 'browserOpened');

@@ -57,3 +57,18 @@ footer { display:flex; justify-content:space-between; align-items:center; flex-w
 @media (max-width:760px) { .shell { padding:24px; } main { gap:24px; grid-template-columns:.9fr 1.1fr; padding-top:32px; } .connection { padding:22px; } h1 { font-size:32px; } .brand { font-size:17px; } .lead { font-size:12px; } .voyage { margin-top:15px; } }
 @media (max-width:580px) { main { grid-template-columns:1fr; padding-top:30px; } .intro .voyage { display:none; } .intro h1 br,.intro .lead br { display:none; } h1 { font-size:30px; margin-bottom:12px; } .eyebrow { margin-bottom:12px; } .connection { max-width:420px; width:100%; margin:auto; } .brand-en { font-size:15px; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
+
+/* Shared assets also serve Android/iOS. Respect the camera cutout, keyboard,
+   accessible touch targets, and iOS input zoom without a second UI bundle. */
+[data-platform="mobile"] .shell { min-height:100svh; padding: max(20px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); }
+[data-platform="mobile"] main { grid-template-columns:1fr; max-width:540px; margin:0 auto; padding-top:24px; gap:24px; }
+[data-platform="mobile"] .voyage { display:none; }
+[data-platform="mobile"] .intro .lead br { display:none; }
+[data-platform="mobile"] .eyebrow { margin-bottom:12px; }
+[data-platform="mobile"] h1 { font-size:clamp(28px,7vw,40px); margin-bottom:12px; }
+[data-platform="mobile"] .connection { padding:22px; max-width:none; }
+[data-platform="mobile"] input { font-size:16px; min-height:48px; }
+[data-platform="mobile"] .primary,[data-platform="mobile"] .browser,[data-platform="mobile"] .language { min-height:44px; font-size:14px; }
+[data-platform="mobile"] .field-help,[data-platform="mobile"] .login-note p,[data-platform="mobile"] .form-description { font-size:12px; }
+[data-platform="mobile"] footer { font-size:12px; line-height:1.6; }
+[data-platform="mobile"] .footer-help { font-size:11px; }
