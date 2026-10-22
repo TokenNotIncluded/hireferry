@@ -44,7 +44,8 @@ async fn no_store(mut response: Response) -> Response {
 }
 
 pub(super) fn migrate(db: &Connection) -> AppResult<()> {
-    db.execute_batch(
+    db.execute_batch("SAVEPOINT app_login_v1;")?;
+    let result = db.execute_batch(
         "CREATE TABLE IF NOT EXISTS app_login_grants (
         request_id TEXT PRIMARY KEY,
         verifier_hash TEXT NOT NULL UNIQUE,
@@ -56,8 +57,17 @@ pub(super) fn migrate(db: &Connection) -> AppResult<()> {
         expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS app_login_expiry ON app_login_grants(expires_at);",
-    )?;
-    Ok(())
+    );
+    match result {
+        Ok(()) => {
+            db.execute_batch("RELEASE app_login_v1;")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = db.execute_batch("ROLLBACK TO app_login_v1; RELEASE app_login_v1;");
+            Err(error.into())
+        }
+    }
 }
 
 fn valid_request(request: &str) -> AppResult<()> {
