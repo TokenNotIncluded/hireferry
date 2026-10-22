@@ -7,7 +7,9 @@ require maintainer-owned credentials and remain separate from desktop downloads.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -19,6 +21,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import xml.etree.ElementTree as ET
 import zipfile
@@ -26,7 +29,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "desktop"
 TAURI = DESKTOP / "src-tauri"
-ANDROID_SDK = "37"
+ANDROID_SDK = "37.0"
 ANDROID_BUILD_TOOLS = "37.0.0"
 ANDROID_NDK = "29.0.13846066"
 ANDROID_TARGETS = {
@@ -319,7 +322,9 @@ def build(args):
             records.append({"filename": destination.name, "bytes": destination.stat().st_size, "sha256": sha256(destination), **metadata})
     else:
         for target in targets:
-            arch = "arm64" if target.startswith("aarch64") else "x86_64"
+            # cargo-mobile2 keeps Apple Silicon simulator output separate from
+            # the identically named device CPU architecture.
+            arch = {"aarch64": "arm64", "aarch64-sim": "arm64-sim", "x86_64": "x86_64"}[target]
             directory = project / "build" / arch
             candidates = list(directory.glob("*.app" if args.simulator else "*.ipa"))
             if len(candidates) != 1:
@@ -340,6 +345,8 @@ def smoke_android(args):
     artifact = Path(args.artifact).resolve()
     metadata = verify_android(artifact)
     package = metadata["package_id"]
+    if not package.endswith(".debug"):
+        raise MobileError("The loopback smoke service requires an engineering debug APK")
     adb = android_tool("adb")
     command = [adb] + (["-s", args.serial] if args.serial else [])
     run(command + ["wait-for-device"])
@@ -349,31 +356,184 @@ def smoke_android(args):
     launch = run(command + ["shell", "am", "start", "-W", "-n", f"{package}/best.lmm.hireferry.MainActivity"], capture=True)
     if "Status: ok" not in launch:
         raise MobileError("Android activity did not report a successful launch")
-    deadline = time.monotonic() + 45
-    layout = ""
-    while time.monotonic() < deadline:
-        run(command + ["shell", "uiautomator", "dump", "/sdcard/hireferry-smoke.xml"], capture=True)
-        layout = run(command + ["shell", "cat", "/sdcard/hireferry-smoke.xml"], capture=True)
+    output = Path(args.output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+
+    def label(node):
+        return node.get("text", "") + " " + node.get("content-desc", "")
+
+    def wait_ui(predicate, description):
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            run(command + ["shell", "uiautomator", "dump", "/sdcard/hireferry-smoke.xml"], capture=True)
+            layout = run(command + ["shell", "cat", "/sdcard/hireferry-smoke.xml"], capture=True)
+            (output / "android-last.xml").write_text(layout)
+            try:
+                root = ET.fromstring(layout)
+                if predicate(root):
+                    return root, layout
+            except ET.ParseError:
+                pass
+            time.sleep(1)
+        raise MobileError(f"Installed APK did not {description} within 45 seconds")
+
+    def node_with(root, *texts):
+        # ElementTree leaves are false-y; never use `node_a or node_b` here.
+        return next((n for n in root.iter() if any(text.lower() in label(n).lower() for text in texts)), None)
+
+    def field(root):
+        return next((n for n in root.iter() if n.get("class", "").endswith("EditText")), None)
+
+    def launcher(root):
+        return field(root) is not None and (node_with(root, "Open workspace") is not None or node_with(root, "进入工作台") is not None)
+
+    def bounds(node):
+        values = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+        if values is None:
+            raise MobileError("UI element has no usable screen bounds")
+        return tuple(map(int, values.groups()))
+
+    def tap(node):
+        if node is None:
+            raise MobileError("Expected mobile UI control was not found")
+        left, top, right, bottom = bounds(node)
+        run(command + ["shell", "input", "tap", (left + right) // 2, (top + bottom) // 2])
+
+    def evidence(name, layout):
+        (output / f"android-{name}.xml").write_text(layout)
+        screenshot = subprocess.run([str(x) for x in command] + ["exec-out", "screencap", "-p"], check=True, capture_output=True)
+        (output / f"android-{name}.png").write_bytes(screenshot.stdout)
+
+    root, layout = wait_ui(launcher, "render the connection screen")
+    evidence("launch", layout)
+    with smoke_service() as (service, state):
+        port = service.server_port
+        address = f"http://127.0.0.1:{port}"
+        run(command + ["reverse", f"tcp:{port}", f"tcp:{port}"])
         try:
-            root = ET.fromstring(layout)
-            text = " ".join(n.attrib.get("text", "") + " " + n.attrib.get("content-desc", "") for n in root.iter())
-            if "hireferry.lmm.best" in text and ("workspace" in text.lower() or "工作台" in text):
-                break
-        except ET.ParseError:
-            pass
-        time.sleep(1)
-    else:
-        raise MobileError("Installed APK did not render the connection screen within 45 seconds")
+            entry = field(root)
+            tap(entry)
+            run(command + ["shell", "input", "keyevent", "KEYCODE_MOVE_END"])
+            # Clear the actual field value, then enter only the test origin.
+            run(command + ["shell", "input", "keyevent", *["KEYCODE_DEL"] * (len(entry.get("text", "")) + 2)])
+            run(command + ["shell", "input", "text", address])
+            run(command + ["shell", "input", "keyevent", "KEYCODE_BACK"])
+            root, _ = wait_ui(launcher, "retain the connection form")
+            tap(node_with(root, "Open workspace", "进入工作台"))
+            root, layout = wait_ui(lambda r: node_with(r, "Remote IPC denied") is not None, "load the test service and reject remote native commands")
+            if not state["ipc_done"].wait(5) or state.get("ipc") not in ("denied", "bridge_absent"):
+                raise MobileError("Remote native command was not rejected")
+            returning = node_with(root, "Return to HireFerry", "返回聘渡")
+            feedback = node_with(root, "Feedback")
+            if returning is None or feedback is None:
+                raise MobileError("Remote page did not render both connection and feedback controls")
+            a, b = bounds(returning), bounds(feedback)
+            if min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1]):
+                raise MobileError("Connection and feedback controls overlap")
+            evidence("remote", layout)
+            tap(feedback)
+            root, layout = wait_ui(lambda r: node_with(r, "Feedback is open") is not None, "open feedback beside the native return control")
+            evidence("feedback", layout)
+            tap(node_with(root, "Close feedback"))
+
+            # External browser return must foreground the existing WebView,
+            # without navigating away or importing a server/code/session.
+            run(command + ["shell", "input", "keyevent", "KEYCODE_HOME"])
+            run(command + ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", "hireferry://login-return", "-p", package], capture=True)
+            root, layout = wait_ui(lambda r: node_with(r, "Remote IPC denied") is not None, "preserve the remote page after a login return")
+            evidence("warm-return", layout)
+            tap(node_with(root, "Return to HireFerry", "返回聘渡"))
+            root, layout = wait_ui(launcher, "return to the local connection screen")
+            evidence("settings-return", layout)
+            run(command + ["shell", "am", "force-stop", package])
+            run(command + ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", "hireferry://login-return", "-p", package], capture=True)
+            root, layout = wait_ui(launcher, "keep a cold login return on the local launcher")
+            evidence("cold-return", layout)
+        finally:
+            run(command + ["reverse", "--remove", f"tcp:{port}"])
     log = run(command + ["logcat", "-d", "-s", "AndroidRuntime:E"], capture=True)
     if "FATAL EXCEPTION" in log:
         raise MobileError("Android runtime reported a fatal exception")
-    output = Path(args.output).resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "android-launch.xml").write_text(layout)
-    screenshot = subprocess.run([str(x) for x in command] + ["exec-out", "screencap", "-p"], check=True, capture_output=True)
-    (output / "android-launch.png").write_bytes(screenshot.stdout)
-    (output / "android-smoke.json").write_text(json.dumps({"package_id": package, "sha256": sha256(artifact), "installed": True, "launcher_rendered": True}, indent=2) + "\n")
-    print("Android APK installed and rendered the local connection screen")
+    (output / "android-smoke.json").write_text(json.dumps({
+        "package_id": package, "sha256": sha256(artifact), "installed": True,
+        "launcher_rendered": True, "remote_loaded": True,
+        "remote_native_command": state["ipc"], "feedback_clickable": True,
+        "controls_do_not_overlap": True, "returned_to_launcher": True,
+        "warm_login_return_preserved_page": True, "cold_login_return_stayed_local": True,
+        "fixture_only": True,
+    }, indent=2) + "\n")
+    print("Android APK passed install, remote isolation, feedback, and cold/warm return checks")
+
+
+@contextmanager
+def smoke_service():
+    """An isolated loopback service; never touches production or a real account."""
+    state = {"ipc_done": threading.Event()}
+    html = b'''<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HireFerry mobile verification</title><link rel="stylesheet" href="/feedback.css">
+<style>*{box-sizing:border-box}:root{--accent:#176f57;--on-accent:#fff;--font:system-ui;--surface:#fff;--ink:#252521;--line:#ddd}
+body{margin:0;background:#f7f6f0;color:#252521;font:16px system-ui;padding:32px 20px}
+h1{font-size:24px}p{line-height:1.5}.workspace-layout{min-height:70vh}
+.chat-composer{position:fixed;bottom:64px;left:0;right:0;display:flex;padding:8px;background:#fff;border-top:1px solid #ddd}
+.chat-composer textarea{flex:1;min-width:0;min-height:44px;font:16px system-ui}
+.chat-composer button{min-width:50px;min-height:44px}.bottom-tabs{position:fixed;bottom:0;left:0;right:0;height:64px;background:#e5e9df;text-align:center;line-height:64px}
+[hidden]{display:none!important}</style>
+<main class="workspace-layout"><h1>HireFerry mobile verification</h1>
+<p id="isolation">Checking remote permissions...</p><p>This local fixture contains no account or business data.</p></main>
+<div class="chat-composer"><textarea aria-label="Message" placeholder="Message"></textarea><button>Send</button></div><nav class="bottom-tabs">Workspace navigation</nav>
+<button class="feedback-launch" id="feedback">Feedback</button>
+<section class="feedback-panel" id="panel" hidden><h2>Feedback is open</h2><button id="close" style="min-height:44px">Close feedback</button></section>
+<script>
+document.querySelector('#feedback').onclick=()=>document.querySelector('#panel').hidden=false;
+document.querySelector('#close').onclick=()=>document.querySelector('#panel').hidden=true;
+(async()=>{
+let result='bridge_absent';const invoke=window.__TAURI__?.core?.invoke;
+if(invoke){try{await invoke('connect',{server:location.origin});result='allowed';}catch{result='denied';}}
+await fetch('/result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ipc:result})});
+document.querySelector('#isolation').textContent=result==='allowed'?'UNSAFE: remote command succeeded':'Remote IPC denied';
+})();</script></html>'''
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            if self.path == "/feedback.css":
+                data, kind = (ROOT / "static" / "feedback.css").read_bytes(), "text/css"
+            else:
+                data, kind = html, "text/html; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            size = int(self.headers.get("Content-Length", "0"))
+            if self.path != "/result" or not 0 < size < 1024:
+                self.send_error(400)
+                return
+            try:
+                payload = json.loads(self.rfile.read(size))
+                state["ipc"] = payload.get("ipc")
+            except (ValueError, TypeError):
+                self.send_error(400)
+                return
+            state["ipc_done"].set()
+            self.send_response(204)
+            self.end_headers()
+
+    service = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=service.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
+    thread.start()
+    try:
+        yield service, state
+    finally:
+        service.shutdown()
+        service.server_close()
+        thread.join(timeout=2)
 
 
 def main():

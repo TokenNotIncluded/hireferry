@@ -1,6 +1,7 @@
 use crate::{open_external, policy, require_launcher};
 use std::sync::RwLock;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 use url::Url;
 
 #[derive(Default)]
@@ -32,6 +33,7 @@ fn launcher_url() -> Url {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_opener::Builder::new()
                 // Website links use our navigation policy. The plugin's
@@ -42,6 +44,33 @@ pub fn run() {
         .manage(Connection::default())
         .invoke_handler(tauri::generate_handler![connect, crate::open_browser])
         .setup(|app| {
+            let return_app = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                let urls = event.urls();
+                if urls.len() != 1 || !policy::login_return(&urls[0]) {
+                    return;
+                }
+                // The OS foregrounds the existing app. A fixed, payload-free
+                // event only asks its already-open login page to poll sooner.
+                // Never import a URL/session or navigate on a cold start.
+                let Some(window) = return_app.get_webview_window("launcher") else {
+                    return;
+                };
+                if window.url().is_ok_and(|current| {
+                    current.path() == "/auth/app"
+                        && return_app
+                            .state::<Connection>()
+                            .0
+                            .read()
+                            .is_ok_and(|selected| {
+                                selected.as_ref().is_some_and(|origin| {
+                                    policy::service_navigation(origin, &current)
+                                })
+                            })
+                }) {
+                    let _ = window.eval("window.dispatchEvent(new Event('hireferry-app-return'))");
+                }
+            });
             let navigation_app = app.handle().clone();
             WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into()))
                 .title("HireFerry · 聘渡")
@@ -72,15 +101,30 @@ pub fn run() {
                                     .as_ref()
                                     .is_some_and(|origin| policy::service_navigation(origin, next))
                             });
-                    if same_service && next.path() != "/api/auth/google/start" {
-                        return true;
+                    if same_service {
+                        if next.path() == "/api/auth/google/start" {
+                            let app = navigation_app.clone();
+                            let mut landing = next.clone();
+                            landing.set_path("/auth/app");
+                            landing.set_query(None);
+                            landing.set_fragment(None);
+                            tauri::async_runtime::spawn(async move {
+                                if let Some(window) = app.get_webview_window("launcher") {
+                                    let _ = window.navigate(landing);
+                                }
+                            });
+                            return false;
+                        }
+                        if next.path() != "/auth/app/authorize" {
+                            return true;
+                        }
                     }
                     if policy::web_url(next) {
                         let app = navigation_app.clone();
                         let url = next.clone();
-                        // The full Google flow, including its CSRF cookie, is
-                        // started in the system browser. There is no session
-                        // import into the WebView and no external deep-link ACL.
+                        // The browser holds its own Google CSRF/session cookies
+                        // and explicitly approves the short-lived app request.
+                        // Only the original WebView can redeem its HttpOnly proof.
                         std::thread::spawn(move || {
                             let _ = open_external(&app, &url);
                         });

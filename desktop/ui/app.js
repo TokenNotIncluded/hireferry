@@ -42,8 +42,8 @@ if (mobile) {
     eyebrow:'随身的聘渡工作台',
     lead:'在手机上，继续每一次沟通。\n连接你的聘渡，开启下一段旅程。',
     serverHelp:'使用 HTTPS 站点地址。自托管站点需要可信的 TLS 证书。',
-    loginNote:'应用内可使用邮箱验证码登录。Google 登录在系统浏览器中完成；返回应用后，两边登录状态仍各自独立。',
-    footerHelp:'站点右下角的“连接设置”可返回这里。重新启动应用也会打开此页。',
+    loginNote:'可在应用内使用邮箱验证码登录。Google 登录会打开系统浏览器，确认账号并批准后，点击“返回应用”即可继续。自托管站点需支持应用登录授权。',
+    footerHelp:'站点左下方的“连接”可返回这里。重新启动应用也会打开此页。',
     opened:'正在进入工作台。',
     not_allowed:'只能在聘渡应用的连接页面执行此操作。',
     unavailable:'请在 HireFerry 应用中打开此页面。'
@@ -52,8 +52,8 @@ if (mobile) {
     eyebrow:'YOUR WORKSPACE, ON THE GO',
     lead:'Keep the conversation moving.\nConnect to HireFerry, wherever you are.',
     serverHelp:'Use an HTTPS origin. Self-hosted services need a trusted TLS certificate.',
-    loginNote:'Use email-code sign-in inside the app. Google sign-in opens your system browser. Returning to the app does not transfer your browser session.',
-    footerHelp:'Use “Connection” at the bottom-right of the site to return here. Relaunching also opens this screen.',
+    loginNote:'Use email-code sign-in in the app. For Google, confirm your account and approve in your browser, then tap “Return to app”. Self-hosted servers need app sign-in support.',
+    footerHelp:'Use “Connection” near the bottom-left of the site to return here. Relaunching also opens this screen.',
     opened:'Opening your workspace…',
     not_allowed:'This action is available only from the HireFerry connection screen.',
     unavailable:'Open this page in the HireFerry application.'

@@ -49,6 +49,18 @@ pub fn settings_return(url: &Url) -> bool {
 }
 
 #[cfg(any(mobile, test))]
+pub fn login_return(url: &Url) -> bool {
+    url.scheme() == "hireferry"
+        && url.host_str() == Some("login-return")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && matches!(url.path(), "" | "/")
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+#[cfg(any(mobile, test))]
 pub fn service_navigation(origin: &Url, next: &Url) -> bool {
     web_url(next) && next.origin() == origin.origin()
 }
@@ -150,6 +162,25 @@ mod tests {
                 !service_navigation(&selected, &Url::parse(input).unwrap()),
                 "{input}"
             );
+        }
+    }
+
+    #[test]
+    fn login_return_only_wakes_the_app_without_a_payload() {
+        for input in ["hireferry://login-return", "hireferry://login-return/"] {
+            assert!(login_return(&Url::parse(input).unwrap()));
+        }
+        for input in [
+            "hireferry://login-return?code=untrusted",
+            "hireferry://login-return?server=https://evil.example",
+            "hireferry://login-return#token=untrusted",
+            "hireferry://user@login-return",
+            "hireferry://login-return:123",
+            "hireferry://login-return/anything",
+            "hireferry://login-return.evil.example",
+            "https://login-return",
+        ] {
+            assert!(!login_return(&Url::parse(input).unwrap()), "{input}");
         }
     }
 }

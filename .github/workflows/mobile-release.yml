@@ -42,17 +42,18 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+          cmdline-tools-version: '15859902' # 22.0; understands Android 37.0 package IDs
           log-accepted-android-sdk-licenses: false
       - name: Install pinned Android SDK and NDK
         run: |
-          sdkmanager 'platforms;android-37' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - run: npm ci
         working-directory: desktop
