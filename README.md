@@ -42,7 +42,7 @@
 | --- | --- |
 | 求职者 | 管理简历与求职委托、联系平台、查看介绍和外部寻找进展 |
 | 招聘方 | 发布岗位、维护招聘人数、管理订单与优惠、跟进候选人 |
-| HR 团队 | 按岗位筛选候选人、建立介绍、推进面试与录用；超级管理员可通过邮件或一次性链接[邀请团队经理](docs/staff.md) |
+| HR 团队 | 按岗位筛选候选人、建立介绍、推进面试与录用；超级管理员可[邀请团队经理](docs/staff.md)，或[添加具有业务权限的真人及 AI 员工](docs/team.md) |
 | AI 助手 | 通过 MCP、HumanGrant 或受支持浏览器的 WebMCP 使用获授权功能 |
 | 自托管运营者 | 配置币种与费用、邮件与支付、业务限额、Webhook 和备份 |
 
@@ -194,4 +194,3 @@ python3 tests/cli-scripts.test.py
 采用 [AGPL-3.0-or-later](LICENSE)。
 
 首页粒子运行时来自 [particle-sculpture-skill](https://github.com/LIghtJUNction/particle-sculpture-skill)。主题颜色使用 [Material Color Utilities](https://github.com/material-foundation/material-color-utilities)，界面视觉参考 [ix.dev](https://ix.dev/)。版权与依赖说明见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) 和[粒子运行时声明](static/runtime/NOTICE)。
-

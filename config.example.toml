@@ -47,6 +47,15 @@ reply_to = "support@lmm.best"
 starttls = true # true: STARTTLS (usually 587); false: implicit TLS (usually 465)
 # Production email login stays unavailable until SMTP is configured and enabled.
 
+[team]
+# Employee invitations use the SMTP server above; links also work without email.
+invitation_ttl_hours = 72
+ai_token_ttl_days = 30
+max_members = 200
+max_pending_invitations = 100
+invitations_per_hour = 30
+resend_cooldown_seconds = 60
+
 [payments.stripe]
 enabled = false
 allowed_currencies = [] # Empty: integration-supported set; restrict to your merchant's currencies.

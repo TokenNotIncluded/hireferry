@@ -9,6 +9,10 @@ const moneySource = await readFile(new URL('../static/money.js', import.meta.url
 const moneyHelpers = await import('data:text/javascript;base64,' + Buffer.from(moneySource).toString('base64'));
 const requestSource = await readFile(new URL('../static/requests.js', import.meta.url), 'utf8');
 const requestHelpers = await import('data:text/javascript;base64,' + Buffer.from(requestSource).toString('base64'));
+const teamSource = await readFile(new URL('../static/team-ui.js', import.meta.url), 'utf8');
+const teamHelpers = await import('data:text/javascript;base64,' + Buffer.from(teamSource).toString('base64'));
+const cliGuideSource = await readFile(new URL('../static/cli-guide.js', import.meta.url), 'utf8');
+const cliGuideHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliGuideSource).toString('base64'));
 const billingSource = await readFile(new URL('../static/billing-ui.js', import.meta.url), 'utf8');
 const billingHelpers = await import('data:text/javascript;base64,' + Buffer.from(billingSource).toString('base64'));
 // Page markup tests use a DOM sink; disclosure events have their own real controller tests.
@@ -79,6 +83,41 @@ test('archived administrator rooms display history but cannot be composed into',
   assert.match(html, /<textarea[^>]*disabled/);
   assert.match(html, /<button class="button small" type="submit" disabled/);
   assert.match(html, /Private platform history stays separate/);
+});
+
+test('internal conversations distinguish coworkers and AI from the current staff member', async () => {
+  const messages = [
+    { id: 1, sender_kind: 'platform', is_own: true, staff_name: 'My staff identity', body: 'Mine', created_at: 1 },
+    { id: 2, sender_kind: 'platform', is_own: false, staff_name: '<Colleague>', body: 'Colleague reply', created_at: 2 },
+    { id: 3, sender_kind: 'platform', is_own: false, staff_name: '平台AI', body: 'AI reply', via_ai: true, created_at: 3 },
+    { id: 4, sender_kind: 'platform', is_own: false, staff_name: '超级管理员', body: 'Owner reply', created_at: 4 },
+    { id: 5, sender_kind: 'platform', body: 'Legacy message', created_at: 5 },
+  ];
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_member', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: messages, next_cursor: 5, first_cursor: 1 }, { admin: true, search: '?tab=messages&conversation=platform_member' });
+  const html = await service.messagesPage(true);
+  const message = id => html.match(new RegExp(`<article[^>]*data-message-id="${id}"[\\s\\S]*?</article>`))?.[0] || '';
+  assert.match(message(1), /class="chat-message own from-platform"/);
+  assert.match(message(1), /<strong>My staff identity<\/strong>/);
+  for (const id of [2, 3, 4]) assert.doesNotMatch(message(id), /chat-message own/);
+  assert.match(message(2), /&lt;Colleague&gt;/);
+  assert.doesNotMatch(message(2), /<Colleague>/);
+  assert.match(message(3), /<strong>Platform AI<\/strong>/);
+  assert.match(message(3), /via AI/);
+  assert.match(message(4), /<strong>Super administrator<\/strong>/);
+  assert.match(message(5), /chat-message own/);
+  assert.match(message(5), /<strong>HireFerry team<\/strong>/);
+});
+
+test('customer conversations never expose internal staff names or adopt administrator ownership metadata', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [{ id: 1, sender_kind: 'platform', sender_id: 'internal-actor', sender_name: 'internal-actor', staff_name: 'Private staff name', is_own: true, body: 'Hello', via_ai: true, created_at: 1 }], next_cursor: 1, first_cursor: 1 });
+  const html = await service.messagesPage();
+  assert.match(html, /<strong>HireFerry team<\/strong>/);
+  assert.match(html, /via AI/);
+  assert.doesNotMatch(html, /Private staff name|internal-actor|chat-message own/);
 });
 
 test('a new search brief never preselects external outreach consent', async () => {
@@ -302,8 +341,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -2043,6 +2082,73 @@ test('real go and browser-history render use the chat hook, while expired sessio
   } finally { harness.dispose(); dom.restore(); }
 });
 
+test('fast room changes and incremental messages preserve staff attribution and customer privacy', async () => {
+  for (const admin of [true, false]) {
+    const calls = [], rooms = [chatRoom(), chatRoom('match_second')];
+    const first = { ...chatMessage(1, 'My reply'), is_own: true, staff_name: 'My staff identity' };
+    const other = { ...chatMessage(2, 'Colleague reply'), is_own: false, staff_name: '<Colleague>' };
+    const added = { ...chatMessage(3, 'AI follow-up'), is_own: false, staff_name: '平台AI', via_ai: true };
+    const service = ui(async path => {
+      calls.push(path);
+      if (path === '/api/chat/conversations') return { items: rooms };
+      if (path.includes('/match_second/messages?')) return historyPage(path.includes('after=') ? [added] : [first, other]);
+      return historyPage([]);
+    }, { admin, search: '?tab=messages&conversation=platform_seeker-one', state: admin ? { user: { id: 'staff-user', role: 'unassigned' }, super_admin: false, staff: { id: 'staff-one' }, csrf: 'staff-csrf' } : {} });
+    await service.messagesPage(admin);
+    const dom = chatDom();
+    try {
+      await service.mountChat();
+      const base = admin ? '/admin' : '/app';
+      const detail = new URL(base + '?tab=messages&conversation=match_second', location.origin);
+      location.search = detail.search;
+      await service.navigateChat(detail); await dom.poll();
+      const html = dom.nodes['#chat-messages'].innerHTML;
+      const message = id => html.match(new RegExp(`<article[^>]*data-message-id="${id}"[^>]*>[\\s\\S]*?<\\/article>`))?.[0] || '';
+      if (admin) {
+        assert.match(message(1), /chat-message own/); assert.match(message(1), /My staff identity/);
+        assert.doesNotMatch(message(2), /chat-message own/); assert.match(message(2), /&lt;Colleague&gt;/);
+        assert.doesNotMatch(message(3), /chat-message own/); assert.match(message(3), /Platform AI/);
+      } else {
+        for (const id of [1, 2, 3]) { assert.match(message(id), /HireFerry team/); assert.doesNotMatch(message(id), /chat-message own/); }
+        assert.doesNotMatch(html, /My staff identity|Colleague&gt;|Platform AI/);
+      }
+      const count = calls.length;
+      const list = new URL(base + '?tab=messages&view=list', location.origin);
+      location.search = list.search; await service.navigateChat(list);
+      location.search = detail.search; await service.navigateChat(detail);
+      assert.equal(calls.length, count); assert.equal(dom.nodes['#chat-messages'].innerHTML, html);
+    } finally { service.stopChat(); dom.restore(); }
+  }
+});
+
+test('staff chat navigation cannot bypass owner page guards or retain access after session revocation', async () => {
+  const dom = chatDom();
+  const harness = await createNavigationHarness(fileURLToPath(new URL('../static/', import.meta.url)), { mountChat: true });
+  try {
+    const originalQuery = harness.document.querySelector;
+    harness.document.querySelector = selector => dom.nodes[selector] || originalQuery(selector);
+    harness.document.querySelectorAll = selector => selector.includes('.chat-composer') ? dom.controls : [];
+    const user = { id: 'staff-user', role: 'unassigned', email: 'staff@example.test' };
+    harness.overrides.set('/api/session', { user, admin: true, super_admin: false, staff: { id: 'staff-one', name: 'QA colleague', kind: 'human', active: true }, csrf: 'staff-csrf' });
+    await harness.prime(); await harness.app.go('/admin?tab=messages&conversation=platform_fixture-user');
+    await Promise.resolve();
+    const requests = harness.network.length, mounts = harness.mounts.length;
+    await harness.app.go('/admin?tab=messages&view=list');
+    assert.equal(harness.network.length, requests); assert.equal(harness.mounts.length, mounts);
+    await harness.app.go('/admin?tab=team');
+    assert.match(harness.root.innerHTML, /This page is managed by the super administrator/);
+    assert.equal(harness.network.some(request => ['/api/admin/team', '/api/admin/passkeys', '/api/admin/tokens'].includes(request.path)), false);
+    assert.doesNotMatch(harness.root.innerHTML, /href="\/admin\?tab=(team|keys|agents)"|href="\/oauth\/connections"/);
+    await harness.app.go('/admin?tab=messages&conversation=platform_fixture-user');
+    await Promise.resolve();
+    harness.overrides.set('/api/session', { user, admin: false, super_admin: false, staff: null, csrf: 'staff-csrf' });
+    await harness.app.refreshVisibleSession();
+    assert.equal(harness.app.state.admin, false); assert.equal(harness.app.state.staff, null);
+    assert.doesNotMatch(harness.root.innerHTML, /chat-workspace|QA_MESSAGE_READY/);
+    assert.match(harness.root.innerHTML, /admin-auth/);
+  } finally { harness.dispose(); dom.restore(); }
+});
+
 test('reviewing another search brief releases the previous private outreach records', async () => {
   const dialogs = [];
   const owner = { id: 'admin-session', role: 'seeker' };
@@ -2152,4 +2258,29 @@ test('pending message capacity preserves earlier idempotency keys and rejects ne
     assert.equal(attempts.at(-1).client_id, attempts[0].client_id, 'the oldest uncertain send must keep its original idempotency key');
     service.stopChat();
   } finally { dom.restore(); }
+});
+
+test('manager-only sessions have no browser AI tools while an explicit employee grant remains usable', () => {
+  const { app, registered } = webmcp({ admin: true });
+  Object.assign(app.state, { owner: false, super_admin: false, staffRole: 'manager', user: { id: 'colleague' }, staff: null });
+  app.registerWebMCP();
+  assert.equal(registered.size, 0);
+  app.state.staff = { id: 'employee-one' };
+  app.registerWebMCP();
+  assert.ok(registered.has('hireferry_admin_get_user'));
+  app.state.staff = null;
+  app.registerWebMCP();
+  assert.equal(registered.size, 0);
+});
+
+test('losing employee access clears private workbench caches even when the manager session remains', async () => {
+  const identity = { admin: true, super_admin: false, user: { id: 'colleague' }, staff: { id: 'employee-one' }, staffRole: 'manager', csrf: 'same-csrf' };
+  const service = ui(async path => path.includes('/mandates/')
+    ? { mandate: { user_id: 'first', target_roles: 'Engineer', status: 'active' } }
+    : { items: [{ id: 'record-first', note: 'Employee-only retained draft' }] }, { hooks: { state: identity } });
+  await service.adminMandate('first');
+  service.outreachDialog('first', 'record-first');
+  identity.staff = null;
+  service.stopChat();
+  assert.throws(() => service.outreachDialog('first', 'record-first'), /Refresh this brief/);
 });

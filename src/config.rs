@@ -22,6 +22,7 @@ pub struct Config {
     pub legal: crate::legal::Legal,
     pub cli_auth: CliAuth,
     pub cli_distribution: CliDistribution,
+    pub team: Team,
     pub feedback: Feedback,
     pub maintenance: Maintenance,
 }
@@ -45,8 +46,31 @@ impl Default for Config {
             legal: crate::legal::Legal::default(),
             cli_auth: CliAuth::default(),
             cli_distribution: CliDistribution::default(),
+            team: Team::default(),
             feedback: Feedback::default(),
             maintenance: Maintenance::default(),
+        }
+    }
+}
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Team {
+    pub invitation_ttl_hours: i64,
+    pub ai_token_ttl_days: i64,
+    pub max_members: i64,
+    pub max_pending_invitations: i64,
+    pub invitations_per_hour: i64,
+    pub resend_cooldown_seconds: i64,
+}
+impl Default for Team {
+    fn default() -> Self {
+        Self {
+            invitation_ttl_hours: 72,
+            ai_token_ttl_days: 30,
+            max_members: 200,
+            max_pending_invitations: 100,
+            invitations_per_hour: 30,
+            resend_cooldown_seconds: 60,
         }
     }
 }
@@ -571,6 +595,18 @@ impl Config {
     }
     pub fn validate(&self) -> AppResult<()> {
         self.cli_distribution.validate()?;
+        let team = &self.team;
+        if !(1..=720).contains(&team.invitation_ttl_hours)
+            || !(1..=365).contains(&team.ai_token_ttl_days)
+            || !(1..=1000).contains(&team.max_members)
+            || !(1..=1000).contains(&team.max_pending_invitations)
+            || !(1..=1000).contains(&team.invitations_per_hour)
+            || !(30..=3600).contains(&team.resend_cooldown_seconds)
+        {
+            return Err(AppError::bad_request(
+                "Invalid team invitation or member limits",
+            ));
+        }
         let hg = &self.humangrant;
         if !(60..=3600).contains(&hg.request_ttl_seconds)
             || !(60..=86_400).contains(&hg.max_grant_seconds)

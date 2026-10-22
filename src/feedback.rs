@@ -445,7 +445,7 @@ fn ensure_browser_session(db: &Connection, session: &auth::Session) -> AppResult
 }
 
 fn ensure_admin(db: &Connection, p: &access::Principal) -> AppResult<()> {
-    access::ensure_admin(db, p)?;
+    access::ensure_platform_admin(db, p)?;
     if let Some(hash) = p.actor.strip_prefix("admin_session:") {
         let active: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM sessions WHERE token_hash=?1 AND admin=1

@@ -599,13 +599,25 @@ fn messages_are_idempotent_per_sender_and_body_rendering_rejects_active_markup()
     assert_ne!(platform_reply["id"], first["id"]);
     assert_eq!(platform_reply["sender_kind"], "platform");
     assert!(platform_reply["sender_id"].is_null());
+    assert_eq!(platform_reply["is_own"], true);
+    assert_eq!(platform_reply["staff_name"], "超级管理员");
     assert_eq!(first["sender_id"], uid(&seeker));
     assert_eq!(first["via_ai"], false);
+    for response in [&first, &second] {
+        assert!(response.get("is_own").is_none());
+        assert!(response.get("staff_name").is_none());
+    }
     let history = chat::messages(&f.state, &seeker, &id, -1, 100).unwrap();
-    assert_eq!(
-        items(&history),
-        &vec![first.clone(), platform_reply.clone()]
-    );
+    for response in items(&history) {
+        assert!(response.get("is_own").is_none());
+        assert!(response.get("staff_name").is_none());
+    }
+    // Compare the complete customer-visible message, including sanitized HTML,
+    // without importing metadata from the administrator's sending response.
+    let mut public_reply = platform_reply.clone();
+    public_reply.as_object_mut().unwrap().remove("is_own");
+    public_reply.as_object_mut().unwrap().remove("staff_name");
+    assert_eq!(items(&history), &vec![first.clone(), public_reply]);
     let earlier = chat::messages_before(
         &f.state,
         &admin,
@@ -614,7 +626,10 @@ fn messages_are_idempotent_per_sender_and_body_rendering_rejects_active_markup()
         100,
     )
     .unwrap();
-    assert_eq!(items(&earlier), &vec![first.clone()]);
+    let mut customer_from_admin_view = first.clone();
+    customer_from_admin_view["is_own"] = json!(false);
+    customer_from_admin_view["staff_name"] = Value::Null;
+    assert_eq!(items(&earlier), &vec![customer_from_admin_view]);
     let unicode = "聘".repeat(10000);
     assert!(chat::send_message(&f.state, &seeker, &id, message(&unicode)).is_ok());
     assert_eq!(

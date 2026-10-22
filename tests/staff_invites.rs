@@ -196,6 +196,18 @@ async fn owner_invites_only_the_verified_email_and_manager_never_becomes_owner()
     let (_, session) = worker.request("GET", "/api/session", json!({})).await;
     assert_eq!(session["staff_role"], "manager");
     assert_eq!(session["admin"], false); // No owner Passkey authority.
+    assert_eq!(session["super_admin"], false);
+    assert_eq!(session["staff"], Value::Null);
+    for path in [
+        "/api/admin/team",
+        "/api/admin/promo-codes",
+        "/api/admin/feedback",
+    ] {
+        assert_eq!(
+            worker.request("GET", path, json!({})).await.0,
+            StatusCode::FORBIDDEN
+        );
+    }
     assert_eq!(
         worker.request("GET", "/api/admin/users", json!({})).await.0,
         StatusCode::OK
@@ -325,7 +337,7 @@ fn version_ten_feedback_database_upgrades_to_staff_schema_eleven() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     let existing_tables: i64 = db
         .query_row(

@@ -9,6 +9,8 @@
 | 文档 | 内容 |
 | --- | --- |
 | [产品与业务规则](product.md) | 服务流程、私聊与匹配、角色、委托、收费及权限 |
+| [团队经理](staff.md) | 受限招聘业务角色、邮箱邀请及成员启停 |
+| [业务员工与 AI 员工](team.md) | 独立员工身份、邮件邀请、业务权限及可撤销 AI 凭据 |
 | [岗位管理](jobs.md) | 招聘人数、删除、一次恢复、永久删除及版本冲突 |
 | [支付](payments.md) | 费用、币种、Stripe、Waffo、区域、回调及退款记录 |
 | [优惠码](promo-codes.md) | 申请、审批、免费开通、发布减免与次数预占 |
@@ -49,6 +51,7 @@
 | [CLI 发布说明](cli-release-notes.md) | 已记录的版本变化 |
 | [页面导航验证](workspace-navigation-validation.md) | 页面切换与交互验证 |
 | [聊天热路径验证](chat-hotpath-validation.md) | 聊天查询、负载与性能记录 |
+| [团队功能验收](team-validation.md) | 团队权限、邀请、迁移与主分支兼容验证 |
 | [剩余工作](remaining-work.md) | 已实现范围与仍需完成的验收 |
 
 ## 文档语言

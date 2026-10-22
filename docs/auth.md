@@ -86,7 +86,7 @@ Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
 
 ## 管理员首次开通
 
-管理员不属于普通用户，也不能通过 Google、邮箱验证码、HumanGrant 或个人 MCP 令牌登录总控台。
+超级管理员不属于普通用户，也不能通过 Google、邮箱验证码、HumanGrant 或个人 MCP 令牌取得超级管理员权限。受邀员工通过自己的邮箱或 Google 账号进入业务总控台，团队、Passkey 与凭据管理仍仅由超级管理员操作，详见 [团队成员](team.md)。
 
 1. 在持有服务器权限的交互式终端运行 `hireferry --config /path/to/config.toml admin-bootstrap`。命令生成 32 字节随机秘密并仅向当前终端输出；数据库只保存哈希。不要把输出写入共享日志。
 2. 在 10 分钟内访问 `/admin`，或连续点击 Logo 5 次，输入该一次性口令。
@@ -145,7 +145,7 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 | --- | --- |
 | `GET /api/admin/users/{id}/access` | 管理员读取账户状态、最近原因和操作人 |
 | `POST /api/admin/users/{id}/access` | `{ "banned": true, "reason": "原因" }`；事务内停用或恢复并写入审计 |
-| `GET /api/session` | 返回 `user`、`admin`、`bootstrap`、`csrf`；未登录时 `user` 和 `csrf` 为 null |
+| `GET /api/session` | 返回 `user`、`admin`、`super_admin`、`staff`、`bootstrap`、`csrf`；`admin` 表示业务工作台权限，`super_admin` 仅代表 Passkey 超管；未登录时 `user`、`staff` 和 `csrf` 为 null |
 | `POST /api/auth/email/start` | `{ "email": "name@example.com" }`；设置浏览器挑战 Cookie |
 | `POST /api/auth/email/verify` | `{ "email": "name@example.com", "code": "12345678" }`；消费挑战并建立会话 |
 | `GET /api/auth/google/start` | 发起 Google 授权并设置挑战 Cookie |

@@ -7,6 +7,93 @@ import {createNavigationHarness} from './helpers/navigation-harness.mjs';
 
 const current=fileURLToPath(new URL('../static/',import.meta.url));
 const pause=ms=>new Promise(yes=>setTimeout(yes,ms));
+const deferred=()=>{let resolve;const promise=new Promise(yes=>resolve=yes);return {promise,resolve};};
+async function until(condition){for(let i=0;i<200;i++){if(condition())return;await pause(5);}assert.ok(condition(),'Expected request or navigation state was not reached');}
+
+test('cold signed-in entry keeps configuration and session reads parallel when the session finishes first',async()=>{
+  const cases=[
+    {identity:{user:null,admin:true,super_admin:true,staff:null,csrf:'owner-csrf'},path:'/admin?tab=team',marker:'data-form="team-invite"'},
+    {identity:{user:{id:'staff-user',role:'unassigned',email:'staff@example.test'},admin:true,super_admin:false,staff:{id:'staff-one',name:'QA staff',kind:'human',active:true},csrf:'staff-csrf'},path:'/admin?tab=users',marker:'QA staff'},
+    {identity:{user:{id:'manager-user',name:'QA manager',role:'unassigned'},admin:false,super_admin:false,staff_role:'manager',staff:null,csrf:'manager-csrf'},path:'/admin?tab=users',marker:'QA manager'},
+    {identity:{user:{id:'fixture-user',role:'seeker'},admin:false,super_admin:false,staff:null,csrf:'member-csrf'},path:'/app?tab=profile',marker:'QA_PROFILE_READY'},
+  ];
+  for(const scenario of cases){
+    const config=deferred();
+    const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/config'?config.promise:undefined});
+    let navigation;
+    try{
+      harness.app.state.config=null;harness.overrides.set('/api/session',scenario.identity);
+      navigation=harness.app.go(scenario.path);
+      await until(()=>harness.network.some(value=>value.path==='/api/session'&&value.finished!==null));
+      config.resolve();await navigation;
+      assert.ok(harness.root.innerHTML.includes(scenario.marker),harness.root.innerHTML.slice(-600));
+      assert.doesNotMatch(harness.root.innerHTML,/route-error/);
+      const configReads=harness.network.filter(value=>value.path==='/api/config');
+      const sessionReads=harness.network.filter(value=>value.path==='/api/session');
+      assert.equal(configReads.length,1);assert.equal(sessionReads.length,1);
+      assert.ok(configReads[0].began<sessionReads[0].finished,'configuration starts before session finishes');
+      assert.ok(sessionReads[0].finished<configReads[0].finished,'the test releases configuration only after session completes');
+      assert.equal(configReads[0].aborted,false);
+      assert.equal(harness.app.state.admin,scenario.identity.admin||scenario.identity.staff_role==='manager');
+      assert.equal(harness.app.state.super_admin,scenario.identity.super_admin);
+    }finally{config.resolve();await navigation;harness.dispose();}
+  }
+});
+
+test('rapid cold navigation shares startup reads and publishes only the newest destination',async()=>{
+  const config=deferred();
+  const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/config'?config.promise:undefined});
+  let first,second;
+  try{
+    harness.app.state.config=null;
+    harness.overrides.set('/api/session',{user:null,admin:true,super_admin:true,staff:null,csrf:'owner-csrf'});
+    first=harness.app.go('/admin?tab=team');
+    await until(()=>harness.network.some(value=>value.path==='/api/session'&&value.finished!==null));
+    second=harness.app.go('/admin?tab=users');
+    config.resolve();await Promise.all([first,second]);
+    assert.equal(harness.root.dataset.pageKey,'admin:users');
+    assert.doesNotMatch(harness.root.innerHTML,/data-form="team-invite"|route-error/);
+    assert.equal(harness.network.filter(value=>value.path==='/api/config').length,1);
+    assert.equal(harness.network.filter(value=>value.path==='/api/session').length,1);
+    assert.equal(harness.network.some(value=>value.path==='/api/admin/team'),false);
+    assert.equal(harness.network.some(value=>value.path.startsWith('/api/admin/users')),true);
+    assert.equal(harness.network.some(value=>value.aborted),false);
+  }finally{config.resolve();await Promise.all([first,second]);harness.dispose();}
+});
+
+test('cross-tab sign-out during cold startup cannot restore the already-read former session',async()=>{
+  const config=deferred();let configReads=0;
+  const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/config'&&++configReads===1?config.promise:undefined});
+  let initial;
+  try{
+    harness.app.state.config=null;
+    initial=harness.app.go('/app?tab=profile');
+    await until(()=>harness.network.some(value=>value.path==='/api/session'&&value.finished!==null));
+    harness.setUser(null);harness.dispatch('storage',{key:'hireferry-session-change'});
+    await until(()=>harness.location.pathname==='/login'&&harness.root.innerHTML.includes('data-form="email-start"'));
+    config.resolve();await initial;
+    assert.equal(harness.app.state.user,null);assert.equal(harness.app.state.admin,false);
+    assert.doesNotMatch(harness.root.innerHTML,/QA_PROFILE_READY|route-error/);
+    assert.equal(harness.network.some(value=>value.path==='/api/profile'),false);
+    assert.ok(harness.network.some(value=>value.path==='/api/config'&&value.aborted));
+  }finally{config.resolve();await initial;harness.dispose();}
+});
+
+test('a later identity change still cancels in-flight private reads and removes their view',async()=>{
+  const profile=deferred();
+  const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/profile'?profile.promise:undefined});
+  let pending;
+  try{
+    await harness.prime();
+    pending=harness.app.go('/app?tab=profile');
+    await until(()=>harness.network.some(value=>value.path==='/api/profile'));
+    harness.setUser(null);await harness.app.refreshVisibleSession();await pending;
+    assert.equal(harness.app.state.user,null);assert.equal(harness.location.pathname,'/login');
+    assert.ok(harness.network.some(value=>value.path==='/api/profile'&&value.aborted));
+    assert.match(harness.root.innerHTML,/data-form="email-start"/);
+    assert.doesNotMatch(harness.root.innerHTML,/QA_PROFILE_READY/);
+  }finally{profile.resolve();await pending;harness.dispose();}
+});
 
 test('a background 401 immediately removes private conversation DOM and clears identity before chat disposal',async()=>{
   const harness=await createNavigationHarness(current);

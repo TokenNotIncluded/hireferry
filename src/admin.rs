@@ -315,6 +315,7 @@ pub fn set_user_access(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     access::ensure_admin(&tx, p)?;
     let user = models::load_user(&tx, id)?;
+    crate::team::ensure_account_access_change(&tx, p, id)?;
     record_access_change(&tx, &p.actor, id, user.banned, input.banned, &input.reason)?;
     let result = json!({"user":models::load_user(&tx,id)?,"access":access_record(&tx,id)?});
     tx.commit()?;
@@ -343,6 +344,7 @@ pub fn patch_user(s: &AppState, p: &Principal, id: &str, i: UserPatch) -> AppRes
         ));
     }
     if i.banned.is_some() {
+        crate::team::ensure_account_access_change(&tx, p, id)?;
         let reason = i.ban_reason.as_deref().unwrap_or(if banned {
             "Suspended by an administrator"
         } else {

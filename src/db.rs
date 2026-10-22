@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 12 {
+    if version > 13 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -156,6 +156,14 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         crate::feedback::migrate(&tx)?;
         crate::maintenance::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 12)?;
+        tx.commit()?;
+    }
+    // Schema 13 adds team employees independently of manager and root identities.
+    // Commit all team tables, revocation triggers and the version atomically.
+    if version < 13 {
+        let tx = db.unchecked_transaction()?;
+        crate::team::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 13)?;
         tx.commit()?;
     }
     Ok(())

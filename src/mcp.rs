@@ -966,6 +966,22 @@ pub(crate) fn configured_tools(s: &AppState, admin: bool) -> Vec<Value> {
     }
     catalog
 }
+fn principal_tools(s: &AppState, p: &Principal) -> Vec<Value> {
+    let mut catalog = configured_tools(s, p.admin);
+    if p.actor.starts_with("staff:")
+        || p.actor.starts_with("staff_webmcp:")
+        || p.actor.starts_with("staff_ai:")
+    {
+        catalog.retain(|tool| {
+            !matches!(
+                tool["name"].as_str(),
+                Some("admin_list_feedback" | "admin_get_feedback" | "admin_update_feedback")
+            )
+        });
+    }
+    catalog
+}
+
 async fn handle(
     State(s): State<AppState>,
     OriginalUri(uri): OriginalUri,
@@ -1064,7 +1080,7 @@ async fn handle(
                 };
                 humangrant_access::tools(&s, &current)
             } else {
-                configured_tools(&s, principal.admin)
+                principal_tools(&s, &principal)
             };
             json!({"tools":available})
         }
@@ -1087,7 +1103,7 @@ async fn handle(
             let allowed = if let Some(grant) = &grant {
                 humangrant_access::tools(&s, grant)
             } else {
-                configured_tools(&s, principal.admin)
+                principal_tools(&s, &principal)
             };
             if !allowed.iter().any(|t| t["name"] == name) {
                 return rpc_error(id, -32602, "Unknown tool", StatusCode::OK);

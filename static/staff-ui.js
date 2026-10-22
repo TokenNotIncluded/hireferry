@@ -38,7 +38,7 @@ export function createStaffUI({
         ?`<button class="button secondary small" data-action="staff-revoke" data-id="${esc(v.id)}">${t('撤销','Revoke')}</button>`
         :''}
     </div>`).join('');
-    const body=`${heading(t('团队员工','Team members'),t('人类成员使用自己的邮箱账户工作，不共享超级管理员的通行密钥。','Human teammates sign in with their own email accounts. Administrator passkeys are never shared.'),'','OUR TEAM')}
+    const body=`${heading(t('团队经理','Team managers'),t('人类成员使用自己的邮箱账户工作，不共享超级管理员的通行密钥。','Human teammates sign in with their own email accounts. Administrator passkeys are never shared.'),'','OUR TEAM')}
     <section class="panel staff-panel">
       <div class="panel-header"><h2>${t('邀请新经理','Invite a manager')}</h2>
         <p>${t('受邀者需要使用收件邮箱登录并确认加入；邀请七天内有效，只能接受一次。','Invitees must sign in with the invited email and accept within seven days. Each link works once.')}</p>

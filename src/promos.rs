@@ -217,7 +217,7 @@ fn insert_code(
 pub fn create_code(s: &AppState, p: &Principal, input: &CodeInput) -> AppResult<PromoCode> {
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_platform_admin(&tx, p)?;
     let code = insert_code(&tx, &p.actor, None, input)?;
     tx.commit()?;
     Ok(code)
@@ -242,7 +242,7 @@ pub fn update_code(
 ) -> AppResult<PromoCode> {
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_platform_admin(&tx, p)?;
     expire_reservations(&tx)?;
     let old = load_code(&tx, id)?;
     if patch.clear_expiry && patch.expires_at.is_some() {
@@ -371,7 +371,7 @@ pub fn review_application(
     safety::bounded_text(&input.note, 2000, "Review note")?;
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_platform_admin(&tx, p)?;
     let old = application(&tx, id)?;
     if old["status"] != "pending" {
         if old["status"] == input.decision {
@@ -422,7 +422,7 @@ fn list_applications(
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     if let Some(p) = p {
-        access::ensure_admin(&tx, p)?;
+        access::ensure_platform_admin(&tx, p)?;
     } else {
         active_employer_or_unassigned(
             &tx,
@@ -735,7 +735,7 @@ async fn admin_codes(
     let (page, offset) = page(&input)?;
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, &p)?;
+    access::ensure_platform_admin(&tx, &p)?;
     expire_reservations(&tx)?;
     let total: i64 = tx.query_row("SELECT count(*) FROM promo_codes", [], |r| r.get(0))?;
     let items = tx
