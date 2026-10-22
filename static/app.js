@@ -46,6 +46,8 @@ const amountValue = (minor,record) => minorToDecimal(minor,currency(record).curr
 const amountStep = record => minorStep(currency(record).currency_decimals);
 const date = value => value ? new Date(typeof value==='number' && value<1e12?value*1000:value).toLocaleDateString(state.lang==='en'?'en-GB':'zh-CN',{year:'numeric',month:'short',day:'numeric'}) : '—';
 const icons = {
+  github:'<path fill="currentColor" stroke="none" d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.53v-2.07c-3.09.67-3.74-1.31-3.74-1.31-.51-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.06-1.24-5.06-5.49 0-1.21.43-2.2 1.14-2.97-.11-.28-.49-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.62 10.62 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.6 1.53.22 2.66.11 2.94.71.77 1.14 1.76 1.14 2.97 0 4.26-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06V22c0 .29.2.64.76.53A11.1 11.1 0 0 0 12 .9Z"/>',
+  star:'<path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/>',
   more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   palette:'<path d="M12 3a9 9 0 1 0 0 18h1.4a2.6 2.6 0 0 0 2.2-4c-.6-.9 0-2 1.1-2H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="10" r=".75"/><circle cx="10" cy="6.5" r=".75"/><circle cx="14.5" cy="6.5" r=".75"/><circle cx="17" cy="10" r=".75"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
@@ -347,13 +349,55 @@ function notify(message,error=false) {clearTimeout(toastTimer);document.querySel
 function setBusy(el,busy) {if(!el)return;el.disabled=busy;el.setAttribute('aria-busy',String(busy));}
 function go(path) {const next=new URL(path,location.href);if(next.origin!==location.origin)return;const changedPage=pageIdentity(location.pathname,qs().get('tab'))!==pageIdentity(next.pathname,next.searchParams.get('tab'));closeDialog();history.pushState({},'',next.pathname+next.search+next.hash);if(changedPage)window.scrollTo({top:0,behavior:'instant'});return render({navigation:true});}
 function themeMenu() {return `<details class="theme-menu"><summary aria-label="${t('切换主题','Change theme')}" title="${t('主题','Theme')}">${icon('palette')}</summary><div class="theme-panel"><div class="palette-options" role="group" aria-label="${t('配色','Color palette')}">${[['neutral','纸墨','Paper & ink'],['blue','海蓝','Ocean blue'],['violet','紫罗兰','Violet'],['rose','玫瑰','Rose'],['amber','琥珀','Amber'],['teal','青碧','Teal']].map(([value,zh,en])=>`<button type="button" class="palette-swatch" data-palette-choice="${value}" aria-label="${t(zh,en)}" title="${t(zh,en)}" aria-pressed="false"><span class="swatch-color" aria-hidden="true">${icon('check')}</span></button>`).join('')}</div><div class="mode-options" role="group" aria-label="${t('外观','Appearance')}">${[['light','sun','浅色','Light'],['dark','moon','深色','Dark'],['system','monitor','跟随系统','System']].map(([value,glyph,zh,en])=>`<button type="button" data-theme-choice="${value}" aria-label="${t(zh,en)}" title="${t(zh,en)}" aria-pressed="false">${icon(glyph)}</button>`).join('')}</div></div></details>`;}
+const githubStars = new Map();
+const githubStarRequests = new Map();
+function sourceRepository() {
+  try {
+    const url=new URL(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry');
+    return url.protocol==='https:'&&url.hostname==='github.com'&&/^\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/?$/.test(url.pathname)?url.pathname.replace(/^\/|\/$/g,'').replace(/\.git$/,''):null;
+  } catch { return null; }
+}
+function openSourceBadge() {
+  const repo=sourceRepository();
+  return `<a class="open-source-badge" href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer" title="${t('查看源代码 · AGPL-3.0-or-later','View source · AGPL-3.0-or-later')}"${repo?` data-source-repository="${esc(repo)}"`:''}>${icon(repo?'github':'file')}<span>${t('自由开源','Free & open source')}</span>${repo?`<span class="open-source-stars">${icon('star')}<span data-github-stars>Star</span></span>`:''}</a>`;
+}
+async function mountGithubStars() {
+  const badge=root.querySelector('[data-source-repository]');if(!badge)return;
+  const repo=badge.dataset.sourceRepository,key=`hireferry:github-stars:${repo}`;
+  const valid=value=>Number.isSafeInteger(value?.count)&&value.count>=0&&Number.isFinite(value?.at)&&value.at>0;
+  const paint=value=>{
+    for(const link of root.querySelectorAll('[data-source-repository]')) {
+      if(link.dataset.sourceRepository!==repo)continue;
+      const count=link.querySelector('[data-github-stars]');
+      count.textContent=value.count.toLocaleString(state.lang==='en'?'en-US':'zh-CN');
+      count.setAttribute('aria-label',`${value.count.toLocaleString('en-US')} GitHub Stars`);
+    }
+  };
+  let cached=githubStars.get(repo);
+  if(!cached)try{const value=JSON.parse(localStorage.getItem(key));if(valid(value))githubStars.set(repo,cached=value);}catch{/* Storage is optional. */}
+  if(cached)paint(cached);
+  if(cached&&Date.now()-cached.at>=0&&Date.now()-cached.at<3600000)return;
+  if(!githubStarRequests.has(repo))githubStarRequests.set(repo,(async()=>{
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+    try {
+      const response=await fetch(`https://api.github.com/repos/${repo}`,{credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal,headers:{Accept:'application/vnd.github+json'}});
+      if(!response.ok)return null;
+      const data=await response.json(),value={count:data.stargazers_count,at:Date.now()};
+      if(!valid(value))return null;
+      githubStars.set(repo,value);
+      try{localStorage.setItem(key,JSON.stringify(value));}catch{/* Storage is optional. */}
+      return value;
+    } catch { return null; } finally {clearTimeout(timer);}
+  })());
+  const value=await githubStarRequests.get(repo);if(value)paint(value);
+}
 function header() {
   const workspace=(location.pathname==='/admin'&&state.admin)||(location.pathname.startsWith('/app')&&state.user);
   const navigation = `<a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a><a href="/cli" data-nav>CLI</a>`;
   if(workspace)return `<header class="site-header workspace-header" data-dom-key="site-header">${brand()}<div class="workspace-location"><span class="workspace-location-divider" aria-hidden="true">/</span>${state.admin?t('管理工作台','Administration'):t('我的工作台','Workspace')}</div><div class="nav-right"><a href="/contact" data-nav class="workspace-help">${icon('info')}<span>${t('帮助','Help')}</span></a>${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button></div></header>${state.config?.development?`<div class="environment-banner workspace-environment" data-dom-key="environment">${t('测试环境 · 以下为测试资料','Test environment · Test data only')}</div>`:''}`;
   return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right">${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
 }
-function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('源代码','Source')}</a></nav></footer>`;}
+function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('自由开源 · AGPL-3.0','Free & open source · AGPL-3.0')}</a></nav></footer>`;}
 function heading(title,subtitle='',action='') {return `<div class="page-heading"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div>${action}</div>`;}
 function empty(title,description,action='',ico='file') {return `<div class="empty-state"><span class="empty-icon">${icon(ico)}</span><h3>${title}</h3><p>${description}</p>${action}</div>`;}
 function notice(text,style='') {return `<div class="notice ${style}">${icon('info')}<div>${text}</div></div>`;}
@@ -412,6 +456,7 @@ function home() {
         <div class="hero-copy">
           <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description" data-refresh-key="home-story-${i}">${story.description}</p></article>`).join('')}</div>
           <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer" data-nav class="button secondary">${t('找人才','Find people')}${icon('arrow')}</a></div>
+          ${openSourceBadge()}
         </div>
         <div class="sculpture-panel">
           <canvas id="sculpture" aria-label="${t('渡船、桥与罗盘粒子雕塑','Particle sculptures of a ferry, bridge and compass')}"></canvas>
@@ -449,6 +494,7 @@ function mountBrand() {
 
 let homeModules;
 async function mountHome() {
+  void mountGithubStars();
   const canvas=document.querySelector('#sculpture');if(!canvas)return;
   const version=state.render,mountVersion=state.homeMount=(state.homeMount||0)+1;
   try{

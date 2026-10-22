@@ -445,3 +445,12 @@
 
 .wb-role-description.section-disclosure, .wb-filter-details.section-disclosure { margin-block: 0; }
 .section-disclosure > summary > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* A quiet source link remains visible beside the main invitation. */
+.open-source-badge{display:inline-flex;align-items:center;gap:9px;max-width:100%;min-height:40px;margin-top:18px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font-size:12px;font-weight:550;line-height:1.4;transition:border-color .16s,background .16s}
+.open-source-badge:hover{border-color:var(--accent);background:var(--accent-soft)}
+.open-source-badge>svg{width:20px;height:20px}
+.open-source-stars{display:inline-flex;align-items:center;gap:6px;margin-left:3px;padding-left:12px;border-left:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
+.open-source-stars>svg{width:14px;height:14px;color:var(--accent)}
+.open-source-stars>[data-github-stars]{min-width:2ch}
+@media(max-width:560px){.open-source-badge{margin-top:14px;min-height:36px;padding:7px 10px;font-size:11px;gap:8px}}
