@@ -72,6 +72,24 @@ class MobilePackagingTests(unittest.TestCase):
         self.assertNotIn("remote", capability)
         self.assertEqual(set(capability["permissions"]), {"allow-connect", "allow-open-browser"})
 
+    def test_apple_silicon_simulator_artifact_is_collected_from_simulator_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "apple"
+            application = project / "build" / "arm64-sim" / "HireFerry.app"
+            application.mkdir(parents=True)
+            (application / "Info.plist").write_text("simulator artifact fixture")
+            output = Path(directory) / "artifacts"
+            args = types.SimpleNamespace(platform="ios", variant="debug", simulator=True,
+                                         target=["aarch64-sim"], output=str(output))
+            with patch.object(mobile, "doctor"), patch.object(mobile, "run"), \
+                    patch.object(mobile, "initialize", return_value=project), \
+                    patch.object(mobile, "cli", return_value=["npm", "run", "tauri", "--"]):
+                mobile.build(args)
+            manifest = json.loads((output / "mobile-artifacts.json").read_text())
+            self.assertTrue(manifest["simulator_only"])
+            self.assertEqual(manifest["artifacts"][0]["filename"], "hireferry-ios-aarch64-sim-simulator.app.tar.gz")
+            self.assertFalse(manifest["artifacts"][0]["signature_verified"])
+
 
 if __name__ == "__main__":
     unittest.main()

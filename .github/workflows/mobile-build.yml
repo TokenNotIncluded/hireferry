@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   android:
-    name: Android debug APK + AAB, install and launch
+    name: Android debug APK + AAB, connect and return
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
@@ -46,17 +46,18 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+          cmdline-tools-version: '15859902' # 22.0; understands Android 37.0 package IDs
           log-accepted-android-sdk-licenses: false
       - name: Install pinned Android SDK and NDK
         run: |
-          sdkmanager 'platforms;android-37' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' "ndk;$NDK_VERSION" 'platform-tools'
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - name: Install locked Tauri CLI
         run: npm ci
@@ -72,7 +73,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Sideload APK and verify the real WebView launcher
+      - name: Sideload APK and verify connection, isolation, and login return
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -139,7 +140,10 @@ jobs:
           subprocess.run(['xcrun', 'simctl', 'launch', udid, 'best.lmm.hireferry'], check=True)
           time.sleep(5)
           subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', str(out / 'ios-launch.png')], check=True)
-          (out / 'ios-smoke.json').write_text(json.dumps({'simulator':device['name'], 'installed':True, 'launch_command_succeeded':True}, indent=2))
+          subprocess.run(['xcrun', 'simctl', 'openurl', udid, 'hireferry://login-return'], check=True)
+          time.sleep(2)
+          subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', str(out / 'ios-login-return.png')], check=True)
+          (out / 'ios-smoke.json').write_text(json.dumps({'simulator':device['name'], 'installed':True, 'launch_command_succeeded':True, 'login_return_openurl_succeeded':True}, indent=2))
           import shutil
           shutil.rmtree(app)
           PY

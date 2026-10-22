@@ -24,10 +24,52 @@
     link.id = 'hireferry-app-settings';
     link.href = 'hireferry-settings://return';
     const zh = navigator.language.startsWith('zh');
-    link.textContent = zh ? '聘渡 · 连接设置' : 'HireFerry · Connection';
+    link.textContent = zh ? '连接' : 'Connection';
     link.setAttribute('aria-label', zh ? '返回聘渡应用连接设置' : 'Return to HireFerry connection settings');
-    link.style.cssText = 'position:fixed;right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:2147483647;display:flex;align-items:center;min-height:44px;padding:8px 14px;border:1px solid #cbcfc9;border-radius:24px;background:#f8f7f3;color:#292824;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 12px #0002;';
+    link.style.cssText = 'position:fixed;left:max(12px,env(safe-area-inset-left));bottom:calc(78px + env(safe-area-inset-bottom));z-index:79;box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-width:64px;min-height:44px;padding:8px 12px;border:1px solid #cbcfc9;border-radius:24px;background:#f8f7f3;color:#292824;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 12px #0002;';
     document.body.append(link);
+    // The site's feedback control lives on the right and its bottom navigation
+    // occupies the first 64px. Keep this compact control on the left; when a
+    // conversation composer grows, lift it above the composer rather than
+    // covering the text field. Site dialogs/feedback panels remain above it.
+    let frame = 0;
+    const observed = new WeakSet();
+    const liftedFeedback = new WeakSet();
+    const resize = new ResizeObserver(() => schedule());
+    const position = () => {
+      frame = 0;
+      let bottom = 78;
+      let composerVisible = false;
+      document.querySelectorAll('.chat-composer').forEach(composer => {
+        if (!observed.has(composer)) { observed.add(composer); resize.observe(composer); }
+        const rect = composer.getBoundingClientRect();
+        if (rect.height && rect.bottom > 0 && rect.top < innerHeight) {
+          composerVisible = true;
+          bottom = Math.max(bottom, innerHeight - rect.top + 8);
+        }
+      });
+      link.style.bottom = `max(calc(78px + env(safe-area-inset-bottom)),${Math.min(bottom, Math.max(78, innerHeight - 60))}px)`;
+      // Preserve a feedback button position the user has dragged. Its default
+      // mobile position otherwise covers the chat send button, so lift both
+      // default controls together while the composer is visible.
+      document.querySelectorAll('.feedback-launch').forEach(feedback => {
+        if (feedback.style.top && feedback.style.top !== 'auto') return;
+        if (composerVisible) {
+          feedback.style.bottom = link.style.bottom;
+          liftedFeedback.add(feedback);
+        } else if (liftedFeedback.has(feedback)) {
+          feedback.style.removeProperty('bottom');
+          liftedFeedback.delete(feedback);
+        }
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(position); };
+    resize.observe(document.body);
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+    addEventListener('resize', schedule);
+    addEventListener('scroll', schedule, { passive: true, capture: true });
+    visualViewport?.addEventListener('resize', schedule);
+    schedule();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addReturn, { once: true });
   else addReturn();
