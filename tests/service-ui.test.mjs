@@ -15,6 +15,12 @@ const cliGuideSource = await readFile(new URL('../static/cli-guide.js', import.m
 const cliGuideHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliGuideSource).toString('base64'));
 const billingSource = await readFile(new URL('../static/billing-ui.js', import.meta.url), 'utf8');
 const billingHelpers = await import('data:text/javascript;base64,' + Buffer.from(billingSource).toString('base64'));
+const browserCacheSource = await readFile(new URL('../static/browser-cache.js', import.meta.url), 'utf8');
+const browserCacheHelpers = await import('data:text/javascript;base64,' + Buffer.from(browserCacheSource).toString('base64'));
+const cliMotionSource = await readFile(new URL('../static/cli-motion.js', import.meta.url), 'utf8');
+const cliMotionHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliMotionSource).toString('base64'));
+const contentRefreshSource = await readFile(new URL('../static/content-refresh.js', import.meta.url), 'utf8');
+const contentRefreshHelpers = await import('data:text/javascript;base64,' + Buffer.from(contentRefreshSource).toString('base64'));
 // Page markup tests use a DOM sink; disclosure events have their own real controller tests.
 const createDisclosureUI = () => ({ sync() {}, reset() {}, dispose() {} });
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
@@ -340,9 +346,12 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   };
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+  const localValues = new Map();
+  const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
+  const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -1461,7 +1470,7 @@ test('post-mount currency synchronization uses retained live selections without 
     const form={dataset:{form:kind,defaultCurrency:'USD'},elements:{salary_min:{value:'200000',step:'0.01'},salary_max:{value:'350000',step:'0.01'}},querySelector:selector=>labels[selector.includes('"min"')?'min':'max']};
     return {value:'JPY',closest:()=>form,form,labels};
   });
-  const container={querySelector:selector=>{assert.equal(selector,'form[data-form="job"]');return jobForm;},querySelectorAll:selector=>{assert.equal(selector,'select[name="salary_currency"]');return salarySelects;}};
+  const container={querySelector:selector=>{if(['#salary-example','#salary-example-result'].includes(selector))return null;assert.equal(selector,'form[data-form="job"]');return jobForm;},querySelectorAll:selector=>{assert.equal(selector,'select[name="salary_currency"]');return salarySelects;}};
   app.syncCurrencyFields(container);
   assert.equal(jobForm.elements.currency.value,'JPY');
   assert.equal(jobForm.elements.salary.value,'300000');

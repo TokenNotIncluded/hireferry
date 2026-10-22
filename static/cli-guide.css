@@ -1,52 +1,169 @@
-.cli-guide{max-width:1120px;padding-bottom:70px}
-.cli-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;padding:80px 0 56px}
-.cli-hero h1{font-size:clamp(38px,5vw,64px);line-height:1.12;letter-spacing:-.05em;margin:0 0 18px}
-.cli-hero p{color:var(--muted);font-size:16px;line-height:1.7;margin:0}
-.cli-hero-links{display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding-bottom:5px}
-.cli-step{padding:36px 0;border-top:1px solid var(--line);scroll-margin-top:30px}
-.cli-step h2{font-size:24px;letter-spacing:-.03em;margin:0 0 24px}
-.cli-platforms{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-.cli-platforms article{min-width:0}
-.cli-step h3{font-size:13px;font-weight:500;margin:0 0 10px}
-.cli-command{display:flex;background:var(--raised);border:1px solid var(--line);border-radius:9px;align-items:center;gap:4px;margin:10px 0;min-width:0}
-.cli-command pre{margin:0;overflow-x:auto;padding:16px;flex:1;min-width:0;background:none;color:var(--ink);font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace}
-.cli-command code{font:inherit;color:inherit;white-space:pre;background:none}
-.cli-command button{flex:none;margin-right:5px;width:40px;height:40px;border:0;background:none;color:var(--muted)}
-.cli-command button:hover{color:var(--ink)}
-.cli-command button svg{width:16px;height:16px}
-.cli-step .help,.cli-inline-note,.cli-details{font-size:13px;color:var(--muted);line-height:1.75;overflow-wrap:anywhere}
-.cli-step .help{margin:10px 0 0}
-.cli-step .help-link{color:var(--muted);font-size:12px}
-.cli-inline-note{margin:20px 0 0}
-.cli-details{margin-top:18px}
-.cli-details summary{cursor:pointer;color:var(--ink);width:fit-content}
-.cli-details p{margin:14px 0}
-.cli-details>h3{color:var(--ink);margin-top:24px}
-.cli-options{display:grid;grid-template-columns:max-content 1fr;gap:8px 24px;margin:18px 0}
-.cli-options dt{color:var(--ink)}
-.cli-options dd{margin:0}
-.cli-quick-commands{margin-top:24px}
-.cli-skill-details{margin:0}
-.cli-skill-details>summary{font-size:18px;font-weight:500;line-height:1.5}
-.cli-skill-details .cli-platforms{margin-top:24px}
-.cli-guide-footer{display:flex;justify-content:space-between;gap:18px;padding-top:24px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
-.cli-guide-footer a{display:flex;align-items:center;gap:8px}
-.cli-guide-footer svg{width:16px;height:16px}
-.cli-connect-promo{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px;padding:22px 0;border-block:1px solid var(--line)}
-.cli-connect-promo h2{font-size:19px;margin:0 0 8px}
-.cli-connect-promo p{margin:0;font-size:13px;line-height:1.8;color:var(--muted)}
-.cli-connect-promo .button{flex-shrink:0}
-@media(max-width:700px){
-  .cli-hero{align-items:flex-start;flex-direction:column;padding:44px 0 36px;gap:24px}
-  .cli-hero h1{margin-bottom:12px}
-  .cli-hero-links{gap:18px;padding:0}
-  .cli-platforms{grid-template-columns:1fr;gap:22px}
-  .cli-step{padding:28px 0}
-  .cli-step h2{font-size:22px;margin-bottom:20px}
-  .cli-command pre{padding:14px;font-size:11px}
-  .cli-command button{width:44px;height:44px}
-  .cli-options{grid-template-columns:1fr;gap:4px}
-  .cli-options dd{margin-bottom:8px}
-  .cli-guide-footer{flex-wrap:wrap}
-  .cli-connect-promo{align-items:flex-start;flex-direction:column;gap:15px}
+.cli-guide {
+  --cli-mono:"SFMono-Regular","Cascadia Code","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  max-width:1120px;padding-bottom:72px;
+}
+.cli-guide code {font-family:var(--cli-mono);font-variant-ligatures:none;letter-spacing:0}
+.cli-hero {display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:52px;align-items:center;padding:64px 0 48px}
+.cli-eyebrow {display:flex;align-items:center;gap:10px;color:var(--muted);font:11px/1.4 var(--cli-mono);letter-spacing:.12em}
+.cli-eyebrow>span {display:grid;place-items:center;width:29px;height:26px;border-radius:7px;background:var(--accent-soft);color:var(--on-accent-soft);font-size:14px;letter-spacing:-1px}
+.cli-hero h1 {font-size:clamp(38px,4.8vw,62px);line-height:1.2;letter-spacing:-.055em;font-weight:600;margin:24px 0 20px}
+.cli-hero h1 em {font-style:normal;color:var(--accent)}
+.cli-intro>p {color:var(--muted);font-size:15px;line-height:1.9;margin:0;max-width:410px;text-wrap:pretty}
+.cli-hero-links {display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-top:28px}
+.cli-hero-links .button {min-height:48px;padding:13px 25px}
+.cli-download {display:inline-flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);padding:10px 0;transition:color .18s}
+.cli-download:hover {color:var(--accent)}
+.cli-download>span {font-size:17px}
+.cli-compatibility {display:flex;align-items:center;gap:12px;color:var(--muted);font:11px/1.8 var(--cli-mono);margin-top:23px;letter-spacing:.01em}
+.cli-compatibility>span {color:var(--line)}
+.cli-terminal {min-width:0;border:1px solid var(--line);border-radius:18px;background:var(--surface);overflow:hidden;box-shadow:0 18px 48px -28px color-mix(in srgb,var(--ink) 28%,transparent),0 2px 6px color-mix(in srgb,var(--ink) 3%,transparent);transform:translateY(3px)}
+.cli-terminal-bar {display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px;padding:5px 16px;background:var(--raised);border-bottom:1px solid var(--line)}
+.cli-window-dots {display:flex;gap:6px}
+.cli-window-dots i {width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.3}
+.cli-window-dots i:first-child {background:var(--accent);opacity:.8}
+.cli-window-dots i:nth-child(2) {opacity:.5}
+.cli-terminal-name {font:11px/1.4 var(--cli-mono);letter-spacing:.02em;color:var(--muted)}
+.cli-motion-toggle {display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);transition:background .18s,color .18s}
+.cli-motion-toggle:hover {background:var(--accent-soft);color:var(--on-accent-soft)}
+.cli-motion-toggle svg {width:14px;height:14px}
+.cli-play-icon,.cli-terminal[data-paused="true"] .cli-pause-icon {display:none}
+.cli-terminal[data-paused="true"] .cli-play-icon {display:block}
+.cli-terminal-body {padding:26px 27px 24px;min-height:220px}
+.cli-terminal-context {display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:23px;color:var(--muted);font:10px/1.5 var(--cli-mono);letter-spacing:.025em}
+.cli-terminal-context>span:last-child {font:9px/1.5 var(--font);letter-spacing:.08em;white-space:nowrap}
+.cli-terminal-line {display:flex;align-items:baseline;gap:13px;min-height:93px;font:16px/1.9 var(--cli-mono);color:var(--ink)}
+.cli-terminal-prompt {color:var(--accent);font-size:20px;font-weight:600;user-select:none}
+.cli-terminal-line code {display:block;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+.cli-terminal-line strong {font-weight:600;color:var(--accent)}
+.cli-cursor {display:inline-block;color:var(--accent);font-weight:600;animation:cli-cursor-blink 1.1s steps(1,end) infinite}
+.cli-terminal-output {display:flex;gap:10px;align-items:flex-start;min-height:38px;margin-top:7px;color:var(--muted);font-size:12px;line-height:1.8;transition:opacity .18s,transform .18s}
+.cli-terminal-output>span:first-child {color:var(--accent);font:16px/1.4 var(--cli-mono)}
+.cli-terminal[data-typing="true"] .cli-terminal-output {opacity:0;transform:translateY(4px)}
+.cli-terminal-footer {display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:1px solid var(--line);padding:13px 26px;color:var(--muted);font-size:11px}
+.cli-demo-progress {display:flex;gap:6px}
+.cli-demo-progress i {height:3px;width:12px;background:var(--line);border-radius:8px;transition:background .2s,width .2s}
+.cli-demo-progress .active {width:23px;background:var(--accent)}
+.cli-terminal[data-paused="true"] .cli-cursor {animation:none}
+.cli-section-nav {display:flex;gap:36px;border-block:1px solid var(--line);padding:17px 0;color:var(--muted);font-size:12px}
+.cli-section-nav a {display:inline-flex;gap:10px;align-items:center;transition:color .18s}
+.cli-section-nav a:hover {color:var(--accent)}
+.cli-section-nav a>span {font:10px var(--cli-mono);color:var(--accent)}
+.cli-step {padding:39px 0 41px;scroll-margin-top:28px}
+.cli-step+.cli-step {border-top:1px solid var(--line)}
+.cli-step-heading {display:flex;align-items:flex-start;gap:16px;margin-bottom:25px}
+.cli-step-number {display:grid;place-items:center;flex:none;width:29px;height:29px;border:1px solid var(--line);border-radius:9px;color:var(--accent);font:10px var(--cli-mono);margin-top:1px}
+.cli-step-heading h2 {font-size:23px;line-height:1.4;font-weight:550;letter-spacing:-.035em;margin:0}
+.cli-step-heading p {font-size:13px;line-height:1.8;color:var(--muted);margin:8px 0 0;text-wrap:pretty}
+.cli-install-card {padding:21px 23px 18px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+.cli-install-toolbar {display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.cli-platform-tabs {display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--raised);min-width:0}
+.cli-platform-tabs>button {display:flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:8px 15px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap;transition:background .16s,color .16s,box-shadow .16s}
+.cli-platform-tabs>button>span {font:12px var(--cli-mono);letter-spacing:-.08em}
+.cli-platform-tabs>button>svg {width:15px;height:15px}
+.cli-platform-tabs>button[aria-selected="true"] {background:var(--surface);color:var(--ink);box-shadow:0 1px 3px color-mix(in srgb,var(--ink) 9%,transparent)}
+.cli-platform-tabs>button:hover {color:var(--accent)}
+.cli-install-hint {color:var(--muted);font-size:11px;text-align:right}
+.cli-platform-panel:not([hidden]) {animation:cli-panel-in .18s ease-out}
+.cli-command {display:flex;align-items:center;gap:12px;background:var(--raised);border:1px solid transparent;border-radius:11px;margin:10px 0;min-width:0;transition:border-color .18s,background .18s}
+.cli-command:hover {border-color:var(--line)}
+.cli-command-prompt {align-self:flex-start;flex:none;color:var(--accent);font:13px/1.85 var(--cli-mono);padding-top:18px;margin-left:18px;user-select:none}
+.cli-command pre {margin:0;padding:18px 0;flex:1;min-width:0;background:none;color:var(--ink);font:12px/1.85 var(--cli-mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.cli-command code {font:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:anywhere;background:none;tab-size:2}
+.cli-copy {display:inline-flex;justify-content:center;align-items:center;gap:7px;flex:none;margin-right:9px;min-width:72px;min-height:42px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font-size:11px;white-space:nowrap;transition:color .16s,background .16s,border-color .16s}
+.cli-copy:hover {color:var(--accent);border-color:var(--accent);background:var(--surface)}
+.cli-copy svg {width:14px;height:14px}
+.cli-copy-done,.cli-copy.is-copied .cli-copy-idle {display:none}
+.cli-copy.is-copied .cli-copy-done {display:block}
+.cli-copy.is-copied {color:var(--on-accent-soft);background:var(--accent-soft);border-color:transparent}
+.cli-install-card .cli-command {margin:0;min-height:72px}
+.cli-install-card .cli-command-prompt {padding-top:22px}
+.cli-install-card .cli-command pre {font-size:13px;padding-block:22px}
+.cli-install-foot {display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:15px;color:var(--muted);font-size:11px;line-height:1.8}
+.cli-install-foot>span {display:flex;gap:8px;flex-wrap:wrap;min-width:0}
+.cli-install-foot code {overflow-wrap:anywhere}
+.cli-install-foot>a {flex:none;font-size:11px;color:var(--muted);text-decoration:none}
+.cli-install-foot>a:hover {color:var(--accent)}
+.cli-inline-note {display:flex;gap:9px;align-items:flex-start;font-size:12px;color:var(--muted);line-height:1.9;margin:18px 0 0;overflow-wrap:anywhere}
+.cli-inline-note>svg {width:14px;height:14px;flex:none;margin-top:4px;color:var(--accent)}
+.cli-inline-note code {font-size:.95em;color:var(--ink)}
+.cli-details {margin-top:23px;font-size:13px;color:var(--muted);line-height:1.8;overflow-wrap:anywhere}
+.cli-details summary {display:flex;align-items:center;gap:14px;justify-content:space-between;cursor:pointer;color:var(--ink);list-style:none;padding:3px 0;width:fit-content;max-width:100%}
+.cli-details summary::-webkit-details-marker {display:none}
+.cli-details summary>span {font:18px/1 var(--cli-mono);color:var(--muted);transition:transform .18s}
+.cli-details[open]>summary>span {transform:rotate(45deg)}
+.cli-details-content {padding:9px 0 0}
+.cli-details p {margin:14px 0}
+.cli-details h3 {color:var(--ink);margin-top:24px}
+.cli-options {display:grid;grid-template-columns:max-content 1fr;gap:8px 24px;margin:15px 0}
+.cli-options dt {color:var(--ink);font-size:12px}
+.cli-options dd {margin:0;font-size:12px}
+.cli-platforms {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+.cli-platforms article {min-width:0}
+.cli-step h3 {font-size:13px;font-weight:550;line-height:1.6;margin:0 0 10px}
+.cli-example-card {padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.cli-example-title {display:flex;align-items:center;gap:9px;margin-bottom:16px}
+.cli-example-title h3 {margin:0;flex:1}
+.cli-example-icon {display:grid;place-items:center;width:25px;height:25px;color:var(--accent)}
+.cli-example-icon svg {width:18px;height:18px}
+.cli-card-tag {font:9px/1.3 var(--cli-mono);padding:4px 7px;border:1px solid var(--line);border-radius:5px;color:var(--muted);white-space:nowrap}
+.cli-example-card .cli-command {margin:0}
+.cli-example-card .cli-command-prompt {display:none}
+.cli-example-card .cli-command pre {padding-left:14px;font-size:11px}
+.cli-example-card .cli-copy {min-width:64px;font-size:10px;gap:5px;margin-right:7px;padding-inline:8px}
+.cli-step .help {font-size:12px;color:var(--muted);line-height:1.8;overflow-wrap:anywhere;margin:12px 0 0}
+.cli-quick-commands {margin-top:25px}
+.cli-quick-commands h3 {font-size:12px;font-weight:450;color:var(--muted);margin-bottom:8px}
+.cli-quick-commands .cli-command {margin:0}
+.cli-quick-commands .cli-command pre {font-size:11px}
+.cli-skill-mark {display:grid;place-items:center;margin-left:auto;flex:none;width:35px;height:35px;border-radius:10px;background:var(--accent-soft);color:var(--on-accent-soft)}
+.cli-skill-mark svg {width:20px;height:20px}
+.cli-skill-details {padding:17px 20px;margin-top:0;background:var(--raised);border-radius:12px}
+.cli-skill-details>summary {width:100%;font-size:13px;line-height:1.6}
+.cli-skill-details .cli-platforms {margin-top:21px}
+.cli-skill-details .cli-command {background:var(--surface)}
+.cli-skill-prompt {border-left:2px solid var(--accent);padding-left:14px;color:var(--ink)}
+.cli-guide-footer {display:flex;justify-content:space-between;gap:18px;padding-top:24px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.cli-guide-footer a {display:flex;align-items:center;gap:8px}
+.cli-guide-footer a:hover {color:var(--accent)}
+.cli-guide-footer svg {width:15px;height:15px}
+.cli-connect-promo {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px;padding:22px 0;border-block:1px solid var(--line)}
+.cli-connect-promo h2 {font-size:19px;margin:0 0 8px}
+.cli-connect-promo p {margin:0;font-size:13px;line-height:1.8;color:var(--muted)}
+.cli-connect-promo .button {flex-shrink:0}
+@keyframes cli-cursor-blink {0%,48% {opacity:1}49%,100% {opacity:0}}
+@keyframes cli-panel-in {from {opacity:.6;transform:translateY(3px)}to {opacity:1;transform:translateY(0)}}
+@media(max-width:960px) {
+  .cli-hero {gap:30px}.cli-terminal-body {padding-inline:20px}.cli-terminal-footer {padding-inline:20px}
+  .cli-terminal-line {font-size:14px;min-height:108px}.cli-example-card {padding:16px}.cli-command {gap:9px}
+}
+@media(max-width:760px) {
+  .cli-hero {grid-template-columns:1fr;gap:32px;padding:34px 0 30px}
+  .cli-hero h1 {font-size:44px;margin:20px 0 15px}.cli-intro>p {font-size:14px}
+  .cli-hero-links {gap:20px;margin-top:22px}.cli-compatibility {margin-top:18px}
+  .cli-terminal {transform:none}.cli-terminal-body {min-height:190px;padding:22px 23px 18px}
+  .cli-terminal-line {min-height:71px;font-size:16px}.cli-terminal-context {margin-bottom:17px}
+  .cli-terminal-output {min-height:24px}.cli-terminal-footer {padding-inline:23px}
+  .cli-platforms {grid-template-columns:1fr;gap:18px}.cli-example-card {padding:18px}
+  .cli-example-card .cli-command pre {font-size:12px}.cli-quick-commands .cli-command pre {font-size:12px}
+  .cli-step {padding:29px 0 31px}.cli-step-heading {gap:12px;margin-bottom:20px}.cli-step-heading h2 {font-size:21px}
+  .cli-install-card {padding:17px}.cli-install-hint {display:none}.cli-install-toolbar {margin-bottom:14px}
+  .cli-install-foot {flex-wrap:wrap;gap:7px}.cli-guide-footer {flex-wrap:wrap}.cli-connect-promo {align-items:flex-start;flex-direction:column;gap:15px}
+}
+@media(max-width:420px) {
+  .cli-hero h1 {font-size:39px}.cli-section-nav {gap:0;justify-content:space-between;font-size:11px}.cli-section-nav a {gap:7px}
+  .cli-terminal-bar {padding-inline:12px}.cli-terminal-body {padding:19px 17px 17px}.cli-terminal-context {font-size:9px}
+  .cli-terminal-line {gap:9px;font-size:13px;min-height:82px}.cli-terminal-output {font-size:11px;min-height:40px}.cli-terminal-footer {padding-inline:17px;font-size:10px}
+  .cli-step-heading h2 {font-size:20px}.cli-step-heading p {font-size:12px}.cli-step-number {width:26px;height:26px;font-size:9px}
+  .cli-install-card {padding:12px}.cli-platform-tabs {width:100%}.cli-platform-tabs>button {flex:1;font-size:11px;padding-inline:9px;gap:6px;min-height:38px}
+  .cli-command {gap:8px;flex-wrap:wrap;padding:0 12px 11px}.cli-command-prompt {margin-left:0;padding-top:15px}.cli-command pre {padding:15px 0 6px;font-size:12px}
+  .cli-command .cli-copy {margin-left:auto;margin-right:0;min-height:38px;padding-block:7px;min-width:76px}
+  .cli-install-card .cli-command-prompt {padding-top:16px}.cli-install-card .cli-command pre {padding:16px 0 6px;font-size:12px}
+  .cli-copy {flex-basis:auto}.cli-command pre {flex-basis:calc(100% - 26px)}
+  .cli-example-card {padding:15px}.cli-example-card .cli-command pre {padding-left:0;flex-basis:100%}.cli-example-card .cli-copy {font-size:11px;margin-right:0}
+  .cli-options {grid-template-columns:1fr;gap:4px}.cli-options dd {margin-bottom:8px}.cli-skill-details {padding:15px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .cli-cursor,.cli-platform-panel:not([hidden]) {animation:none}
+  .cli-guide * {scroll-behavior:auto;transition:none!important}
+  .cli-motion-toggle {display:none}
 }

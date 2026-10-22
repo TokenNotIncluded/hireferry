@@ -28,3 +28,31 @@ test('the public guide includes both platform installers, device login, skills a
     assert.doesNotMatch(html,/data-form="email-start"|client_secret/);
   }
 });
+
+test('the terminal demo uses real deployment commands and every copy button retains the complete command',()=>{
+  const html=renderCliGuide({config,origin:config.public_origin,lang:'en',esc,icon:()=>'<svg aria-hidden="true"></svg>'});
+  assert.match(html,/data-cli-terminal/);
+  assert.match(html,/<strong>hfy<\/strong><span data-cli-typed>/);
+  assert.match(html,/class="cli-cursor">_<\/span>/);
+  for(const command of Object.values(cliCommands(config,config.public_origin)).filter(value=>value.startsWith('hfy '))) {
+    assert.ok(html.includes(`data-copy="${esc(command)}"`),`missing full copy text: ${command}`);
+    assert.ok(html.includes(esc(command)),`missing accessible command: ${command}`);
+  }
+  assert.match(html,/data-copy-success="Copied"/);
+  assert.match(html,/data-copy-status role="status" aria-live="polite"/);
+  assert.match(html,/role="tablist" aria-label="Installation platform"/);
+  assert.match(html,/id="cli-tab-windows" role="tab" aria-selected="false" aria-controls="cli-panel-windows" tabindex="-1"/);
+  assert.match(html,/id="cli-panel-windows"[^>]+role="tabpanel"[^>]+hidden/);
+});
+
+
+test('command update keys remain unique and stable when the public origin or repository changes',()=>{
+  const render=value=>renderCliGuide({config:value,origin:value.public_origin,lang:'en',esc,icon:()=>'<svg aria-hidden="true"></svg>'});
+  const keys=html=>[...html.matchAll(/data-refresh-key="([^" ]+)"/g)].map(match=>match[1]);
+  const original=keys(render(config));
+  const changed=keys(render({...config,public_origin:'https://new.example',cli_distribution:{release_repository:'Example/updated-cli'}}));
+  assert.equal(new Set(original).size,9);
+  assert.equal(original.length,9);
+  assert.deepEqual(changed,original);
+  for(const key of ['cli-install-unix','cli-install-windows','cli-auth-browser','cli-auth-device','cli-whoami','cli-capabilities'])assert.ok(original.includes(key));
+});
