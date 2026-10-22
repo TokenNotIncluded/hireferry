@@ -1,0 +1,5 @@
+benchmark_compile_exit 0
+sqlite_version=3.50.2; rooms=2000; messages=100000; reader=admin; database=:memory:; warmups_per_version=8; measured_pairs=61; alternate_order=true; rust_opt_level=0
+{"baseline_ms":{"median":5.78983,"p10":5.457542,"p90":6.636932},"current_ms":{"median":4.318653,"p10":4.0652919999999995,"p90":4.712214},"json_parity":true,"limit":20,"median_current_over_baseline":0.7459032475910347,"pairs":61}
+{"baseline_ms":{"median":33.464819999999996,"p10":32.034474,"p90":36.487828},"current_ms":{"median":16.134868,"p10":15.213125,"p90":18.472255999999998},"json_parity":true,"limit":200,"median_current_over_baseline":0.4821441740908812,"pairs":61}
+benchmark_run_exit 0

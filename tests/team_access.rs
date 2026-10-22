@@ -489,6 +489,22 @@ fn employees_keep_independent_chat_reads_and_message_idempotency() {
         chat::get_conversation(&f.state, &b, &thread).unwrap()["unread_count"],
         2
     );
+    // The batched list must use the same employee reader key as direct room
+    // summaries; no employee may inherit the shared super-admin read cursor.
+    for (reader, unread) in [(&a, 0), (&a_webmcp, 0), (&b, 2), (&ai, 2)] {
+        let page = chat::list_conversations(&f.state, reader).unwrap();
+        let summary = page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == thread)
+            .unwrap();
+        assert_eq!(summary["unread_count"], unread);
+        assert_eq!(
+            *summary,
+            chat::get_conversation(&f.state, reader, &thread).unwrap()
+        );
+    }
     let actors = f
         .state
         .conn()
@@ -551,7 +567,7 @@ fn staff_chat_attribution_is_viewer_specific_and_hidden_from_customers() {
             p,
             &thread,
             chat::MessageInput {
-                body: format!("Reply {index}"),
+                body: format!("**Reply {index}**"),
                 client_id: format!("reply-{index}"),
             },
         )
@@ -559,6 +575,12 @@ fn staff_chat_attribution_is_viewer_specific_and_hidden_from_customers() {
         assert_eq!(sent["is_own"], true);
         assert_eq!(sent["staff_name"], name);
         assert_eq!(sent["sender_kind"], "platform");
+        assert!(
+            sent["body_html"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("<strong>Reply {index}</strong>"))
+        );
     }
     let customer_sent = chat::send_message(
         &f.state,
@@ -588,6 +610,12 @@ fn staff_chat_attribution_is_viewer_specific_and_hidden_from_customers() {
                 assert_eq!(message["is_own"], index == own_index);
                 assert!(message.get("sender_actor").is_none());
                 assert!(message.get("sender_key").is_none());
+                let rendered = message["body_html"].as_str().unwrap();
+                if index < 4 {
+                    assert!(rendered.contains(&format!("<strong>Reply {index}</strong>")));
+                } else {
+                    assert!(rendered.contains("Customer reply"));
+                }
             }
         }
     }

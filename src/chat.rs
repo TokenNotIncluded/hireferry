@@ -341,6 +341,59 @@ fn thread_value(db: &Connection, p: &Principal, id: &str) -> AppResult<Value> {
     )
 }
 
+fn listed_participant(row: &rusqlite::Row<'_>, prefix: &str) -> rusqlite::Result<Value> {
+    let id: String = row.get(format!("{prefix}_id").as_str())?;
+    let avatar: String = row.get(format!("{prefix}_avatar").as_str())?;
+    Ok(json!({
+        "id":id,
+        "name":row.get::<_,String>(format!("{prefix}_name").as_str())?,
+        "role":row.get::<_,String>(format!("{prefix}_role").as_str())?,
+        "avatar":if avatar.is_empty(){String::new()}else{format!("/api/avatars/{id}")}
+    }))
+}
+
+fn listed_thread(row: &rusqlite::Row<'_>, admin: bool) -> rusqlite::Result<Value> {
+    let kind: String = row.get("kind")?;
+    let participants = if kind == "platform" {
+        vec![
+            listed_participant(row, "platform")?,
+            json!({"id":"platform","name":"HireFerry · 聘渡","role":"platform","avatar":""}),
+        ]
+    } else {
+        vec![
+            listed_participant(row, "seeker")?,
+            listed_participant(row, "employer")?,
+        ]
+    };
+    let title = if kind == "platform" {
+        if admin {
+            participants[0]["name"].as_str().unwrap_or("").to_owned()
+        } else {
+            "聘渡 · 平台顾问".to_owned()
+        }
+    } else {
+        row.get::<_, String>("job_title")?
+    };
+    let preview = row
+        .get::<_, Option<String>>("last_message_body")?
+        .unwrap_or_default();
+    Ok(json!({
+        "id":row.get::<_,String>("id")?,"kind":kind,"title":title,
+        "user_id":row.get::<_,Option<String>>("user_id")?,
+        "match_id":row.get::<_,Option<String>>("match_id")?,
+        "job_id":row.get::<_,Option<String>>("job_id")?,
+        "job_title":if kind=="matched"{Some(title.clone())}else{None},
+        "participants":participants,
+        "last_message_id":row.get::<_,Option<i64>>("last_message_id")?.unwrap_or(0),
+        "last_message_preview":preview.chars().take(180).collect::<String>(),
+        "last_message_at":row.get::<_,Option<i64>>("last_message_at")?,
+        "unread_count":row.get::<_,i64>("unread_count")?,
+        "writable":row.get::<_,bool>("writable")?,
+        "created_at":row.get::<_,i64>("created_at")?,
+        "updated_at":row.get::<_,i64>("updated_at")?
+    }))
+}
+
 pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -349,20 +402,40 @@ pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
         ensure_thread(&tx, p, &format!("platform_{}", uid(p)))?;
     }
     ensure_matches(&tx, p)?;
+    // Bound the authorized rooms before expanding message metadata. Materializing
+    // this CTE prevents latest-message and unread lookups for discarded rooms.
     let sql = format!(
-        "SELECT c.id {THREAD_FROM} WHERE {VISIBLE} ORDER BY c.updated_at DESC,c.id LIMIT ?3"
+        "WITH recent AS MATERIALIZED (
+           SELECT c.id {THREAD_FROM} WHERE {VISIBLE} ORDER BY c.updated_at DESC,c.id LIMIT ?3
+         )
+         SELECT c.id,c.kind,c.user_id,c.match_id,c.created_at,c.updated_at,
+         pu.id AS platform_id,pu.name AS platform_name,pu.role AS platform_role,pu.avatar AS platform_avatar,
+         sk.id AS seeker_id,sk.name AS seeker_name,sk.role AS seeker_role,sk.avatar AS seeker_avatar,
+         er.id AS employer_id,er.name AS employer_name,er.role AS employer_role,er.avatar AS employer_avatar,
+         j.id AS job_id,j.title AS job_title,
+         last.id AS last_message_id,last.body AS last_message_body,last.created_at AS last_message_at,
+         (SELECT COUNT(*) FROM chat_messages msg WHERE msg.conversation_id=c.id AND msg.sender_key<>?4
+           AND msg.id>COALESCE((SELECT last_message_id FROM chat_reads WHERE conversation_id=c.id AND reader_key=?4),0)) AS unread_count,
+         ((c.kind='platform' AND pu.banned=0) OR (c.kind='matched'
+           AND mt.status IN ('introduced','interview','hired') AND j.status<>'deleted'
+           AND sk.banned=0 AND er.banned=0)) AS writable
+         {THREAD_FROM}
+         JOIN recent ON recent.id=c.id
+         LEFT JOIN chat_messages last ON last.id=(SELECT id FROM chat_messages WHERE conversation_id=c.id ORDER BY id DESC LIMIT 1)
+         ORDER BY c.updated_at DESC,c.id"
     );
-    let ids = tx
+    let items = tx
         .prepare(&sql)?
         .query_map(
-            params![p.admin, uid(p), s.cfg.limits.recent_list_limit],
-            |r| r.get::<_, String>(0),
+            params![
+                p.admin,
+                uid(p),
+                s.cfg.limits.recent_list_limit,
+                user_key(p)?
+            ],
+            |row| listed_thread(row, p.admin),
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let items = ids
-        .iter()
-        .map(|id| thread_value(&tx, p, id))
-        .collect::<AppResult<Vec<_>>>()?;
     access::ensure_active(&tx, p)?;
     tx.commit()?;
     Ok(json!({"items":items,"poll_after_ms":POLL_MS}))
@@ -398,12 +471,12 @@ pub fn platform_conversation(
     Ok(result)
 }
 
-fn message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Result<Value> {
+fn raw_message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Result<Value> {
     let kind: String = r.get("sender_kind")?;
     let body: String = r.get("body")?;
     let sender_name: String = r.get("sender_name")?;
     let via_ai: bool = r.get("via_ai")?;
-    let mut value = json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"body_html":safety::markdown(&body),"client_id":r.get::<_,String>("client_id")?,"via_ai":via_ai,"created_at":r.get::<_,i64>("created_at")?});
+    let mut value = json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"client_id":r.get::<_,String>("client_id")?,"via_ai":via_ai,"created_at":r.get::<_,i64>("created_at")?});
     if let Some(viewer) = admin_key {
         let sender_key: String = r.get("sender_key")?;
         value["is_own"] = json!(kind == "platform" && sender_key == viewer);
@@ -429,6 +502,13 @@ fn message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Resu
         };
     }
     Ok(value)
+}
+fn render_message(mut message: Value) -> Value {
+    message["body_html"] = Value::String(safety::markdown(message["body"].as_str().unwrap_or("")));
+    message
+}
+fn message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Result<Value> {
+    raw_message_row(r, admin_key).map(render_message)
 }
 fn load_message(db: &Connection, p: &Principal, id: i64) -> AppResult<Value> {
     let key = p.admin.then(|| user_key(p)).transpose()?;
@@ -480,7 +560,7 @@ fn message_page(
     let mut items = tx
         .prepare(&sql)?
         .query_map(params![id, bound, count + 1], |r| {
-            message_row(r, key.as_deref())
+            raw_message_row(r, key.as_deref())
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let extra = items.len() > count as usize;
@@ -506,6 +586,10 @@ fn message_page(
     };
     access::ensure_active(&tx, p)?;
     tx.commit()?;
+    // The authorized snapshot owns its strings. Markdown parsing and sanitizing
+    // must not hold the shared database mutex or its write transaction.
+    drop(db);
+    let items = items.into_iter().map(render_message).collect::<Vec<_>>();
     Ok(
         json!({"items":items,"next_cursor":cursor,"first_cursor":first,"has_more":!backwards&&extra,"has_older":older,"poll_after_ms":POLL_MS}),
     )

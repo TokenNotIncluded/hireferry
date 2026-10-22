@@ -1,0 +1,70 @@
+include!("/workspace/scratch/cdafa2c4e55f/hireferry/src/lib.rs");
+#[path = "/dev/shm/hireferry-latency-uebwl0dm/chat_baseline.rs"]
+pub mod chat_baseline;
+
+fn main() {
+    let mut cfg = config::Config::default();
+    cfg.development = true;
+    cfg.database = ":memory:".to_owned();
+    let mut state = AppState::new(cfg).unwrap();
+    let principal = access::Principal {
+        user_id: None, admin: true, via_ai: false, actor: "admin".to_owned()
+    };
+    {
+        let mut db = state.conn().unwrap();
+        let tx = db.transaction().unwrap();
+        {
+            let mut user = tx.prepare("INSERT INTO users(id,email,name,role,avatar,created_at,updated_at) VALUES(?1,?2,?3,'seeker',?4,1,1)").unwrap();
+            let mut room = tx.prepare("INSERT INTO chat_conversations(id,kind,user_id,created_at,updated_at) VALUES(?1,'platform',?2,1,?3)").unwrap();
+            let mut message = tx.prepare("INSERT INTO chat_messages(conversation_id,sender_kind,sender_id,sender_key,sender_actor,body,client_id,created_at) VALUES(?1,'user',?2,?3,?2,?4,?5,?6)").unwrap();
+            let mut read = tx.prepare("INSERT INTO chat_reads(conversation_id,reader_key,last_message_id,updated_at) VALUES(?1,'admin',?2,1)").unwrap();
+            for n in 0..2000 {
+                let user_id = format!("bench_{n:04}");
+                let room_id = format!("platform_{user_id}");
+                user.execute(rusqlite::params![user_id, format!("bench-{n}@example.invalid"), format!("Member {n}"), if n % 3 == 0 {"synthetic-avatar"} else {""}]).unwrap();
+                room.execute(rusqlite::params![room_id, user_id, n / 2 + 1]).unwrap();
+                for m in 0..50 {
+                    message.execute(rusqlite::params![room_id, user_id, format!("user_{user_id}"), format!("Synthetic message {m}: conversation benchmark body with Unicode 聘渡 and ordinary text."), format!("message-{m}"), n * 50 + m + 1]).unwrap();
+                    if m == 24 {
+                        read.execute(rusqlite::params![room_id, tx.last_insert_rowid()]).unwrap();
+                    }
+                }
+            }
+        }
+        tx.commit().unwrap();
+    }
+    let sqlite: String = state.conn().unwrap().query_row("SELECT sqlite_version()", [], |row| row.get(0)).unwrap();
+    println!("sqlite_version={sqlite}; rooms=2000; messages=100000; reader=admin; database=:memory:; warmups_per_version=8; measured_pairs=61; alternate_order=true; rust_opt_level=0");
+    for count in [20, 200] {
+        Arc::make_mut(&mut state.cfg).limits.recent_list_limit = count;
+        let baseline = chat_baseline::list_conversations(&state, &principal).unwrap();
+        let current = chat::list_conversations(&state, &principal).unwrap();
+        assert_eq!(baseline, current, "Initial full JSON parity for limit {count}");
+        assert_eq!(current["items"].as_array().unwrap().len(), count as usize);
+        for _ in 0..8 {
+            std::hint::black_box(chat_baseline::list_conversations(&state, &principal).unwrap());
+            std::hint::black_box(chat::list_conversations(&state, &principal).unwrap());
+        }
+        let mut old_times = Vec::new();
+        let mut new_times = Vec::new();
+        for n in 0..61 {
+            let mut invoke = |old: bool| {
+                let start = std::time::Instant::now();
+                let value = if old { chat_baseline::list_conversations(&state, &principal) } else { chat::list_conversations(&state, &principal) }.unwrap();
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                if old { old_times.push(elapsed); } else { new_times.push(elapsed); }
+                std::hint::black_box(value)
+            };
+            let (a, b) = if n % 2 == 0 { (invoke(true), invoke(false)) } else { (invoke(false), invoke(true)) };
+            assert_eq!(a, b, "Measured full JSON parity for limit {count}, pair {n}");
+        }
+        old_times.sort_by(f64::total_cmp);
+        new_times.sort_by(f64::total_cmp);
+        println!("{}", serde_json::json!({
+            "limit": count, "json_parity": true, "pairs": 61,
+            "baseline_ms": {"p10":old_times[6], "median":old_times[30], "p90":old_times[54]},
+            "current_ms": {"p10":new_times[6], "median":new_times[30], "p90":new_times[54]},
+            "median_current_over_baseline": new_times[30] / old_times[30]
+        }));
+    }
+}
