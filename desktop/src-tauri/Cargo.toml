@@ -24,6 +24,7 @@ resolver = "3"
 tauri-build = { version = "=2.7.3", features = [] }
 
 [dependencies]
+serde_json = "1"
 tauri = { version = "=2.12.4", features = [] }
 tauri-plugin-opener = "=2.7.2"
 url = "2.5.8"
