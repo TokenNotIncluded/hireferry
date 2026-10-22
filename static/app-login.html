@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN" class="light" data-theme="light" data-palette="neutral">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>应用登录 · HireFerry</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/theme-palettes.css">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/cli-auth.css">
+  <link rel="stylesheet" href="/static/app-login.css">
+  <script type="module" src="/static/app-login.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳转到主要内容 / Skip to content</a>
+  <header class="cli-header">
+    <a href="/" class="brand" aria-label="HireFerry home"><svg class="brand-mark" viewBox="0 0 40 40" fill="currentColor" aria-hidden="true"><path d="M5 24h30l-8 10H13zM18 4v17H4zM22 8l12 13H22z"/></svg><span>聘渡</span><span class="brand-en">HireFerry</span></a>
+    <button id="language" type="button" class="language" aria-label="Switch language">EN</button>
+  </header>
+  <main id="main" class="cli-content app-login-content">
+    <p class="app-login-eyebrow" data-text="eyebrow">连接你的账户</p>
+    <h1 data-text="title">继续登录聘渡应用</h1>
+    <p class="intro" data-text="intro">在浏览器中确认账户，应用会接着完成登录。</p>
+    <section class="card" aria-label="App sign-in" data-label="cardLabel">
+      <p id="status" role="status" aria-live="polite"></p>
+      <p id="error" role="alert" hidden></p>
+      <div id="app-flow" hidden>
+        <div class="code-confirm"><span data-text="compareApp">在浏览器中核对这个编号</span><strong id="app-code"></strong></div>
+        <p class="hint" data-text="appHelp">确认后返回此应用。编号五分钟内有效，登录凭据不会放进链接。</p>
+        <div class="actions">
+          <a id="open-browser" class="button primary" rel="noopener noreferrer" data-text="openBrowser">打开浏览器确认</a>
+          <button id="cancel" type="button" data-text="cancel">取消</button>
+        </div>
+      </div>
+      <div id="browser-flow" hidden>
+        <div class="code-confirm"><span data-text="compareBrowser">核对聘渡应用中的编号</span><strong id="browser-code"></strong></div>
+        <dl><dt data-text="site">网站</dt><dd id="site"></dd><dt data-text="account">账户</dt><dd id="account"></dd></dl>
+        <div id="sign-in" hidden>
+          <p class="hint" data-text="signInHelp">先登录，再确认本次应用连接。</p>
+          <div class="actions"><a id="google" class="button" data-text="google">使用 Google 登录</a></div>
+          <form id="email-form" hidden>
+            <label for="email" data-text="email">邮箱</label>
+            <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <button type="submit" data-text="sendCode">发送验证码</button>
+          </form>
+          <form id="otp-form" hidden>
+            <label for="otp" data-text="otp">8 位验证码</label>
+            <input id="otp" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" maxlength="8" required>
+            <button type="submit" class="primary" data-text="verifyCode">登录并继续</button>
+          </form>
+        </div>
+        <div id="consent" hidden>
+          <p class="warning" data-text="permission">此应用将以显示的账户登录网站，可执行该账户原有的操作。仅确认你自己刚在应用中发起的请求。</p>
+          <label class="app-login-confirm"><input id="confirm" type="checkbox"><span data-text="confirm">我已核对编号，这是我正在登录的应用</span></label>
+          <div class="actions"><button id="approve" class="primary" type="button" disabled data-text="approve">确认登录应用</button><button id="deny" type="button" data-text="deny">拒绝</button></div>
+        </div>
+      </div>
+      <div id="finished" hidden>
+        <p class="hint" id="finished-help"></p>
+        <div class="actions"><a id="return-app" class="button primary" href="hireferry://login-return" hidden data-text="returnApp">返回聘渡应用</a><a class="button" href="/app" data-text="website">继续使用网站</a></div>
+      </div>
+      <button id="retry" class="text-button" type="button" hidden data-text="retry">重新开始</button>
+    </section>
+    <p class="app-login-footnote" data-text="footnote">应用和浏览器各自保留登录会话。团队员工、经理和总管理员请直接在应用中登录。</p>
+  </main>
+</body>
+</html>
