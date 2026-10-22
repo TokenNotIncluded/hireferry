@@ -395,7 +395,7 @@ function home() {
   const stories = [
     {
       title:t('好工作<br>对的人<br><em>AI 自动匹配</em>','Good work<br>Great people<br><em>AI matches</em>'),
-      description:t('AI 原生的简历初筛与人才匹配平台。<br>通过 MCP 连接 AI，自动整理需求、筛选和匹配。','AI-native résumé screening and talent matching.<br>Connect an AI agent over MCP to automate screening and matching.')
+      description:t('AI 原生的简历初筛与人才匹配平台。<br>AI 自动理解需求、筛选简历，匹配合适的人与岗位。','AI-native résumé screening and talent matching.<br>AI understands your needs, screens résumés and matches people with roles.')
     },
     {
       title:t('先聊需求<br>再做匹配<br><em>合适再认识</em>','Share your needs<br>Find the fit<br><em>Meet your match</em>'),
@@ -425,7 +425,7 @@ function home() {
         <div class="section-heading"><h2>${t('让 AI 找到合适的连接','Let AI find the fit')}</h2></div>
         <div class="steps">
           <article class="step"><h3>${t('说说你的期待','Share your plans')}</h3><p>${t('提交简历或岗位需求。<br>和平台聊清你的期待。','Share a résumé or a role.<br>Tell us what matters to you.')}</p></article>
-          <article class="step"><h3>${t('寻找合适的人选','Find the right people')}</h3><p>${t('AI 通过获授权的 MCP 接口自动初筛和匹配。<br>在工作台查看匹配与沟通进展。','Authorized AI agents screen and match through MCP.<br>Track matches and conversations in your workspace.')}</p></article>
+          <article class="step"><h3>${t('寻找合适的人选','Find the right people')}</h3><p>${t('AI 自动初筛简历并匹配岗位。<br>在工作台查看匹配与沟通进展。','AI agents automatically screen résumés and match roles.<br>Track matches and conversations in your workspace.')}</p></article>
           <article class="step"><h3>${t('开始交流','Start a conversation')}</h3><p>${t('匹配后共享资料。<br>在专属会话中沟通下一步。','Share profiles after a match.<br>Discuss next steps in your shared room.')}</p></article>
         </div>
       </section>
