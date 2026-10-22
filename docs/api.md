@@ -8,6 +8,8 @@
 
 优惠码申请、审批、免费激活、发布预览与次数管理接口见 [优惠码说明](promo-codes.md)。`POST /api/role` 可携带 `promo_code`；`POST /api/jobs` 可携带 `promo_code`、防重试的 `request_key` 和已确认报价 `expected_amount_cents`。减免百分比 100 表示免费，不经过支付网关。
 
+管理员新增团队员工邀请（schema 10）：超级管理员可在 `/admin?tab=staff` 邮件邀请或复制链接，人类经理只能通过自身已验证的邮箱接受；浏览器交互式经理身份限定于招聘业务，而管理员特权仍由 Passkey 超级管理员独占。完整端点、期限、限额见 [团队员工邀请](staff.md)。
+
 ## 1. 通用约定
 
 - JSON 请求使用 `Content-Type: application/json`。时间戳为 UTC Unix 秒；统计日期为包含首尾日期的 `YYYY-MM-DD`。
