@@ -3,17 +3,6 @@ name: Desktop and CLI packages
 on:
   push:
     tags: ['desktop-v*']
-  pull_request:
-    paths:
-      - 'desktop/**'
-      - 'packaging/**'
-      - 'release/**'
-      - 'scripts/release.py'
-      - 'scripts/package-flatpak.sh'
-      - 'tests/release.test.py'
-      - '.github/workflows/desktop-release.yml'
-      - '.github/workflows/cli-release.yml'
-      - '.github/workflows/release-docs.yml'
   workflow_dispatch:
 
 permissions:

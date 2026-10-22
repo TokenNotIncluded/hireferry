@@ -147,5 +147,25 @@
       ],
       "runner": "windows-11-arm"
     }
+  ],
+  "server": [
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "ubuntu-22.04"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-gnu",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "ubuntu-22.04-arm"
+    }
   ]
 }

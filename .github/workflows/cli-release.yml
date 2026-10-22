@@ -148,3 +148,10 @@ jobs:
     uses: ./.github/workflows/release-docs.yml
     with:
       tag: ${{ github.ref_name }}
+
+  update-aur:
+    needs: publish
+    uses: ./.github/workflows/aur.yml
+    secrets: inherit
+    with:
+      tag: ${{ github.ref_name }}

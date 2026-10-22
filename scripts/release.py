@@ -13,6 +13,7 @@ import re
 import shutil
 import sys
 import tarfile
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / 'release/targets.json'
@@ -20,6 +21,14 @@ SNAPSHOT = ROOT / 'release/latest.json'
 VERSION_RE = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
 REPOSITORY_RE = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+')
 ARCH_LABELS = {'x86_64':'x64', 'aarch64':'ARM64'}
+GROUPS = ('desktop', 'flatpak', 'cli', 'server')
+PRODUCTS = ('desktop', 'cli', 'server')
+PRODUCT_LABELS = {'desktop': '桌面版', 'cli': 'hfy CLI', 'server': '服务端'}
+
+
+def group_product(group):
+    return 'desktop' if group == 'flatpak' else group
+
 LABELS = {'exe':'NSIS .exe', 'msi':'.msi', 'dmg':'.dmg', 'app.tar.gz':'.app.tar.gz',
           'deb':'.deb', 'rpm':'.rpm', 'AppImage':'.AppImage', 'flatpak':'.flatpak',
           'tar.gz':'.tar.gz', 'zip':'.zip'}
@@ -42,7 +51,8 @@ def validate_catalog(data):
     """Validate both checked-in targets and lower-trust published snapshots."""
     if not isinstance(data, dict) or data.get('schema_version') != 1:
         raise ValueError('Unsupported release catalog schema')
-    if set(data) != {'schema_version', 'repository', 'desktop', 'flatpak', 'cli'}:
+    required = {'schema_version', 'repository', 'desktop', 'flatpak', 'cli'}
+    if not required <= set(data) or set(data) - required - {'server'}:
         raise ValueError('Unexpected release catalog fields')
     repository(data['repository'])
     native_formats = {'Windows':{'exe','msi'}, 'macOS':{'dmg','app.tar.gz'},
@@ -50,8 +60,8 @@ def validate_catalog(data):
     system_marker = {'Windows':'-pc-windows-', 'macOS':'-apple-darwin', 'Linux':'-unknown-linux-'}
     bundle_name = {'exe':'nsis', 'msi':'msi', 'dmg':'dmg', 'app.tar.gz':'app',
                    'deb':'deb', 'rpm':'rpm', 'AppImage':'appimage'}
-    for group in ('desktop', 'flatpak', 'cli'):
-        rows = data[group]
+    for group in GROUPS:
+        rows = data.get(group, [])
         if not isinstance(rows, list):
             raise ValueError('Catalog targets must be lists')
         targets = set()
@@ -85,6 +95,8 @@ def validate_catalog(data):
                 raise ValueError('Package format does not match platform')
             if group == 'flatpak' and (row['platform'] != 'Linux' or row['arch'] != arch):
                 raise ValueError('Invalid Flatpak architecture')
+            if group == 'server' and row['platform'] != 'Linux':
+                raise ValueError('Server packages require Linux')
             if group == 'desktop':
                 bundles = row['bundles']
                 if (not isinstance(bundles, str) or len(bundles.split(',')) != len(formats) or
@@ -98,7 +110,7 @@ def catalog():
 
 
 def package_version(product):
-    path = ROOT / ('desktop/src-tauri/Cargo.toml' if product == 'desktop' else 'crates/hireferry-cli/Cargo.toml')
+    path = ROOT / {'desktop':'desktop/src-tauri/Cargo.toml', 'cli':'crates/hireferry-cli/Cargo.toml', 'server':'Cargo.toml'}[product]
     match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', path.read_text(), re.M)
     if not match:
         raise ValueError(f'Missing package version in {path}')
@@ -111,11 +123,11 @@ def filename(product, release_version, target, fmt):
 
 def expected(data, versions, products=('desktop', 'cli')):
     result = {}
-    for group in ('desktop', 'flatpak', 'cli'):
-        product = 'cli' if group == 'cli' else 'desktop'
+    for group in GROUPS:
+        product = group_product(group)
         if product not in products:
             continue
-        for row in data[group]:
+        for row in data.get(group, []):
             for fmt in row['formats']:
                 name = filename(product, versions[product], row['target'], fmt)
                 result[name] = {k:row[k] for k in ('platform', 'architecture', 'target')}
@@ -177,6 +189,29 @@ def stage_flatpak(args):
     checksums(args.out)
 
 
+def stage_server(args):
+    if not find_target(catalog(), 'server', args.target):
+        raise ValueError('Target is not in the server catalog')
+    if not args.binary.is_file() or args.binary.is_symlink() or not args.binary.stat().st_size:
+        raise ValueError('Server binary must be a nonempty regular file')
+    release_version = version(args.version or package_version('server'))
+    args.out.mkdir(parents=True, exist_ok=False)
+    name = filename('server', release_version, args.target, 'tar.gz')
+    with tempfile.TemporaryDirectory(prefix='hireferry-server-') as temporary:
+        package = Path(temporary) / name.removesuffix('.tar.gz')
+        package.mkdir()
+        shutil.copyfile(args.binary, package/'hireferry')
+        (package/'hireferry').chmod(0o755)
+        for path in ('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES', 'config.example.toml', 'config.development.toml'):
+            shutil.copyfile(ROOT/path, package/path)
+        for path in ('docs', 'deploy', 'legal'):
+            shutil.copytree(ROOT/path, package/path)
+        (package/'BUILD-INFO.txt').write_text(f'package=hireferry\nversion={release_version}\ntarget={args.target}\n')
+        with tarfile.open(args.out/name, 'w:gz') as archive:
+            archive.add(package, arcname=package.name)
+    checksums(args.out)
+
+
 def verified_inputs(source, wanted):
     """Reject missing/extra packages, duplicate assets, traversal and stale digests."""
     found = {}
@@ -213,8 +248,8 @@ def make_manifest(data, wanted, files, tag, repo, commit=''):
     published_catalog['repository'] = repository(repo)
     validate_catalog(published_catalog)
     products = {item['product'] for item in wanted.values()}
-    for group in ('desktop', 'flatpak', 'cli'):
-        if ('cli' if group == 'cli' else 'desktop') not in products:
+    for group in GROUPS:
+        if group_product(group) not in products and group in published_catalog:
             published_catalog[group] = []
     assets = []
     for name, item in sorted(wanted.items()):
@@ -237,11 +272,11 @@ def validate_manifest(manifest):
     if not isinstance(manifest['versions'], dict) or not isinstance(manifest['releases'], dict):
         raise ValueError('Invalid product metadata')
     products = set(manifest['versions'])
-    if not products or products - {'desktop', 'cli'}:
+    if not products or products - set(PRODUCTS):
         raise ValueError('Unknown manifest products')
     if set(manifest['releases']) != products:
         raise ValueError('Release products differ from version products')
-    represented = {('cli' if group == 'cli' else 'desktop') for group in ('desktop', 'flatpak', 'cli') if data[group]}
+    represented = {group_product(group) for group in GROUPS if data.get(group)}
     if represented != products:
         raise ValueError('Catalog products differ from published products')
     commits = manifest.get('source_commits', {product:manifest.get('source_commit', '') for product in products})
@@ -260,13 +295,14 @@ def validate_manifest(manifest):
         if any(asset.get(k) != v for k, v in wanted[name].items()):
             raise ValueError(f'Incorrect asset metadata: {name}')
         tag = asset['tag']
-        if not isinstance(tag, str) or not re.fullmatch(r'(desktop|cli)-v[^/]+', tag):
+        if not isinstance(tag, str) or not re.fullmatch(r'(desktop|cli|server)-v[^/]+', tag):
             raise ValueError('Invalid release tag')
         version(tag.split('-v', 1)[1])
         if tag != manifest['releases'][asset['product']]:
             raise ValueError('Release tag differs from product metadata')
         if ((asset['product'] == 'desktop' and tag != 'desktop-v' + asset['version']) or
-                (asset['product'] == 'cli' and tag.startswith('cli-') and tag != 'cli-v' + asset['version'])):
+                (asset['product'] == 'cli' and (tag.startswith('server-') or (tag.startswith('cli-') and tag != 'cli-v' + asset['version']))) or
+                (asset['product'] == 'server' and tag != 'server-v' + asset['version'])):
             raise ValueError('Release tag version mismatch')
         if asset['url'] != f'https://github.com/{repo}/releases/download/{tag}/{name}':
             raise ValueError('Invalid asset download URL')
@@ -300,16 +336,16 @@ def merge_manifests(current, incoming):
                 selected[product] = source
     repo = incoming['repository']
     merged = {'schema_version':1, 'repository':repo,
-              'catalog':{'schema_version':1, 'repository':repo, 'desktop':[], 'flatpak':[], 'cli':[]},
+              'catalog':{'schema_version':1, 'repository':repo, **{group:[] for group in GROUPS}},
               'source_commit':'', 'source_commits':{}, 'versions':{}, 'releases':{}, 'assets':[]}
-    for product in ('desktop', 'cli'):
+    for product in PRODUCTS:
         if product not in selected:
             continue
         source = selected[product]
         merged['versions'][product] = source['versions'][product]
         merged['releases'][product] = source['releases'][product]
         merged['source_commits'][product] = source.get('source_commits', {}).get(product, source.get('source_commit', ''))
-        for group in (('desktop', 'flatpak') if product == 'desktop' else ('cli',)):
+        for group in (('desktop', 'flatpak') if product == 'desktop' else (product,)):
             merged['catalog'][group] = source['catalog'][group]
         merged['assets'].extend(asset for asset in source['assets'] if asset['product'] == product)
     merged['assets'].sort(key=lambda asset: asset['name'])
@@ -326,10 +362,10 @@ def human_size(size):
 def svg(data, manifest=None):
     """Accessible, repository-native vector artwork; values come from the catalog."""
     if manifest: data = manifest['catalog']
-    count = len(manifest['assets']) if manifest else sum(len(row['formats']) for group in ('desktop','flatpak','cli') for row in data[group])
-    subtitle = ('RELEASE ASSETS VERIFIED · ' + ' / '.join(dict.fromkeys(manifest['releases'][p] for p in ('desktop', 'cli') if p in manifest['releases']))) if manifest else 'BUILD TARGETS · DOWNLOADS APPEAR AFTER A COMPLETE RELEASE'
+    count = len(manifest['assets']) if manifest else sum(len(row['formats']) for group in GROUPS for row in data.get(group, []))
+    subtitle = ('RELEASE ASSETS VERIFIED · ' + ' / '.join(dict.fromkeys(manifest['releases'][p] for p in PRODUCTS if p in manifest['releases']))) if manifest else 'BUILD TARGETS · DOWNLOADS APPEAR AFTER A COMPLETE RELEASE'
     subtitle = html.escape(subtitle)
-    headline = 'HireFerry · Every desktop, one ferry.' if not manifest or 'desktop' in manifest['versions'] else 'HireFerry · One CLI. Every platform.'
+    headline = 'HireFerry · Every desktop, one ferry.' if not manifest or 'desktop' in manifest['versions'] else ('HireFerry · Your service. Your ferry.' if 'server' in manifest['versions'] else 'HireFerry · One CLI. Every platform.')
     cards = []
     for i, (platform, symbol) in enumerate((('Windows','window'),('macOS','apple'),('Linux','terminal'))):
         x = 36 + i * 302
@@ -341,10 +377,11 @@ def svg(data, manifest=None):
             mark = f'<rect x="{x+22}" y="132" width="42" height="34" rx="6" fill="none" stroke="#c3d9cb" stroke-width="2"/><path d="m{x+31} 142 7 7-7 7m13 0h12" fill="none" stroke="#c3d9cb" stroke-width="2"/>'
         desktop_rows = [row for group in ('desktop', 'flatpak') for row in data[group] if row['platform'] == platform]
         cli_rows = [row for row in data['cli'] if row['platform'] == platform]
-        rows = desktop_rows or cli_rows
+        server_rows = [row for row in data.get('server', []) if row['platform'] == platform]
+        rows = desktop_rows or cli_rows or server_rows
         formats = ' · '.join(dict.fromkeys('Flatpak' if fmt == 'flatpak' else LABELS[fmt] for row in rows for fmt in row['formats'])) or 'No release assets'
-        architectures = ' + '.join(dict.fromkeys(ARCH_LABELS.get(row['architecture'], row['architecture']) for row in desktop_rows + cli_rows))
-        products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows)) if present) or 'No published packages'
+        architectures = ' + '.join(dict.fromkeys(ARCH_LABELS.get(row['architecture'], row['architecture']) for row in desktop_rows + cli_rows + server_rows))
+        products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows), ('Server', server_rows)) if present) or 'No published packages'
         cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">{products}</text>')
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
 <title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
@@ -366,27 +403,34 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
     guide = docs_url + 'desktop.md'
     cli_guide = docs_url + 'cli.md'
     lines = ['<!-- Generated by scripts/release.py; edit release/targets.json, not this file. -->',
-             '# 聘渡 · 桌面版与 CLI 下载', '', f'![HireFerry 发布矩阵]({image})', '',
+             '# 聘渡 · 桌面版、CLI 与服务端下载', '', f'![HireFerry 发布矩阵]({image})', '',
              f'[安装与发布说明]({guide}) · [CLI 使用指南]({cli_guide}) · '
              f'[所有 Releases](https://github.com/{repo}/releases)', '']
     if manifest:
         lines += ['下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。', '']
         if 'desktop' not in manifest['versions']:
-            lines += ['**尚未收录已发布的桌面安装包。** 当前下载表只包含 hfy CLI；桌面构建目标见 `release/targets.json`。', '']
-        for product in ('desktop','cli'):
+            lines += ['**尚未收录已发布的桌面安装包。** 桌面构建目标见 `release/targets.json`。', '']
+        for product in PRODUCTS:
             if product in manifest['versions']:
                 tag = manifest['releases'][product]
-                lines.append(f"- **{'桌面版' if product == 'desktop' else 'hfy CLI'} {manifest['versions'][product]}**：[Release](https://github.com/{repo}/releases/tag/{tag}) · [校验文件](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS)")
+                lines.append(f"- **{PRODUCT_LABELS[product]} {manifest['versions'][product]}**：[Release](https://github.com/{repo}/releases/tag/{tag}) · [校验文件](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS)")
     else:
         lines += ['**当前展示 CI 配置的构建目标，尚未记录一次完整桌面 Release。** 这些条目不是实机验证记录；完整构建、校验并发布后，工作流会替换为实际下载链接、版本和包大小。', '']
-    lines += ['', '| 客户端 | 系统 | 架构 | 软件包 | 下载体积 |', '| --- | --- | --- | --- | --- |']
+    lines += ['', '| 组件 | 系统 | 架构 | 软件包 | 下载体积 |', '| --- | --- | --- | --- | --- |']
     if manifest:
         for a in sorted(manifest['assets'], key=lambda a:(a['product'],a['platform'],a['architecture'],a['format'])):
-            lines.append(f"| {'桌面版' if a['product'] == 'desktop' else 'hfy CLI'} | {a['platform']} | {ARCH_LABELS.get(a['architecture'], a['architecture'])} | [{LABELS[a['format']]}]({a['url']}) | {human_size(a['size'])} |")
+            lines.append(f"| {PRODUCT_LABELS[a['product']]} | {a['platform']} | {ARCH_LABELS.get(a['architecture'], a['architecture'])} | [{LABELS[a['format']]}]({a['url']}) | {human_size(a['size'])} |")
     else:
-        for group in ('desktop','flatpak','cli'):
-            for row in data[group]:
-                lines.append(f"| {'hfy CLI' if group == 'cli' else '桌面版'} | {row['platform']} | {ARCH_LABELS.get(row['architecture'], row['architecture'])} | {'、'.join(LABELS[f] for f in row['formats'])} | 发布后生成 |")
+        for group in GROUPS:
+            for row in data.get(group, []):
+                lines.append(f"| {PRODUCT_LABELS[group_product(group)]} | {row['platform']} | {ARCH_LABELS.get(row['architecture'], row['architecture'])} | {'、'.join(LABELS[f] for f in row['formats'])} | 发布后生成 |")
+    lines += ['', '## Arch Linux / AUR', '',
+              '服务端与客户端 CLI 独立安装，支持 x86_64 和 aarch64。同一组件的 `-git` 与 `-bin` 互斥，服务端与 CLI 可以共存。', '',
+              '| 组件 | 跟随 main 编译 | 安装 Release 二进制 |', '| --- | --- | --- |']
+    for product in ('server', 'cli'):
+        names = [f'hireferry-{product}-{variant}' for variant in ('git', 'bin')]
+        lines.append(f"| {PRODUCT_LABELS[product]} | [{names[0]}](https://aur.archlinux.org/packages/{names[0]}) | [{names[1]}](https://aur.archlinux.org/packages/{names[1]}) |")
+    lines += ['', f'安装、服务初始化与发布流程见 [AUR 指南]({docs_url}aur.md)。AUR 配方不计入上面的 Release 二进制数量。', '']
     lines += ['', '## Linux 选包建议', '',
               '| 发行版系列 | 桌面版优先选择 | 适用范围 |', '| --- | --- | --- |',
               '| Ubuntu、Debian、Linux Mint、Pop!_OS、Zorin、elementary | `.deb`；依赖不匹配时用 Flatpak | Ubuntu 22.04 / Debian 12 基线及提供 WebKitGTK 4.1 的后续版本 |',
@@ -397,14 +441,14 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
               '', 'Linux CLI 的静态 musl 包可用于 glibc 与 musl 发行版；桌面版需要图形会话。Flatpak 首次安装共享运行时需要额外空间，后续应用可复用。',
               '', 'Windows 的 NSIS 包按需下载 WebView2；macOS 使用系统 WebKit。桌面版不附带服务器或数据库，业务页面连接所选 HireFerry 站点。',
               '', f'**兼容范围不是“所有历史发行版本均实测”。** 架构、运行时和系统依赖满足要求才适用；具体要求、安装命令与签名说明见 [桌面版文档]({guide})。',
-              '', '维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版与 CLI 按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
+              '', '维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版、CLI 与服务端按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
     return '\n'.join(lines)
 
 
 def assemble(args, products=('desktop', 'cli')):
     data = catalog()
     versions = {product:package_version(product) for product in products}
-    primary = 'desktop' if 'desktop' in products else 'cli'
+    primary = next(product for product in PRODUCTS if product in products)
     if args.tag != primary + '-v' + versions[primary]:
         raise ValueError(f'Release tag must match the {primary} Cargo package version')
     repo = repository(args.repository or data['repository'])
@@ -414,7 +458,7 @@ def assemble(args, products=('desktop', 'cli')):
     args.destination.mkdir(parents=True, exist_ok=False)
     for name, path in files.items():
         shutil.copyfile(path, args.destination/name)
-    (args.destination/'VERSION').write_text(versions['cli'] + '\n')
+    (args.destination/'VERSION').write_text(versions.get('cli', versions[primary]) + '\n')
     (args.destination/'downloads.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (args.destination/'downloads.md').write_text(markdown(data, manifest, f'https://github.com/{repo}/releases/download/{args.tag}/release-matrix.svg', f'https://github.com/{repo}/blob/{args.tag}/docs/'))
     (args.destination/'release-matrix.svg').write_text(svg(data, manifest))
@@ -424,6 +468,10 @@ def assemble(args, products=('desktop', 'cli')):
 
 def assemble_cli(args):
     assemble(args, ('cli',))
+
+
+def assemble_server(args):
+    assemble(args, ('server',))
 
 
 def docs(args):
@@ -452,16 +500,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     matrix = commands.add_parser('matrix', help='Emit a GitHub Actions strategy matrix')
-    matrix.add_argument('product', choices=('desktop','cli','flatpak'))
+    matrix.add_argument('product', choices=GROUPS)
     matrix.set_defaults(run=lambda a: print(json.dumps({'include':catalog()[a.product]}, separators=(',',':'))))
-    for command, fn in (('stage-desktop',stage_desktop),('stage-flatpak',stage_flatpak)):
+    for command, fn in (('stage-desktop',stage_desktop),('stage-flatpak',stage_flatpak),('stage-server',stage_server)):
         stage = commands.add_parser(command)
         stage.add_argument('--target', required=True)
         stage.add_argument('--version')
         stage.add_argument('--out', type=Path, required=True)
         stage.add_argument('--bundle-dir' if command == 'stage-desktop' else '--binary', type=Path, required=True)
         stage.set_defaults(run=fn)
-    for command, fn in (('assemble', assemble), ('assemble-cli', assemble_cli)):
+    for command, fn in (('assemble', assemble), ('assemble-cli', assemble_cli), ('assemble-server', assemble_server)):
         build = commands.add_parser(command)
         build.add_argument('source', type=Path)
         build.add_argument('destination', type=Path)

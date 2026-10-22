@@ -1,0 +1,82 @@
+name: Publish AUR packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/arch/**'
+      - 'packaging/aur/**'
+      - 'scripts/aur.py'
+      - 'scripts/publish-aur.sh'
+      - '.github/workflows/aur.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable server-v or cli-v tag for -bin; leave empty for both -git packages
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: aur-publication
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  publish:
+    if: vars.AUR_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 15
+    steps:
+      - name: Install packaging tools
+        run: pacman -Syu --noconfirm --needed git openssh python github-cli
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare unprivileged packaging user and pinned SSH host
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_HOSTS: ${{ secrets.AUR_KNOWN_HOSTS }}
+        run: |
+          test -n "$AUR_KEY" && test -n "$AUR_HOSTS"
+          useradd -m builder
+          install -d -m700 /home/builder/.ssh
+          printf '%s\n' "$AUR_KEY" > /home/builder/.ssh/id_ed25519
+          printf '%s\n' "$AUR_HOSTS" > /home/builder/.ssh/known_hosts
+          printf 'Host aur.archlinux.org\n  User aur\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > /home/builder/.ssh/config
+          chmod 600 /home/builder/.ssh/*
+          chown -R builder:builder /home/builder/.ssh "$GITHUB_WORKSPACE"
+      - name: Generate and publish independent packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ -n "$RELEASE_TAG" ]]; then
+            [[ "$RELEASE_TAG" =~ ^(server|cli)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+            product=${RELEASE_TAG%%-v*}
+            python scripts/fetch-release-manifest.py "$RELEASE_TAG" "$RUNNER_TEMP/aur-manifest"
+            chmod -R a+rX "$RUNNER_TEMP/aur-manifest"
+            runuser -u builder -- python scripts/aur.py --product "$product" --variant bin \
+              --manifest "$RUNNER_TEMP/aur-manifest/downloads.json" --out dist/aur
+          else
+            for product in server cli; do
+              runuser -u builder -- python scripts/aur.py --product "$product" --variant git --out dist/aur
+            done
+          fi
+          for recipe in dist/aur/*; do
+            runuser -u builder -- bash scripts/publish-aur.sh "$recipe"
+          done

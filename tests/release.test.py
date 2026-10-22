@@ -261,5 +261,45 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises(ValueError): release.version(value)
         for value in ('0.1.0','1.2.3-rc.1'): self.assertEqual(release.version(value),value)
 
+    def test_server_release_is_independent_and_merges_with_both_clients(self):
+        server, source = self.released_fixture({'server':'0.1.0'}, 'server-v0.1.0', commit='aaa')
+        args = argparse.Namespace(source=source, destination=self.root/'server-release',
+                                  tag='server-v0.1.0', repository=None, commit='aaa')
+        with patch.object(release, 'package_version', return_value='0.1.0'):
+            release.assemble_server(args)
+        self.assertEqual(len(server['assets']), 2)
+        self.assertEqual(server['catalog']['cli'], [])
+        self.assertEqual((args.destination/'VERSION').read_text(), '0.1.0\n')
+        clients, _ = self.released_fixture(self.versions, 'desktop-v0.1.0', commit='bbb')
+        merged = release.merge_manifests(clients, server)
+        self.assertEqual(merged['versions'], dict(self.versions, server='0.1.0'))
+        self.assertEqual(len(merged['assets']), 23)
+        self.assertEqual(release.merge_manifests(merged, clients), merged)
+        self.assertIn('服务端', release.markdown(self.data, merged))
+        self.assertIn('hireferry-server-bin', release.markdown(self.data, merged))
+        ET.fromstring(release.svg(self.data, merged))
+
+    def test_server_archive_contains_configuration_and_service_without_cli(self):
+        binary = self.root/'hireferry'
+        binary.write_bytes(b'server executable')
+        args = argparse.Namespace(binary=binary, target='x86_64-unknown-linux-gnu',
+                                  version='0.1.0', out=self.root/'server-stage')
+        release.stage_server(args)
+        archive = next(args.out.glob('*.tar.gz'))
+        with release.tarfile.open(archive) as package:
+            names = {name.split('/', 1)[1] for name in package.getnames() if '/' in name}
+            self.assertIn('hireferry', names)
+            self.assertIn('config.example.toml', names)
+            self.assertIn('deploy/hireferry.service', names)
+            self.assertNotIn('hfy', names)
+        self.assertEqual(len(release.verified_inputs(args.out, {archive.name:{}})), 1)
+
+    def test_old_catalogs_remain_readable_without_server(self):
+        old = json.loads(json.dumps(self.data))
+        old.pop('server')
+        release.validate_catalog(old)
+        manifest, _ = self.released_fixture(self.versions, 'desktop-v0.1.0', old)
+        self.assertEqual(release.validate_manifest(manifest), manifest)
+
 
 if __name__=='__main__': unittest.main()

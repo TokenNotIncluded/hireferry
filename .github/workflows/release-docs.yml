@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   update:
-    if: github.event_name != 'release' || ((startsWith(github.event.release.tag_name, 'desktop-v') || startsWith(github.event.release.tag_name, 'cli-v')) && !github.event.release.prerelease)
+    if: github.event_name != 'release' || ((startsWith(github.event.release.tag_name, 'desktop-v') || startsWith(github.event.release.tag_name, 'cli-v') || startsWith(github.event.release.tag_name, 'server-v')) && !github.event.release.prerelease)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -38,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
-          [[ "$RELEASE_TAG" =~ ^(desktop|cli)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          [[ "$RELEASE_TAG" =~ ^(desktop|cli|server)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName > "$RUNNER_TEMP/release-metadata.json"
           gh release download "$RELEASE_TAG" --pattern downloads.json --pattern SHA256SUMS --dir "$RUNNER_TEMP/hfy-downloads"
           python3 - <<'PY'

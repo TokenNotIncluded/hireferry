@@ -1,0 +1,109 @@
+name: Server release
+
+on:
+  push:
+    tags: ['server-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - id: matrix
+        run: echo "value=$(python3 scripts/release.py matrix server)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: targets
+    name: Server ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: server-${{ matrix.target }}
+      - name: Validate version, build and package server
+        env:
+          TARGET: ${{ matrix.target }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [[ "$REF_TYPE" == tag ]]; then test "$REF_NAME" = "server-v$version"; fi
+          rustup target add "$TARGET"
+          cargo build --locked --release -p hireferry --target "$TARGET"
+          "target/$TARGET/release/hireferry" --version
+          python3 scripts/release.py stage-server --target "$TARGET" \
+            --binary "target/$TARGET/release/hireferry" --out dist/server
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-release-${{ matrix.target }}
+          path: dist/server/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/server-v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: server-release-*
+          path: artifacts/server-release
+      - name: Assemble and publish both verified architectures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/release.py assemble-server artifacts/server-release dist/release \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+          state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || printf missing)
+          if [[ "$state" == false ]]; then echo 'Already published; bump the server version.' >&2; exit 1; fi
+          if [[ "$state" == missing ]]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false \
+              --title "HireFerry Server ${RELEASE_TAG#server-v}" --notes-file dist/release/downloads.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/release/* --clobber
+          gh release edit "$RELEASE_TAG" --notes-file dist/release/downloads.md --draft=false --latest=false
+
+  update-docs:
+    needs: publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-docs.yml
+    with:
+      tag: ${{ github.ref_name }}
+
+  update-aur:
+    needs: publish
+    uses: ./.github/workflows/aur.yml
+    secrets: inherit
+    with:
+      tag: ${{ github.ref_name }}

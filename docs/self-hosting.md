@@ -56,7 +56,7 @@ Google、SMTP 和支付网关在开发模板中默认关闭。按需配置并重
 
 ### 构建与安装
 
-CI 的服务端预编译包在 Ubuntu 24.04、x86_64 环境构建。其他架构或运行库环境可以在目标环境构建源码，或使用下方 Docker 方案。
+服务端正式发布矩阵包括 Linux x86_64 与 aarch64，使用 Ubuntu 22.04 构建，要求 glibc 与 OpenSSL 3。Arch Linux 可单独安装 `hireferry-server-bin` 或 `hireferry-server-git`，使用 `/usr/bin/hireferry`；初始化步骤见 [AUR 指南](aur.md)。下面的手动安装使用 `/usr/local/bin/hireferry`。
 
 在仓库根目录执行：
 

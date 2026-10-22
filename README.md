@@ -112,6 +112,8 @@ Tauri 2 桌面版复用系统 WebView，连接官方或自托管站点。Windows
 
 ### 安装 `hfy`
 
+Arch Linux 可用 `yay -S hireferry-cli-bin`，开发版用 `hireferry-cli-git`。自托管服务端单独安装 `hireferry-server-bin` 或 `hireferry-server-git`，详见 [AUR 指南](docs/aur.md)。
+
 Linux / macOS：
 
 ```sh
