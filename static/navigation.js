@@ -36,11 +36,24 @@ function updateNode(current, next) {
 export function reconcileChildren(parent, nextParent) {
   const old = [...parent.childNodes];
   const used = new Set();
-  const keyed = new Map(old.map(node => [elementKey(node), node]).filter(([key]) => key));
+  const keyed = new Map();
+  const unkeyed = new Map();
+  // Index siblings once. Repeatedly scanning the old list for every unkeyed
+  // child makes mixed, long lists quadratic even when their nodes can be kept.
+  for (const node of old) {
+    const key = elementKey(node);
+    if (key) keyed.set(key, node);
+    else {
+      let group = unkeyed.get(node.nodeName);
+      if (!group) unkeyed.set(node.nodeName, group = { nodes: [], index: 0 });
+      group.nodes.push(node);
+    }
+  }
   let position = parent.firstChild;
   for (const next of [...nextParent.childNodes]) {
     const key = elementKey(next);
-    let current = key ? keyed.get(key) : old.find(node => !used.has(node) && !elementKey(node) && node.nodeName === next.nodeName);
+    const group = key ? null : unkeyed.get(next.nodeName);
+    let current = key ? keyed.get(key) : group?.nodes[group.index++];
     if (current && used.has(current)) current = null;
     if (!current) {
       parent.insertBefore(next, position);

@@ -1,6 +1,6 @@
 # `hfy` / 聘渡命令行客户端
 
-包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.1`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
+包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.2`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
 
 服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
 
@@ -23,14 +23,14 @@ irm https://hireferry.lmm.best/install.ps1 | iex
 
 安装后重新打开终端，运行 `hfy --version`。Unix 默认写入 `~/.local/bin/hfy`，需要时为 Bash / Zsh / POSIX shell 的用户配置添加 PATH；Fish 用户按输出提示添加 PATH。Windows 默认写入 `%LOCALAPPDATA%\HireFerry\bin\hfy.exe`，并更新当前用户的 PATH。脚本不进行登录，也不读取凭据。
 
-重复执行同一命令升级。`HFY_VERSION` 可固定版本（如 `0.1.1`），`HFY_INSTALL_DIR` 可指定目录，`HFY_NO_PATH=1` 跳过 PATH 设置。例如：
+重复执行同一命令升级。`HFY_VERSION` 可固定版本（如 `0.1.2`），`HFY_INSTALL_DIR` 可指定目录，`HFY_NO_PATH=1` 跳过 PATH 设置。例如：
 
 ```sh
-curl -fsSL https://hireferry.lmm.best/install.sh | HFY_VERSION=0.1.1 HFY_INSTALL_DIR="$HOME/.local/bin" sh
+curl -fsSL https://hireferry.lmm.best/install.sh | HFY_VERSION=0.1.2 HFY_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 ```powershell
-$env:HFY_VERSION = '0.1.1'
+$env:HFY_VERSION = '0.1.2'
 $env:HFY_INSTALL_DIR = Join-Path $env:LOCALAPPDATA 'HireFerry\bin'
 irm https://hireferry.lmm.best/install.ps1 | iex
 ```
@@ -47,7 +47,13 @@ irm https://hireferry.lmm.best/install.ps1 | iex
 npx skills add TokenNotIncluded/hireferry --skill hireferry
 ```
 
-按提示选择需要的助手。默认只安装到当前项目；加入 `-g` 安装到用户范围。此命令同样适用于 Windows PowerShell。技能教助手使用 `hfy` 登录、检查身份和权限，不会绕过网页确认。安装后重启或重新加载助手，再让它“使用 HireFerry 技能，通过设备码登录并查看当前身份”。
+Windows PowerShell 使用下面的命令，直接调用 Node.js 附带的命令入口：
+
+```powershell
+npx.cmd skills add TokenNotIncluded/hireferry --skill hireferry
+```
+
+按提示选择需要的助手。默认只安装到当前项目；加入 `-g` 安装到用户范围。技能教助手使用 `hfy` 登录、检查身份和权限，不会绕过网页确认。安装后重启或重新加载助手，再让它“使用 HireFerry 技能，通过设备码登录并查看当前身份”。
 
 不使用 Node.js 时，可下载 Release 包，使用随包的技能目录和文末手工安装教程；Unix 可运行 `./scripts/install-skill.sh --global`。CLI 本身不依赖 Node.js。
 
@@ -111,7 +117,7 @@ Linux 系统凭据保存使用 `secret-tool` 连接 Secret Service，适合已�
 ./scripts/package-cli.sh
 ```
 
-默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.1-<target>.tar.gz` （Windows 目标使用 `.zip`）和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
+默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.2-<target>.tar.gz` （Windows 目标使用 `.zip`）和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
 
 也可指定目标或打包已有二进制：
 

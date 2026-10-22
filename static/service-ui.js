@@ -21,6 +21,38 @@ export function messageDateKey(value) {
   return Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
+export function createChatDateFormatter(locale, now = Date.now) {
+  const formats = new Map();
+  const options = {
+    detail: { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' },
+    clock: { hour: '2-digit', minute: '2-digit' },
+    shortDate: { month: 'short', day: 'numeric' },
+    day: { year: 'numeric', month: 'long', day: 'numeric' },
+  };
+  let timeZone;
+  // Resolve the system zone once per update, not once for every message/row.
+  // This also keeps a long-lived tab correct after a system time-zone change.
+  const sync = () => {
+    const next = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (next !== timeZone) { timeZone = next; formats.clear(); }
+    return timeZone;
+  };
+  const format = (value, kind) => {
+    const date = new Date(Number(value) < 1e12 ? Number(value) * 1000 : value);
+    if (Number.isNaN(date.getTime())) return 'Invalid Date';
+    if (timeZone === undefined) sync();
+    const language = locale(), key = `${language}:${kind}`;
+    if (!formats.has(key)) formats.set(key, new Intl.DateTimeFormat(language, { ...options[kind], timeZone }));
+    return formats.get(key).format(date);
+  };
+  return {
+    sync,
+    detail: value => value ? format(value, 'detail') : '',
+    compact: value => value ? format(value, messageDateKey(value) === messageDateKey(now()) ? 'clock' : 'shortDate') : '',
+    day: value => format(value, 'day'),
+  };
+}
+
 export function createServiceUI({ state, api, t, esc, icon, avatar, money, currency, currencies, currencySelect, amountValue, amountStep, date, heading, shell, empty, notice, badge, matchText, openDialog, closeDialog, notify, go, render, centsInput }) {
   let polling = null;
   let generation = 0;
@@ -46,7 +78,8 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   const query = () => new URLSearchParams(location.search);
   const route = (admin, tab, extra = {}) => (admin ? '/admin' : '/app') + '?' + new URLSearchParams({ tab, ...extra });
   const chatUrl = (admin, id) => route(admin, 'messages', { conversation: id });
-  const humanTime = value => value ? new Date(Number(value) < 1e12 ? Number(value) * 1000 : value).toLocaleString(state.lang === 'en' ? 'en-GB' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const chatDates = createChatDateFormatter(() => state.lang === 'en' ? 'en-GB' : 'zh-CN');
+  const humanTime = value => chatDates.detail(value);
   const mandateStatus = value => ({ active: t('寻找中', 'Active'), paused: t('已暂停', 'Paused'), closed: t('已结束', 'Closed') })[value] || value;
   const outreachText = value => ({ identified: t('发现机会', 'Identified'), contacted: t('已联系', 'Contacted'), replied: t('有回复', 'Replied'), interview: t('面试中', 'Interview'), offer: t('收到意向', 'Offer'), closed: t('已结束', 'Closed') })[value] || value;
   const safeLink = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
@@ -63,7 +96,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function saveChatDraft(current = chat) {
-    if (!current?.id || current.owner !== ownerKey() || current.denied) return;
+    if (!current?.id || current.owner !== ownerKey() || current.denied || current.loading) return;
     const textarea = globalThis.document?.querySelector('#chat-body');
     const scroll = globalThis.document?.querySelector('#chat-scroll');
     const previous = chatDrafts.get(current.id) || {};
@@ -74,6 +107,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   function stopChat() {
     syncChatOwner();
     saveChatDraft();
+    chat?.controller?.abort();
     chatCleanup?.(); chatCleanup = null;
     generation += 1;
     workbenchGeneration += 1;
@@ -100,19 +134,76 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function compactTime(value) {
-    if (!value) return '';
-    const d = new Date(Number(value) < 1e12 ? Number(value) * 1000 : value);
-    return d.toLocaleString(state.lang === 'en' ? 'en-GB' : 'zh-CN', messageDateKey(value) === messageDateKey(Date.now()) ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric' });
+    return chatDates.compact(value);
   }
 
-  function conversationList(items, selected, admin) {
+  function conversationView(items, selected, admin, cache = new Map()) {
+    const timeZone = chatDates.sync();
+    const today = messageDateKey(Date.now());
     const filtered = filterConversations(items, conversationSearch, conversationFilter);
-    const groups = [['platform', t('平台沟通', 'WITH HIREFERRY')], ['matched', t('匹配会话', 'INTRODUCTIONS')]];
-    return groups.map(([kind, label]) => {
-      const list = filtered.filter(c => c.kind === kind);
-      if (!list.length) return '';
-      return `<section class="conversation-group"><h3>${label}<span>${list.length}</span></h3>${list.map(c => `<a href="${esc(chatUrl(admin, c.id))}" data-nav class="conversation-item ${c.id === selected ? 'active' : ''} ${c.unread_count ? 'has-unread' : ''}" ${c.id === selected ? 'aria-current="page"' : ''}>${conversationAvatar(c, admin)}<span class="conversation-copy"><span class="conversation-row-top"><strong>${esc(conversationLabel(c))}</strong><time title="${esc(humanTime(c.last_message_at))}">${esc(compactTime(c.last_message_at))}</time></span><span class="conversation-row-bottom"><span class="conversation-preview">${esc(c.last_message_preview || t('还没有消息', 'No messages yet'))}</span>${c.unread_count ? `<span class="unread-badge" aria-label="${Number(c.unread_count)} ${t('条未读消息', 'unread messages')}">${c.unread_count > 99 ? '99+' : Number(c.unread_count)}</span>` : ''}</span></span></a>`).join('')}</section>`;
-    }).join('') || `<div class="conversation-empty">${icon(conversationFilter === 'unread' ? 'check' : 'search')}<strong>${conversationFilter === 'unread' && !conversationSearch ? t('没有未读消息', 'You’re all caught up') : t('没有找到会话', 'No conversations found')}</strong><span>${conversationSearch ? t('试试其他名称或消息关键词。', 'Try another name or message keyword.') : t('收到的新消息会显示在这里。', 'New conversations will appear here.')}</span></div>`;
+    const groups = [], rows = new Map();
+    for (const [kind, label] of [['platform', t('平台沟通', 'WITH HIREFERRY')], ['matched', t('匹配会话', 'INTRODUCTIONS')]]) {
+      const members = filtered.filter(c => c.kind === kind);
+      if (!members.length) continue;
+      const groupRows = members.map(c => {
+        const signature = JSON.stringify([state.lang, timeZone, today, admin, c.id === selected, c.kind, c.title, c.user_id, c.participants, c.last_message_at, c.last_message_preview, c.unread_count]);
+        let row = cache.get(c.id);
+        if (row?.signature !== signature) {
+          const html = `<a href="${esc(chatUrl(admin, c.id))}" data-nav data-conversation-id="${esc(c.id)}" class="conversation-item ${c.id === selected ? 'active' : ''} ${c.unread_count ? 'has-unread' : ''}"${c.id === selected ? ' aria-current="page"' : ''}>${conversationAvatar(c, admin)}<span class="conversation-copy"><span class="conversation-row-top"><strong>${esc(conversationLabel(c))}</strong><time title="${esc(humanTime(c.last_message_at))}">${esc(compactTime(c.last_message_at))}</time></span><span class="conversation-row-bottom"><span class="conversation-preview">${esc(c.last_message_preview || t('还没有消息', 'No messages yet'))}</span>${c.unread_count ? `<span class="unread-badge" aria-label="${Number(c.unread_count)} ${t('条未读消息', 'unread messages')}">${c.unread_count > 99 ? '99+' : Number(c.unread_count)}</span>` : ''}</span></span></a>`;
+          row = { id: c.id, signature, html }; cache.set(c.id, row);
+        }
+        rows.set(c.id, row); return row;
+      });
+      groups.push({ kind, label, rows: groupRows });
+    }
+    const known = new Set(items.map(item => item.id));
+    for (const id of cache.keys()) if (!known.has(id)) cache.delete(id);
+    const html = groups.map(group => `<section class="conversation-group" data-conversation-group="${group.kind}"><h3>${group.label}<span>${group.rows.length}</span></h3>${group.rows.map(row => row.html).join('')}</section>`).join('') || `<div class="conversation-empty">${icon(conversationFilter === 'unread' ? 'check' : 'search')}<strong>${conversationFilter === 'unread' && !conversationSearch ? t('没有未读消息', 'You’re all caught up') : t('没有找到会话', 'No conversations found')}</strong><span>${conversationSearch ? t('试试其他名称或消息关键词。', 'Try another name or message keyword.') : t('收到的新消息会显示在这里。', 'New conversations will appear here.')}</span></div>`;
+    return { html, groups, rows };
+  }
+
+  function patchConversationList(list, before, next) {
+    if (!next.groups.length || !list.querySelectorAll || !document.createElement) { list.innerHTML = next.html; return; }
+    const oldGroups = new Map([...list.querySelectorAll('[data-conversation-group]')].map(node => [node.dataset.conversationGroup, node]));
+    const oldRows = new Map([...list.querySelectorAll('[data-conversation-id]')].map(node => [node.dataset.conversationId, node]));
+    const usedGroups = new Set(), usedRows = new Set();
+    const scrollTop = list.scrollTop;
+    const template = document.createElement('template');
+    let groupPosition = list.firstChild;
+    for (const group of next.groups) {
+      let section = oldGroups.get(group.kind);
+      if (!section) {
+        section = document.createElement('section'); section.className = 'conversation-group'; section.dataset.conversationGroup = group.kind;
+        section.innerHTML = `<h3>${group.label}<span>${group.rows.length}</span></h3>`;
+      }
+      usedGroups.add(section);
+      if (section !== groupPosition) list.insertBefore(section, groupPosition);
+      groupPosition = section.nextSibling;
+      const heading = section.firstElementChild;
+      if (heading.firstChild.nodeValue !== group.label) heading.firstChild.nodeValue = group.label;
+      if (heading.lastElementChild.textContent !== String(group.rows.length)) heading.lastElementChild.textContent = String(group.rows.length);
+      let rowPosition = heading.nextSibling;
+      for (const row of group.rows) {
+        let element = oldRows.get(row.id);
+        if (!element || before?.rows.get(row.id)?.html !== row.html) {
+          template.innerHTML = row.html;
+          const replacement = template.content.firstElementChild;
+          if (!element) element = replacement;
+          else {
+            for (const attribute of [...element.attributes]) if (!replacement.hasAttribute(attribute.name)) element.removeAttribute(attribute.name);
+            for (const attribute of [...replacement.attributes]) if (element.getAttribute(attribute.name) !== attribute.value) element.setAttribute(attribute.name, attribute.value);
+            // The link itself retains focus; only this changed row's non-interactive children change.
+            element.replaceChildren(...replacement.childNodes);
+          }
+        }
+        usedRows.add(element);
+        if (element !== rowPosition) section.insertBefore(element, rowPosition);
+        rowPosition = element.nextSibling;
+      }
+    }
+    for (const element of oldRows.values()) if (!usedRows.has(element)) element.remove();
+    for (const element of [...list.children]) if (!usedGroups.has(element)) element.remove();
+    list.scrollTop = scrollTop;
   }
 
   function messageHtml(m, admin) {
@@ -122,10 +213,11 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function messagesHtml(items, admin, previousDate = '') {
+    chatDates.sync();
     let day = previousDate;
     return (items || []).map(message => {
       const key = messageDateKey(message.created_at);
-      const separator = key && key !== day ? `<div class="chat-date" data-date="${esc(key)}"><span>${key === messageDateKey(Date.now()) ? t('今天', 'Today') : esc(new Date(Number(message.created_at) < 1e12 ? Number(message.created_at) * 1000 : message.created_at).toLocaleDateString(state.lang === 'en' ? 'en-GB' : 'zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }))}</span></div>` : '';
+      const separator = key && key !== day ? `<div class="chat-date" data-date="${esc(key)}"><span>${key === messageDateKey(Date.now()) ? t('今天', 'Today') : esc(chatDates.day(message.created_at))}</span></div>` : '';
       day = key;
       return separator + messageHtml(message, admin);
     }).join('');
@@ -172,7 +264,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const privacy = room.kind === 'matched' ? t('仅匹配双方与平台可见。平台私聊记录不会转入这里。', 'Only the matched parties and HireFerry can see this room. Private platform history stays separate.') : current.admin ? t('仅这位用户与平台可见，不向匹配方共享。', 'Only this user and HireFerry can see this conversation. It is never shared with a match.') : t('仅你与聘渡团队可见', 'Only you and HireFerry can see this conversation');
     const readOnly = room.writable === false;
     const disabled = readOnly || current.loading;
-    const draft = chatDrafts.get(current.id)?.body || '';
+    const draft = current.loading ? '' : chatDrafts.get(current.id)?.body || '';
     return `<header class="chat-thread-header"><button type="button" class="icon-button chat-back" data-chat-back aria-label="${t('返回会话列表', 'Back to conversations')}">${icon('back')}</button>${conversationAvatar(room, current.admin)}<div class="chat-thread-title"><h2>${esc(conversationLabel(room))}</h2><p>${readOnly ? t('历史会话 · 只读', 'Archived conversation · read-only') : room.kind === 'matched' ? t('匹配双方与聘渡团队', 'An introduction with HireFerry') : t('一对一沟通 · 持续跟进', 'Private conversation · Ongoing support')}</p></div>${chatContextLink(room, current.admin)}</header><div class="chat-privacy">${icon('shield')}<span>${privacy}</span></div><div class="chat-scroll" id="chat-scroll" tabindex="0" aria-label="${t('聊天记录', 'Conversation history')}" aria-busy="${current.loading}"><button type="button" class="chat-history text-button" data-action="chat-older" ${current.hasOlder ? '' : 'hidden'}>${t('加载更早的消息', 'Load earlier messages')}</button><div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="${t('消息', 'Messages')}">${current.loading ? chatPlaceholder() : current.messages?.length ? messagesHtml(current.messages, current.admin) : chatWelcome(room, current.admin)}</div></div><button type="button" data-action="chat-latest" class="chat-new-message" hidden>${t('有新消息 · 回到最新', 'New messages · Jump to latest')} ↓</button><form data-form="chat" class="chat-composer"><div class="chat-composer-surface"><label class="sr-only" for="chat-body">${t('写一条消息', 'Write a message')}</label><textarea id="chat-body" name="body" rows="2" maxlength="10000" required ${disabled ? 'disabled' : ''} placeholder="${esc(readOnly ? t('此会话已归档', 'This conversation is archived') : t('写下你的想法…', 'Write a message…'))}">${esc(draft)}</textarea><div class="chat-composer-footer"><span class="chat-keyboard-hint">${t('换行 Enter · 发送 Ctrl / ⌘ Enter', 'Enter for a new line · Ctrl / ⌘ Enter to send')}</span><button class="button small" type="submit" ${disabled ? 'disabled' : ''}>${t('发送', 'Send')}${icon('send')}</button></div></div><div class="chat-composer-status"><span id="chat-connection" class="help" role="status">${readOnly ? t('此会话已归档，仅供查看历史。', 'This room is archived. Its history is read-only.') : current.loading ? t('正在加载消息…', 'Loading messages…') : t('消息会自动更新', 'Messages update automatically')}</span><span>${t('仅本会话可见', 'Private to this conversation')}</span></div></form>`;
   }
 
@@ -208,9 +300,75 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (requestGeneration !== generation || owner !== ownerKey()) return '';
     const result = prepared?.result;
     const messages = result?.items || [];
-    chat = { id: selected, admin, items, current: room, owner, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation };
+    chat = { id: selected, admin, items, current: room, owner, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation, hasMore: !!result?.has_more, language: state.lang, location: (admin ? '/admin' : '/app') + location.search, rowCache: new Map(), controller: new AbortController() };
+    chat.listSnapshot = conversationView(items, selected, admin, chat.rowCache);
     const unread = items.reduce((count, item) => count + Number(item.unread_count || 0), 0);
-    return shell(`<section class="chat-workspace ${requested && query().get('view') !== 'list' ? 'thread-selected' : ''}" aria-label="${t('消息工作台', 'Conversation workspace')}"><aside class="conversation-sidebar"><div class="conversation-sidebar-heading"><div><span class="inbox-eyebrow">${t('保持联系', 'STAY IN TOUCH')}</span><h1>${t('消息', 'Inbox')}<span class="inbox-count">${items.length}</span></h1></div><span class="inbox-heading-icon">${icon('message')}</span></div><div class="conversation-tools"><label class="conversation-search">${icon('search')}<input id="conversation-search" type="search" value="${esc(conversationSearch)}" placeholder="${esc(t(admin ? '搜索近期会话' : '搜索会话', admin ? 'Search recent conversations' : 'Search conversations'))}" aria-label="${t('按名称或消息搜索会话', 'Search conversations by name or message')}" autocomplete="off"></label><div class="conversation-filters" aria-label="${t('会话筛选', 'Conversation filters')}"><button type="button" data-chat-filter="all" aria-pressed="${conversationFilter === 'all'}">${t('全部', 'All')}</button><button type="button" data-chat-filter="unread" aria-pressed="${conversationFilter === 'unread'}">${t('未读', 'Unread')}<span data-chat-unread-count ${unread ? '' : 'hidden'}>${unread > 99 ? '99+' : unread}</span></button></div></div><div id="conversation-list">${conversationList(items, selected, admin)}</div><div class="conversation-sidebar-note">${icon('shield')}<span>${admin ? t('显示近期会话，按关键词筛选', 'Search within recent conversations') : t('每一段对话，都单独保密', 'Every conversation stays separate')}</span></div></aside><section class="chat-thread" data-page-key="conversation:${esc(selected || '')}" aria-label="${t('消息内容', 'Messages')}">${chatThread(chat)}</section></section>`, 'messages', admin);
+    return shell(`<section class="chat-workspace ${requested && query().get('view') !== 'list' ? 'thread-selected' : ''}" aria-label="${t('消息工作台', 'Conversation workspace')}"><aside class="conversation-sidebar"><div class="conversation-sidebar-heading"><div><span class="inbox-eyebrow">${t('保持联系', 'STAY IN TOUCH')}</span><h1>${t('消息', 'Inbox')}<span class="inbox-count">${items.length}</span></h1></div><span class="inbox-heading-icon">${icon('message')}</span></div><div class="conversation-tools"><label class="conversation-search">${icon('search')}<input id="conversation-search" type="search" value="${esc(conversationSearch)}" placeholder="${esc(t(admin ? '搜索近期会话' : '搜索会话', admin ? 'Search recent conversations' : 'Search conversations'))}" aria-label="${t('按名称或消息搜索会话', 'Search conversations by name or message')}" autocomplete="off"></label><div class="conversation-filters" aria-label="${t('会话筛选', 'Conversation filters')}"><button type="button" data-chat-filter="all" aria-pressed="${conversationFilter === 'all'}">${t('全部', 'All')}</button><button type="button" data-chat-filter="unread" aria-pressed="${conversationFilter === 'unread'}">${t('未读', 'Unread')}<span data-chat-unread-count ${unread ? '' : 'hidden'}>${unread > 99 ? '99+' : unread}</span></button></div></div><div id="conversation-list">${chat.listSnapshot.html}</div><div class="conversation-sidebar-note">${icon('shield')}<span>${admin ? t('显示近期会话，按关键词筛选', 'Search within recent conversations') : t('每一段对话，都单独保密', 'Every conversation stays separate')}</span></div></aside><section class="chat-thread" data-page-key="conversation:${esc(selected || '')}" aria-label="${t('消息内容', 'Messages')}">${chatThread(chat)}</section></section>`, 'messages', admin);
+  }
+
+  function navigateChat(next, { onlyIfChanged = false } = {}) {
+    const previous = chat;
+    const workspace = document.querySelector('.chat-workspace');
+    const thread = document.querySelector('.chat-thread');
+    const pathname = previous?.admin ? '/admin' : '/app';
+    if (!previous?.mounted || !previous.historyReady || previous.loading || previous.error || previous.denied ||
+        previous.owner !== ownerKey() || previous.language !== state.lang || state.bootstrap ||
+        !workspace || !thread || next.pathname !== pathname || next.hash ||
+        (previous.admin && next.searchParams.get('tab') !== 'messages') ||
+        (next.searchParams.get('tab') && next.searchParams.get('tab') !== 'messages') ||
+        [...next.searchParams.keys()].some(key => !['tab', 'conversation', 'view'].includes(key))) return null;
+    const target = next.pathname + next.search;
+    if (onlyIfChanged && previous.location === target) return null;
+    const listOnly = next.searchParams.get('view') === 'list';
+    const requested = next.searchParams.get('conversation');
+    const selected = requested || (listOnly ? previous.id : previous.admin ? previous.id : 'platform_' + state.user.id);
+    const room = previous.items.find(item => item.id === selected);
+    if (!room) return null;
+    workspace.classList.toggle('thread-selected', !!requested && !listOnly);
+    if (selected === previous.id) {
+      previous.location = target;
+      // This is only a view change. Keep the message nodes, draft, scroll and poll controller.
+      return Promise.resolve();
+    }
+    stopChat();
+    const controller = new AbortController();
+    const current = chat = {
+      id: selected, admin: previous.admin, items: previous.items, current: room, owner: previous.owner,
+      cursor: 0, first: 0, hasOlder: false, hasMore: false, seen: new Set(), messages: [], lastDate: '',
+      historyReady: false, loading: true, language: state.lang, location: target, page: generation, controller,
+      rowCache: previous.rowCache, listSnapshot: previous.listSnapshot, listElement: previous.listElement, listHtml: previous.listHtml,
+    };
+    // Previously displayed metadata may supply the heading. History always needs a new authorized read.
+    current.pending = api(`/api/chat/conversations/${encodeURIComponent(selected)}/messages?limit=100`, { fresh: true, signal: controller.signal, group: `chat:${generation}` }).then(result => ({ result }), error => ({ error }));
+    thread.setAttribute('data-page-key', `conversation:${selected}`);
+    thread.innerHTML = chatThread(current);
+    refreshConversationList(current);
+    const ready = mountChat();
+    // A slow index must not hold up the selected room. The current room is checked again if omitted.
+    void refreshChatIndex(current).catch(error => {
+      if (chat === current && current.owner === ownerKey() && !current.denied && [401, 403, 404].includes(error.status)) setChatAccess(current, error);
+    });
+    return ready;
+  }
+
+  async function refreshChatIndex(current, result) {
+    const valid = () => chat === current && current.page === generation && current.owner === ownerKey() && !current.denied;
+    const index = result || await api('/api/chat/conversations', { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+    if (!valid()) return;
+    const items = [...(index.items || [])];
+    let selected = items.find(item => item.id === current.id);
+    if (!selected) {
+      selected = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+      if (!selected || selected.id !== current.id) throw Object.assign(new Error(t('这个会话当前不可访问。', 'This conversation is not available.')), { status: 404 });
+      items.unshift(selected);
+    }
+    if (!valid()) return;
+    if (current.historyReady && chatIsVisible()) selected.unread_count = 0;
+    current.current = selected; current.items = items;
+    refreshConversationList(current);
+    document.querySelectorAll('.chat-composer textarea,.chat-composer button').forEach(element => { element.disabled = current.loading || selected.writable === false || element.getAttribute('aria-busy') === 'true'; });
+    const status = document.querySelector('#chat-connection');
+    if (status && selected.writable === false) status.textContent = t('此会话已归档，仅供查看历史。', 'This room is archived. Its history is read-only.');
   }
 
   function scrollLatest() {
@@ -221,11 +379,11 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   async function markRead(current) {
-    if (!current?.id || !current.cursor || current.readCursor >= current.cursor || !chatIsVisible()) return;
+    if (!current?.id || chat !== current || current.page !== generation || current.owner !== ownerKey() || current.denied || !current.cursor || current.readCursor >= current.cursor || !chatIsVisible()) return;
     const cursor = current.cursor;
     await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/read`, { method: 'POST', body: { message_id: cursor } });
     current.readCursor = cursor;
-    if (chat === current && chatIsVisible()) {
+    if (chat === current && current.page === generation && current.owner === ownerKey() && !current.denied && chatIsVisible()) {
       const selected = current.items.find(item => item.id === current.id);
       if (selected?.unread_count) { selected.unread_count = 0; refreshConversationList(current); }
     }
@@ -236,9 +394,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function appendMessages(current, messages, forceScroll = false) {
+    if (chat !== current || current.page !== generation || current.owner !== ownerKey() || current.denied) return;
     const container = document.querySelector('#chat-messages');
     const scroll = document.querySelector('#chat-scroll');
-    if (!container || !scroll || chat !== current) return;
+    if (!container || !scroll) return;
     const nearBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 150;
     const fresh = (messages || []).filter(m => !current.seen.has(m.id));
     if (!fresh.length) return;
@@ -257,19 +416,24 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   function refreshConversationList(current) {
     const list = document.querySelector('#conversation-list');
     if (!list) return;
-    const html = conversationList(current.items, current.id, current.admin);
-    if (list.innerHTML !== html) list.innerHTML = html;
+    const next = conversationView(current.items, current.id, current.admin, current.rowCache);
+    if (current.listElement !== list || current.listHtml !== next.html) {
+      patchConversationList(list, current.listSnapshot, next);
+      current.listElement = list; current.listHtml = next.html;
+    }
+    current.listSnapshot = next;
     const total = document.querySelector('.inbox-count'); if (total) total.textContent = String(current.items.length);
     const badge = document.querySelector('[data-chat-unread-count]');
     if (badge) { const unread = current.items.reduce((count, item) => count + Number(item.unread_count || 0), 0); badge.textContent = unread > 99 ? '99+' : String(unread); badge.hidden = !unread; }
   }
 
   function setChatAccess(current, error) {
-    if (chat !== current) return;
+    if (chat !== current || current.page !== generation || current.owner !== ownerKey()) return;
     current.loading = false;
     const denied = [401, 403, 404].includes(error.status);
     if (denied) {
-      current.denied = true;
+      current.denied = true; current.controller?.abort();
+      current.messages = []; current.seen.clear(); current.sentMessages = [];
       chatDrafts.delete(current.id); pendingMessages.delete(current.id);
       if (current.current) current.current.writable = false;
       current.items = current.items.filter(item => item.id !== current.id);
@@ -319,8 +483,9 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (!current) return;
     bindChatControls(current);
     if (!current.id || !document.querySelector('#chat-scroll')) return;
+    current.mounted = true;
     const activeGeneration = generation;
-    const valid = () => generation === activeGeneration && chat === current && current.owner === ownerKey();
+    const valid = () => generation === activeGeneration && chat === current && current.owner === ownerKey() && !current.denied;
     const restorePosition = () => {
       const saved = chatDrafts.get(current.id);
       const scroll = document.querySelector('#chat-scroll');
@@ -328,42 +493,46 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       else scrollLatest();
     };
     const poll = async () => {
-      if (!valid() || current.denied) return;
+      if (!valid()) return;
+      let catchingUp = false;
       try {
         if (!document.hidden) {
-          const initial = !current.historyReady;
-          const [messages, index] = await Promise.all([
-            api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?${initial ? '' : `after=${current.cursor}&`}limit=100`, { fresh: true }),
-            api('/api/chat/conversations', { fresh: true }),
-          ]);
-          if (!valid()) return;
-          const items = [...(index.items || [])];
-          let selected = items.find(c => c.id === current.id);
-          if (!selected) {
-            selected = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}`, { fresh: true });
-            if (!selected || selected.id !== current.id) throw Object.assign(new Error(t('这个会话当前不可访问。', 'This conversation is not available.')), { status: 404 });
-            items.unshift(selected);
+          // The index updates independently; new authorized messages need not wait for it.
+          const index = refreshChatIndex(current).then(() => null, error => {
+            if (valid() && [401, 403, 404].includes(error.status)) setChatAccess(current, error);
+            return error;
+          });
+          for (let page = 0; page < 4 && valid() && !document.hidden; page++) {
+            const initial = !current.historyReady, cursor = current.cursor;
+            const messages = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?${initial ? '' : `after=${cursor}&`}limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+            if (!valid()) return;
+            if (current.error) { current.error = null; const container = document.querySelector('#chat-messages'); if (container && !current.seen.size) container.innerHTML = chatWelcome(current.current, current.admin); }
+            if (initial) {
+              current.first = messages.first_cursor || messages.items?.[0]?.id || 0;
+              current.hasOlder = !!messages.has_older;
+              const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
+              const textarea = document.querySelector('#chat-body'); if (textarea) textarea.value = chatDrafts.get(current.id)?.body || '';
+              document.querySelector('#chat-scroll')?.setAttribute?.('aria-busy', 'false');
+            }
+            current.historyReady = true; current.loading = false;
+            appendMessages(current, messages.items);
+            current.cursor = Math.max(current.cursor, messages.next_cursor || 0);
+            catchingUp = !!messages.has_more && current.cursor > cursor;
+            current.hasMore = catchingUp;
+            if (!catchingUp) break;
+            // Bound one burst to four pages, and yield a task between pages for input/paint.
+            if (page < 3) await new Promise(resolve => setTimeout(resolve, 0));
           }
+          const indexError = await index;
           if (!valid()) return;
-          if (chatIsVisible()) selected.unread_count = 0;
-          current.current = selected; current.items = items;
-          if (current.error) { current.error = null; const container = document.querySelector('#chat-messages'); if (container && !current.seen.size) container.innerHTML = chatWelcome(selected, current.admin); }
-          if (initial) {
-            current.first = messages.first_cursor || messages.items?.[0]?.id || 0;
-            current.hasOlder = !!messages.has_older;
-            const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
-          }
-          current.historyReady = true;
-          appendMessages(current, messages.items);
-          current.cursor = Math.max(current.cursor, messages.next_cursor || 0);
-          refreshConversationList(current);
+          if (indexError) throw indexError;
           const status = document.querySelector('#chat-connection');
-          if (status) status.textContent = selected.writable === false ? t('此会话已归档，仅供查看历史。', 'This room is archived. Its history is read-only.') : t('消息已同步', 'Messages are up to date');
-          document.querySelectorAll('.chat-composer textarea,.chat-composer button').forEach(element => { element.disabled = selected.writable === false || element.getAttribute('aria-busy') === 'true'; });
+          if (status) status.textContent = current.current?.writable === false ? t('此会话已归档，仅供查看历史。', 'This room is archived. Its history is read-only.') : catchingUp ? t('正在同步新消息…', 'Syncing new messages…') : t('消息已同步', 'Messages are up to date');
+          document.querySelectorAll('.chat-composer textarea,.chat-composer button').forEach(element => { element.disabled = current.current?.writable === false || element.getAttribute('aria-busy') === 'true'; });
           await markRead(current);
         }
-      } catch (error) { if (valid()) { current.error = error; setChatAccess(current, error); } }
-      finally { if (valid() && !current.denied) polling = setTimeout(poll, 5000); }
+      } catch (error) { catchingUp = false; if (valid()) { current.error = error; setChatAccess(current, error); } }
+      finally { if (valid()) polling = setTimeout(poll, catchingUp ? 250 : 5000); }
     };
     const start = async () => {
       if (current.loading) {
@@ -377,11 +546,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
           current.sentMessages = [];
           current.seen = new Set(current.messages.map(message => message.id));
           current.cursor = result.next_cursor || 0; current.first = result.first_cursor || current.messages[0]?.id || 0;
-          current.hasOlder = !!result.has_older; current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
+          current.hasOlder = !!result.has_older; current.hasMore = !!result.has_more; current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
           const container = document.querySelector('#chat-messages');
           if (container) container.innerHTML = current.messages.length ? messagesHtml(current.messages, current.admin) : chatWelcome(current.current, current.admin);
           const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
           document.querySelector('#chat-scroll')?.setAttribute?.('aria-busy', 'false');
+          const textarea = document.querySelector('#chat-body'); if (textarea) textarea.value = chatDrafts.get(current.id)?.body || '';
           document.querySelectorAll('.chat-composer textarea,.chat-composer button').forEach(element => { element.disabled = current.current?.writable === false; });
           const status = document.querySelector('#chat-connection'); if (status) status.textContent = current.current?.writable === false ? t('此会话已归档，仅供查看历史。', 'This room is archived. Its history is read-only.') : t('消息已同步', 'Messages are up to date');
         }
@@ -404,7 +574,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     let message;
     try { message = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages`, { method: 'POST', body: { body, client_id } }); }
     catch (error) {
-      const visible = chat?.id === current.id && chat.owner === current.owner && current.owner === ownerKey() ? chat : null;
+      const visible = chat?.id === current.id && chat.owner === current.owner && current.owner === ownerKey() && chat.page === generation && !chat.denied ? chat : null;
       if (visible) {
         if ([401, 403, 404].includes(error.status)) setChatAccess(visible, error);
         else { const status = document.querySelector('#chat-connection'); if (status) status.textContent = t('未发送 · 草稿已保留，可以重试', 'Not sent · Your draft is kept. Try again.'); }
@@ -416,7 +586,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const saved = chatDrafts.get(current.id); if (saved?.body.trim() === body) saved.body = '';
     // A route refresh may have remounted this same room while the write completed.
     // Clear only its unchanged draft, and apply the receipt to the currently visible room.
-    const visible = chat?.id === current.id && chat.owner === current.owner ? chat : null;
+    const visible = chat?.id === current.id && chat.owner === current.owner && chat.page === generation && !chat.denied ? chat : null;
     if (!visible) return;
     const textarea = document.querySelector('#chat-body');
     if (!textarea) return;
@@ -432,11 +602,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
 
   async function olderMessages() {
     const current = chat;
-    if (!current?.first || !current.hasOlder || current.loadingOlder) return;
+    const valid = () => chat === current && current.page === generation && current.owner === ownerKey() && !current.denied;
+    if (!current?.first || !current.hasOlder || current.loadingOlder || !valid()) return;
     current.loadingOlder = true;
     try {
-      const result = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?before=${current.first}&limit=100`, { fresh: true });
-      if (chat !== current) return;
+      const result = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?before=${current.first}&limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+      if (!valid()) return;
       const scroll = document.querySelector('#chat-scroll');
       const container = document.querySelector('#chat-messages');
       if (!scroll || !container) return;
@@ -450,7 +621,13 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       current.first = result.first_cursor || current.first; current.hasOlder = !!result.has_older;
       const button = document.querySelector('[data-action="chat-older"]'); if (button) button.hidden = !current.hasOlder;
       scroll.scrollTop = oldTop + scroll.scrollHeight - oldHeight;
-    } catch (error) { if ([401, 403, 404].includes(error.status)) setChatAccess(current, error); throw error; }
+    } catch (error) {
+      // Navigating away intentionally cancels this read; it is not a failure
+      // to toast over the newly selected conversation.
+      if (!valid() || current.controller.signal.aborted) return;
+      if ([401, 403, 404].includes(error.status)) setChatAccess(current, error);
+      throw error;
+    }
     finally { current.loadingOlder = false; }
   }
 
@@ -1005,5 +1182,5 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     return shell(`${heading(t('让平台 AI，协助每次连接。', 'Give your platform AI a clear role.'), t('独立的管理员授权，用于平台业务与跟进。', 'Separate administrator authorization for service operations and follow-ups.'), '', 'PLATFORM AI')}<section class="panel"><div class="panel-header"><div><h2>${t('平台业务访问令牌', 'Platform business access token')}</h2><p>${t('与求职者、招聘方的个人令牌分开管理。', 'Managed separately from job seekers’ and employers’ personal tokens.')}</p></div><span class="pill">${icon('shield')} ADMIN MCP</span></div>${notice(t('此令牌可管理用户资料、岗位、匹配、委托、寻找记录和平台消息，并查看订单统计。它代表平台发言，AI 发送的消息会明确标记。', 'This token can manage profiles, roles, introductions, search briefs, outreach records, and platform messages, and read order statistics. It speaks for HireFerry; AI messages are clearly labeled.'))}<div class="field"><label>${t('MCP 服务地址', 'MCP server URL')}</label><div class="code-box">${esc(location.origin)}/mcp</div></div><p class="help">${t('使用 HTTP 连接，并将令牌作为 Authorization: Bearer 请求头。系统配置与通行密钥管理不对 AI 开放。', 'Connect over HTTP with an Authorization: Bearer header. System configuration and passkey management are not available to AI.')}</p><form data-form="admin-token" class="token-create-form"><div class="field"><label for="admin-token-name">${t('连接名称', 'Connection name')}</label><input class="input" id="admin-token-name" name="name" maxlength="80" required placeholder="${esc(t('例如：平台招聘助手', 'For example: Platform hiring assistant'))}"></div><button class="button secondary" type="submit">${icon('plus')}${t('创建平台令牌', 'Create platform token')}</button></form><div class="token-reauth"><p class="help">${t('创建令牌需要在最近 10 分钟内完成通行密钥验证。', 'Creating a token requires a passkey check within the last 10 minutes.')}</p><button class="text-button" data-action="admin-reauth">${icon('key')}${t('重新验证通行密钥', 'Verify passkey again')}</button></div><div id="new-token"></div></section><section class="panel"><div class="panel-header"><h2>${t('已授权的平台 AI', 'Authorized platform AI')}</h2></div>${d.items?.length ? `<div class="list">${d.items.map(k => `<div class="list-row"><div><h3>${esc(k.name)}</h3><div class="list-meta"><span>${t('创建于', 'Created')} ${date(k.created_at)}</span><span>${t('到期', 'Expires')} ${date(k.expires_at)}</span><span>${t('最近使用', 'Last used')} ${date(k.last_used_at)}</span></div></div><button class="text-button" data-action="revoke-admin-token" data-id="${esc(k.id)}">${t('立即撤销', 'Revoke now')}</button></div>`).join('')}</div>` : empty(t('尚未授权平台 AI。', 'No platform AI is authorized yet.'), t('为可信的助手单独创建令牌，并妥善保管。', 'Create a separate token for a trusted assistant and keep it private.'), '', 'bot')}</section>`, 'agents', true);
   }
 
-  return { messagesPage, mountChat, stopChat, showPendingChat, sendMessage, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
+  return { messagesPage, mountChat, stopChat, showPendingChat, navigateChat, sendMessage, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
 }

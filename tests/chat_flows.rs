@@ -238,6 +238,120 @@ fn recent_record_capacity_returns_latest_items_without_hiding_known_conversation
 }
 
 #[test]
+fn batched_conversations_match_single_room_metadata_for_each_reader() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let stranger = f.user("seeker");
+    let admin = f.admin();
+    let (matched, _) = f.matched(&seeker, &employer);
+    let (other_match, _) = f.matched(&stranger, &employer);
+    let room = format!("match_{matched}");
+    let other_room = format!("match_{other_match}");
+    {
+        let db = f.state.conn().unwrap();
+        db.execute(
+            "UPDATE users SET name='求职者',avatar='stored-avatar' WHERE id=?1",
+            [uid(&seeker)],
+        )
+        .unwrap();
+        db.execute("UPDATE users SET name='' WHERE id=?1", [uid(&employer)])
+            .unwrap();
+    }
+    send(&f, &seeker, &platform(&seeker), "Private question");
+    send(&f, &admin, &platform(&seeker), "Private answer");
+    send(&f, &seeker, &room, "Shared question");
+    let reply = send(&f, &employer, &room, "Shared answer");
+    let latest = send(&f, &admin, &room, &"聘渡🛶".repeat(80));
+    chat::mark_read(&f.state, &seeker, &room, reply["id"].as_i64().unwrap()).unwrap();
+    // Include an empty match and private room, and deterministic timestamp ties.
+    for reader in [&seeker, &employer, &stranger, &admin] {
+        chat::list_conversations(&f.state, reader).unwrap();
+    }
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE chat_conversations SET updated_at=100", [])
+        .unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE chat_conversations SET updated_at=200 WHERE id=?1",
+            [&room],
+        )
+        .unwrap();
+    for reader in [&seeker, &employer, &stranger, &admin] {
+        let page = chat::list_conversations(&f.state, reader).unwrap();
+        let rows = items(&page);
+        for row in rows {
+            assert_eq!(
+                *row,
+                chat::get_conversation(&f.state, reader, row["id"].as_str().unwrap()).unwrap()
+            );
+        }
+        let mut expected = rows
+            .iter()
+            .map(|row| {
+                (
+                    row["updated_at"].as_i64().unwrap(),
+                    row["id"].as_str().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        expected.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
+        assert_eq!(
+            rows.iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected.iter().map(|(_, id)| *id).collect::<Vec<_>>()
+        );
+        if reader.user_id == seeker.user_id {
+            assert!(!rows.iter().any(|row| row["id"] == other_room));
+            let shared = rows.iter().find(|row| row["id"] == room).unwrap();
+            assert_eq!(shared["unread_count"], 1);
+            assert_eq!(shared["last_message_id"], latest["id"]);
+            assert_eq!(
+                shared["last_message_preview"]
+                    .as_str()
+                    .unwrap()
+                    .chars()
+                    .count(),
+                180
+            );
+            assert_eq!(
+                shared["participants"][0]["avatar"],
+                format!("/api/avatars/{}", uid(&seeker))
+            );
+        }
+    }
+    let empty = chat::get_conversation(&f.state, &admin, &other_room).unwrap();
+    assert_eq!(empty["last_message_id"], 0);
+    assert_eq!(empty["last_message_preview"], "");
+    assert!(empty["last_message_at"].is_null());
+    assert_eq!(empty["unread_count"], 0);
+
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=1 WHERE id=?1", [uid(&seeker)])
+        .unwrap();
+    assert!(chat::list_conversations(&f.state, &seeker).is_err());
+    let admin_page = chat::list_conversations(&f.state, &admin).unwrap();
+    for id in [platform(&seeker), room] {
+        let archived = items(&admin_page)
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap();
+        assert_eq!(archived["writable"], false);
+        assert_eq!(
+            *archived,
+            chat::get_conversation(&f.state, &admin, &id).unwrap()
+        );
+    }
+}
+
+#[test]
 fn platform_threads_are_unique_private_and_lazily_created_only_after_authorization() {
     let f = Fixture::new();
     let seeker = f.user("seeker");
@@ -440,6 +554,10 @@ fn revoked_matches_disappear_for_members_but_administrators_keep_read_only_histo
         assert!(!items(&chat::messages(&f.state, &admin, &id, 0, 100).unwrap()).is_empty());
         let list = chat::list_conversations(&f.state, &admin).unwrap();
         assert_eq!(
+            items(&list).iter().find(|v| v["id"] == id).unwrap(),
+            &chat::get_conversation(&f.state, &admin, &id).unwrap()
+        );
+        assert_eq!(
             items(&list).iter().find(|v| v["id"] == id).unwrap()["writable"],
             false
         );
@@ -483,6 +601,20 @@ fn messages_are_idempotent_per_sender_and_body_rendering_rejects_active_markup()
     assert!(platform_reply["sender_id"].is_null());
     assert_eq!(first["sender_id"], uid(&seeker));
     assert_eq!(first["via_ai"], false);
+    let history = chat::messages(&f.state, &seeker, &id, -1, 100).unwrap();
+    assert_eq!(
+        items(&history),
+        &vec![first.clone(), platform_reply.clone()]
+    );
+    let earlier = chat::messages_before(
+        &f.state,
+        &admin,
+        &id,
+        platform_reply["id"].as_i64().unwrap(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(items(&earlier), &vec![first.clone()]);
     let unicode = "聘".repeat(10000);
     assert!(chat::send_message(&f.state, &seeker, &id, message(&unicode)).is_ok());
     assert_eq!(

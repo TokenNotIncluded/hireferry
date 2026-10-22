@@ -169,6 +169,12 @@ Linux / macOS 的配置目录为 `$XDG_CONFIG_HOME/hireferry`，未设置时为 
 npx skills add TokenNotIncluded/hireferry --skill hireferry -a codex
 ```
 
+Windows PowerShell：
+
+```powershell
+npx.cmd skills add TokenNotIncluded/hireferry --skill hireferry -a codex
+```
+
 默认安装到当前项目的 `.agents/skills/hireferry`；加 `-g` 安装到用户级目录，可用于多个项目。项目技能升级使用 `npx skills update hireferry -p`，移除使用 `npx skills remove hireferry -a codex`；用户级升级和移除分别使用 `update hireferry -g` 与 `remove hireferry -a codex -g`。安装器当前要求 Node.js 22.20 或以上，见 [Skills CLI](https://github.com/vercel-labs/skills)。
 
 不用 Node.js 时，在目标项目中运行 `/path/to/hireferry/scripts/install-skill.sh`；升级加 `--force`，移除加 `--uninstall`。脚本默认拒绝覆盖，支持 `--global`、`--dest`，并尊重显式设置的 `CODEX_HOME`。目录规则与完整命令见 [技能安装说明](docs/cli.md#安装升级与移除-agent-skill)。技能先检查 `hfy 0.1.x`、身份与能力，不会自动提升权限。
@@ -405,7 +411,7 @@ HumanGrant lets a member review the AI identity, choose permissions and expiry, 
 
 The production origin is `https://hireferry.lmm.best`, with support at `support@lmm.best`. Both gateways return to `/billing/return`; a redirect never confirms payment. Waffo payment and refund events are verified and settled transactionally, with successful refunds deducted by their own cash-flow date. The application does not initiate refunds or process Stripe refund/dispute notifications. Member-owned outbound HTTPS webhooks provide permission-checked event notifications; only the member's signed-in browser can manage their destinations and signing secrets.
 
-The separate `hireferry-cli` Rust package installs `hfy`. Use `hfy auth login`, or select `--device` / `--oauth`, then query `hfy whoami`, `hfy capabilities`, or `hfy auth status`. Login defaults to identity access only; member MCP and administrator access require an explicit scope and browser consent. Access tokens default to 15 minutes, with rotating refresh credentials valid for up to 30 days. Use `hfy auth refresh` or `hfy auth logout`, and manage connections at `/oauth/connections`. Add `--json` for machine-readable stdout; prompts go to stderr and credentials are never printed. Linux is locally validated; macOS and Windows paths still need native acceptance. See [the CLI guide](docs/cli.md) for configuration, storage, installation, upgrade, removal and local package checksums. Install the included Agent Skill with `npx skills add TokenNotIncluded/hireferry --skill hireferry -a codex`.
+The separate `hireferry-cli` Rust package installs `hfy`. Use `hfy auth login`, or select `--device` / `--oauth`, then query `hfy whoami`, `hfy capabilities`, or `hfy auth status`. Login defaults to identity access only; member MCP and administrator access require an explicit scope and browser consent. Access tokens default to 15 minutes, with rotating refresh credentials valid for up to 30 days. Use `hfy auth refresh` or `hfy auth logout`, and manage connections at `/oauth/connections`. Add `--json` for machine-readable stdout; prompts go to stderr and credentials are never printed. Linux is locally validated; macOS and Windows paths still need native acceptance. See [the CLI guide](docs/cli.md) for configuration, storage, installation, upgrade, removal and local package checksums. Install the included Agent Skill with `npx skills add TokenNotIncluded/hireferry --skill hireferry -a codex`. On Windows PowerShell, use `npx.cmd` instead of `npx`.
 
 Live Google, SMTP with Reply-To, physical authenticators, merchant checkout/refunds, native browser WebMCP and independently operated webhook/AI integrations require deployment-specific acceptance tests. The referenced external production handoff files were not available in this environment; no merchant IDs, products or credentials were inferred. Copy verified values into the protected TOML on the deployment machine. See [deployment handoff](docs/deployment-handoff.md), [API and MCP](docs/api.md), [acceptance](docs/acceptance.md), [authentication](docs/auth.md), [HumanGrant](docs/humangrant.md), [payments](docs/payments.md) and [member webhooks](docs/webhooks.md).
 

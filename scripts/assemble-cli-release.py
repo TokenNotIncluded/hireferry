@@ -24,7 +24,10 @@ def assemble(source, destination):
         archive = folder/name
         actual = hashlib.sha256(archive.read_bytes()).hexdigest()
         checksums = (folder/'SHA256SUMS').read_text().splitlines()
-        assert checksums == [actual+'  '+name], f'Invalid checksums for {target}'
+        # GNU checksum files use a space for text mode or '*' for binary mode.
+        # Git Bash on Windows defaults to the latter; both identify the same bytes.
+        checksum = re.fullmatch(r'([0-9a-fA-F]{64}) [ *]' + re.escape(name), checksums[0]) if len(checksums) == 1 else None
+        assert checksum and checksum[1].lower() == actual, f'Invalid checksums for {target}'
         shutil.copyfile(archive, destination/name)
         lines.append(actual+'  '+name)
     (destination/'SHA256SUMS').write_text('\n'.join(sorted(lines))+'\n')
