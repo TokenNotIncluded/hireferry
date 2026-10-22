@@ -777,6 +777,37 @@ fn access_row(
 ) -> AppResult<Option<(String, Option<String>, bool, i64, bool)>> {
     Ok(db.query_row("SELECT family_id,token_id,admin,expires_at,revoked FROM cli_tokens WHERE token_hash=?1",[hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?)
 }
+
+/// Identity-only CLI grants may submit feedback but do not gain MCP/business
+/// privileges. Resolve and recheck the family on every request.
+pub(crate) fn feedback_identity(
+    db: &Connection,
+    cfg: &Config,
+    raw: &str,
+) -> AppResult<(bool, Option<String>)> {
+    let (family_id, token_id, admin, expires, revoked) = access_row(db, &auth::hash_token(raw))?
+        .ok_or_else(|| AppError::unauthorized("A valid CLI connection is required"))?;
+    let family = family(db, &family_id)?
+        .ok_or_else(|| AppError::unauthorized("Client authorization expired or revoked"))?;
+    if revoked
+        || expires <= now()
+        || family.revoked
+        || family.expires_at <= now()
+        || family.client_id != cfg.cli_auth.client_id
+        || !underlying_active(db, token_id.as_deref(), admin, true)?
+        || family.admin != admin
+    {
+        return Err(AppError::unauthorized(
+            "Client authorization expired or revoked",
+        ));
+    }
+    Scopes::parse(&family.scope)
+        .map_err(|_| AppError::unauthorized("Invalid CLI authorization scope"))?
+        .validate(cfg)
+        .map_err(|_| AppError::forbidden("CLI authorization is not enabled"))?;
+    check_identity(db, family.user_id.as_deref(), family.admin)?;
+    Ok((admin, family.user_id))
+}
 fn underlying_active(
     db: &Connection,
     id: Option<&str>,

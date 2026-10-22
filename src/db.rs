@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 10 {
+    if version > 11 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -136,11 +136,19 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 9)?;
         tx.commit()?;
     }
-    // Schema 10: isolated human staff roles and single-use invitation hashes.
+    // Version 10 adds short-lived reports without modifying finance tables.
     if version < 10 {
         let tx = db.unchecked_transaction()?;
-        crate::staff::migrate(&tx)?;
+        crate::feedback::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 10)?;
+        tx.commit()?;
+    }
+    // Schema 11: isolated human staff roles and one-time invitation hashes.
+    // Schema 10 is reserved for bounded feedback and remains unchanged.
+    if version < 11 {
+        let tx = db.unchecked_transaction()?;
+        crate::staff::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 11)?;
         tx.commit()?;
     }
     Ok(())

@@ -329,7 +329,7 @@ try {
     await page.goto(`${origin}/oauth/connections`);
     const button = page.locator('#connections .connection button').first();
     await button.waitFor({ state: 'visible' });
-    const dates = await page.locator('#connections .connection .hint').first().textContent();
+    const dates = await page.locator('#connections .connection-meta').first().textContent();
     check(!dates.includes('1970') && dates.includes(String(new Date().getFullYear())), 'Connection dates were not rendered from Unix seconds');
     const [revoked] = await Promise.all([
       page.waitForResponse(response => new URL(response.url()).pathname.startsWith('/api/cli/connections/') && response.request().method() === 'DELETE'),
