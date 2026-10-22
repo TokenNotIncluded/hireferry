@@ -9,7 +9,7 @@ Usage: package-cli.sh [--target TRIPLE] [--out-dir PATH]
 
 Without --binary, build hireferry-cli with cargo --release --locked.
 Package hfy, LICENSE, CLI docs, the Agent Skill and its manual installer.
-Write a tar.gz and SHA256SUMS. Existing archives are not overwritten.
+Write tar.gz (Unix) or zip (Windows) and SHA256SUMS. Existing archives are not overwritten.
 EOF
 }
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -50,7 +50,9 @@ fi
 mkdir -p -- "$out_dir"
 out_dir=$(cd -- "$out_dir" && pwd -P)
 name=hireferry-cli-$version-$target
-archive=$out_dir/$name.tar.gz
+extension=tar.gz
+[[ $target != *windows* ]] || extension=zip
+archive=$out_dir/$name.$extension
 [[ ! -e $archive && ! -L $archive ]] || fail 'The archive already exists; choose a new output directory'
 [[ ! -L $out_dir/SHA256SUMS ]] || fail 'SHA256SUMS must not be a symbolic link'
 stage=$(mktemp -d "$out_dir/.hfy-package.XXXXXXXX")
@@ -75,12 +77,26 @@ if command -v git >/dev/null 2>&1 && git rev-parse --verify HEAD >/dev/null 2>&1
     printf 'source_dirty=false\n' >> "$package/BUILD-INFO.txt"
   fi
 fi
-tar -czf "$stage/package.tar.gz" -C "$stage" "$name"
-ln -- "$stage/package.tar.gz" "$archive"
+if [[ $extension == zip ]]; then
+  python_cmd=python3
+  command -v "$python_cmd" >/dev/null 2>&1 || python_cmd=python
+  "$python_cmd" - "$package" "$stage/package.zip" <<'PY'
+from pathlib import Path
+import sys, zipfile
+root=Path(sys.argv[1])
+with zipfile.ZipFile(sys.argv[2], 'x', compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(root.rglob('*')):
+        if path.is_file(): archive.write(path, path.relative_to(root.parent).as_posix())
+PY
+else
+  tar -czf "$stage/package.tar.gz" -C "$stage" "$name"
+fi
+ln -- "$stage/package.$extension" "$archive"
 chmod 644 "$archive"
 (
   cd -- "$out_dir"
-  for item in hireferry-cli-*.tar.gz; do
+  for item in hireferry-cli-*.tar.gz hireferry-cli-*.zip; do
+    [[ -e $item || -L $item ]] || continue
     [[ -f $item && ! -L $item ]] || fail 'Checksum input must be a regular archive'
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$item"
     elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$item"

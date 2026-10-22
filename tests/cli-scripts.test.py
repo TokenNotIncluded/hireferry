@@ -7,6 +7,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import zipfile
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -157,6 +158,18 @@ class CliScripts(unittest.TestCase):
         (output / "SHA256SUMS").symlink_to(outside)
         self.run_script("package-cli.sh", "--binary", binary, "--target", "x86_64-unknown-linux-gnu", "--out-dir", output, ok=False)
         self.assertEqual(outside.read_text(), "untouched")
+
+    def test_windows_package_is_a_native_zip_with_executable_and_skill(self):
+        binary = self.prepare_package()
+        output = self.base / "windows packages"
+        self.run_script("package-cli.sh", "--binary", binary, "--target", "aarch64-pc-windows-msvc", "--out-dir", output)
+        archive = next(output.glob("*.zip"))
+        with zipfile.ZipFile(archive) as handle:
+            prefix = "hireferry-cli-0.1.0-aarch64-pc-windows-msvc/"
+            self.assertEqual(handle.read(prefix + "hfy.exe"), binary.read_bytes())
+            self.assertIn(prefix + "skills/hireferry/SKILL.md", handle.namelist())
+            self.assertFalse(any("config.toml" in name for name in handle.namelist()))
+        self.assertEqual((output / "SHA256SUMS").read_text().split(), [hashlib.sha256(archive.read_bytes()).hexdigest(), archive.name])
 
 
 if __name__ == "__main__":

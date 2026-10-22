@@ -21,6 +21,7 @@ pub struct Config {
     pub webhooks: Webhooks,
     pub legal: crate::legal::Legal,
     pub cli_auth: CliAuth,
+    pub cli_distribution: CliDistribution,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -41,7 +42,44 @@ impl Default for Config {
             webhooks: Webhooks::default(),
             legal: crate::legal::Legal::default(),
             cli_auth: CliAuth::default(),
+            cli_distribution: CliDistribution::default(),
         }
+    }
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CliDistribution {
+    pub release_repository: String,
+    pub release_tag_prefix: String,
+}
+impl Default for CliDistribution {
+    fn default() -> Self {
+        Self {
+            release_repository: "TokenNotIncluded/hireferry".into(),
+            release_tag_prefix: "cli-v".into(),
+        }
+    }
+}
+impl CliDistribution {
+    pub fn validate(&self) -> AppResult<()> {
+        let parts: Vec<_> = self.release_repository.split('/').collect();
+        let safe = |s: &str| {
+            !s.is_empty()
+                && s.len() <= 100
+                && s.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+                && !matches!(s, "." | "..")
+        };
+        if parts.len() != 2
+            || !parts.iter().all(|part| safe(part))
+            || !safe(&self.release_tag_prefix)
+        {
+            return Err(AppError::bad_request(
+                "Invalid CLI release repository or tag prefix",
+            ));
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Deserialize)]
@@ -480,6 +518,7 @@ impl Config {
         Ok(cfg)
     }
     pub fn validate(&self) -> AppResult<()> {
+        self.cli_distribution.validate()?;
         let hg = &self.humangrant;
         if !(60..=3600).contains(&hg.request_ttl_seconds)
             || !(60..=86_400).contains(&hg.max_grant_seconds)

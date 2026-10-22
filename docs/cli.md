@@ -6,6 +6,64 @@
 
 ## 安装、升级与卸载
 
+
+### 一键安装（推荐）
+
+网站托管的安装脚本会检测操作系统和 x64 / ARM64 架构，从 GitHub Release 下载匹配的包并校验 SHA-256。无需 Rust、Node.js 或管理员权限。
+
+```sh
+# Linux / macOS
+curl -fsSL https://hireferry.lmm.best/install.sh | sh
+```
+
+```powershell
+# Windows PowerShell
+irm https://hireferry.lmm.best/install.ps1 | iex
+```
+
+安装后重新打开终端，运行 `hfy --version`。Unix 默认写入 `~/.local/bin/hfy`，需要时为 Bash / Zsh / POSIX shell 的用户配置添加 PATH；Fish 用户按输出提示添加 PATH。Windows 默认写入 `%LOCALAPPDATA%\HireFerry\bin\hfy.exe`，并更新当前用户的 PATH。脚本不进行登录，也不读取凭据。
+
+重复执行同一命令升级。`HFY_VERSION` 可固定版本（如 `0.1.0`），`HFY_INSTALL_DIR` 可指定目录，`HFY_NO_PATH=1` 跳过 PATH 设置。例如：
+
+```sh
+curl -fsSL https://hireferry.lmm.best/install.sh | HFY_VERSION=0.1.0 HFY_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+```powershell
+$env:HFY_VERSION = '0.1.0'
+$env:HFY_INSTALL_DIR = Join-Path $env:LOCALAPPDATA 'HireFerry\bin'
+irm https://hireferry.lmm.best/install.ps1 | iex
+```
+
+脚本还支持 `HFY_RELEASE_REPO` 和 `HFY_TAG_PREFIX` 覆盖下载来源；自托管站点通过服务端 `[cli_distribution]` 配置默认来源和标签前缀。默认标签为 `cli-v<版本>`。所有资产在确定版本后使用固定标签下载，校验不匹配时保留现有程序。
+
+卸载前用 `hfy auth logout` 退出每个站点，再删除安装目录内的 `hfy` / `hfy.exe`；从用户 PATH 或 shell 配置中移除对应目录。不要把客户端配置目录当作程序安装目录删除。
+
+### 安装 Agent Skill（跨平台）
+
+安装 [Node.js 22.20+](https://github.com/vercel-labs/skills)，在项目目录执行：
+
+```sh
+npx skills add TokenNotIncluded/hireferry --skill hireferry
+```
+
+按提示选择需要的助手。默认只安装到当前项目；加入 `-g` 安装到用户范围。此命令同样适用于 Windows PowerShell。技能教助手使用 `hfy` 登录、检查身份和权限，不会绕过网页确认。安装后重启或重新加载助手，再让它“使用 HireFerry 技能，通过设备码登录并查看当前身份”。
+
+不使用 Node.js 时，可下载 Release 包，使用随包的技能目录和文末手工安装教程；Unix 可运行 `./scripts/install-skill.sh --global`。CLI 本身不依赖 Node.js。
+
+### 自动多平台发布
+
+`.github/workflows/cli-release.yml` 在推送 `cli-v*` 标签后为 Linux / macOS / Windows 的 x64、ARM64 分别进行原生测试、构建和安装脚本冒烟验证，全部通过后才发布 GitHub Release。Linux 使用静态 musl 包；Unix 为 `.tar.gz`，Windows 为 `.zip`。Release 提供六个包、汇总 `SHA256SUMS` 和 `VERSION`，供网站安装脚本读取。
+
+维护者先修改 `crates/hireferry-cli/Cargo.toml` 的版本，提交并推送，再创建对应标签：
+
+```sh
+git tag cli-v<版本>
+git push origin cli-v<版本>
+```
+
+`workflow_dispatch` 可只构建当前分支的六平台包；在已有 CLI 标签上运行才进入发布步骤。已发布版本不会覆盖，修改后须升级版本。Actions 成功只能证明对应 runner 的构建、测试和安装检查，不能代替用户真实设备的钥匙环或浏览器授权验收。
+
 ### 从源码安装
 
 使用仓库指定的 Rust 工具链，在仓库根目录执行：
@@ -43,7 +101,7 @@ cargo uninstall hireferry-cli
 
 Linux 系统凭据保存使用 `secret-tool` 连接 Secret Service，适合已有桌面钥匙环的环境。没有可用钥匙环的服务器可用私有文件。手工技能安装和打包脚本使用 Bash，可在 Linux、macOS 或具备 Bash 的环境运行；Windows 原生界面尚未实测。
 
-仓库 CI 定义了 Linux、macOS 和 Windows 的客户端构建、测试及压缩包上传任务。是否完成以及是否有可下载的 Actions artifact，应查看对应提交的运行结果；这些任务不会发布 GitHub Release，运行定义也不代表原生钥匙环已经实测。
+仓库 CI 定义了 Linux、macOS 和 Windows 的客户端构建、测试及压缩包上传任务。是否完成以及是否有可下载的 Actions artifact，应查看对应提交的运行结果；日常 CI 任务上传 Actions artifact；另有 `CLI release` 工作流在 CLI 标签推送后发布 GitHub Release。工作流定义本身不代表构建已成功或原生钥匙环已经实测。
 
 ### 本地二进制包与校验
 
@@ -53,7 +111,7 @@ Linux 系统凭据保存使用 `secret-tool` 连接 Secret Service，适合已�
 ./scripts/package-cli.sh
 ```
 
-默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.0-<target>.tar.gz` 和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
+默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.0-<target>.tar.gz` （Windows 目标使用 `.zip`）和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
 
 也可指定目标或打包已有二进制：
 

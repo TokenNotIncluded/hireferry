@@ -94,6 +94,31 @@
 
 ## 官方命令行客户端 `hfy`
 
+
+[网站安装与技能教程](https://hireferry.lmm.best/cli) · [GitHub Releases](https://github.com/TokenNotIncluded/hireferry/releases/latest)
+
+Linux / macOS（x64、ARM64 自动识别）：
+
+```sh
+curl -fsSL https://hireferry.lmm.best/install.sh | sh
+```
+
+Windows PowerShell（x64、ARM64 自动识别）：
+
+```powershell
+irm https://hireferry.lmm.best/install.ps1 | iex
+```
+
+脚本下载最新 CLI Release，校验 SHA-256，再安装到用户目录；无需管理员权限、Rust 或 Node.js。重新运行同一命令即可升级。Linux/macOS 默认目录为 `~/.local/bin`；Windows 为 `%LOCALAPPDATA%\HireFerry\bin`。修改用户 PATH 后重新打开终端。
+
+技能安装适用于 Linux、macOS、Windows。先安装 [Node.js 22.20 或更高版本](https://github.com/vercel-labs/skills)，然后在项目目录运行：
+
+```sh
+npx skills add TokenNotIncluded/hireferry --skill hireferry
+```
+
+按提示选择 Codex、Claude Code、Cursor 等使用的助手；加 `-g` 可供所有项目使用。技能不会替你批准账户授权。随后运行 `hfy auth login --oauth`；远程终端用 `hfy auth login --device`。
+
 `hireferry-cli` 是独立的 Rust 客户端包，安装后使用 `hfy` 命令。它通过 HTTPS 连接已部署的聘渡，不需要服务端数据库、TOML 配置或 Google secret。现有 `hireferry` 命令继续负责启动服务、初始化管理员和备份。
 
 在仓库中安装客户端：
@@ -108,7 +133,7 @@ hfy auth refresh
 hfy auth logout
 ```
 
-更新源码后可用 `cargo install --path crates/hireferry-cli --locked --force` 升级；先退出各站点登录，再用 `cargo uninstall hireferry-cli` 卸载。需要二进制压缩包时运行 `./scripts/package-cli.sh`，脚本会生成带文档和技能的本地包及 `SHA256SUMS`，不会自动发布 Release。
+更新源码后可用 `cargo install --path crates/hireferry-cli --locked --force` 升级；先退出各站点登录，再用 `cargo uninstall hireferry-cli` 卸载。需要二进制压缩包时运行 `./scripts/package-cli.sh`，脚本会生成带文档和技能的本地包及 `SHA256SUMS`，本地打包本身不发布 Release；推送 `cli-v<版本>` 标签后，`CLI release` 工作流自动为六个平台构建、测试并发布 Release。
 
 也可直接从 Git 构建，不要求 crates.io 已发布此包：
 

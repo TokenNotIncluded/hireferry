@@ -173,3 +173,9 @@ rate_limit_requests = 100
 rate_limit_window_seconds = 300
 max_user_code_attempts = 30
 max_pending_grants = 1000
+
+
+# Public installer source. Both hosted scripts and the CLI guide use these values.
+[cli_distribution]
+release_repository = "TokenNotIncluded/hireferry"
+release_tag_prefix = "cli-v"

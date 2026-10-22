@@ -5,6 +5,7 @@ pub mod api;
 pub mod auth;
 pub mod chat;
 pub mod cli_auth;
+pub mod cli_distribution;
 pub mod commerce;
 pub mod config;
 pub mod db;
@@ -113,6 +114,7 @@ pub fn app(state: AppState) -> Router {
         .merge(auth::routes())
         .merge(humangrant::routes())
         .merge(cli_auth::routes())
+        .merge(cli_distribution::routes())
         .merge(api::routes())
         .merge(legal::routes())
         .merge(admin::routes())

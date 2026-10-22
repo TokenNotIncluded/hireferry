@@ -1,0 +1,130 @@
+name: CLI release
+
+on:
+  push:
+    tags: ['cli-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  build:
+    name: Package ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install Linux static linker
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          {
+            echo 'CC=musl-gcc'
+            echo 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc'
+            echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc'
+          } >> "$GITHUB_ENV"
+
+      - name: Install Rust target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+
+      - name: Validate version and tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' crates/hireferry-cli/Cargo.toml | head -n 1)
+          if [[ "$REF_TYPE" == tag ]]; then test "$REF_NAME" = "cli-v$version"; fi
+
+      - name: Build and test native client
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo test --locked -p hireferry-cli --target "$TARGET"
+          cargo build --locked --release -p hireferry-cli --target "$TARGET"
+          binary="target/$TARGET/release/hfy"
+          if [[ "$TARGET" == *windows* ]]; then binary="$binary.exe"; fi
+          "$binary" --version
+          ./scripts/package-cli.sh --binary "$binary" --target "$TARGET" --out-dir dist/hfy
+
+      - name: Smoke test Unix one-line installer
+        if: runner.os != 'Windows'
+        run: HFY_INSTALLER_PACKAGE_DIR="$PWD/dist/hfy" python3 tests/cli-installers.test.py
+
+      - name: Smoke test Windows PowerShell installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/cli-installer-windows.ps1 -PackageDirectory ./dist/hfy
+
+      - name: Upload archive and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-release-${{ matrix.target }}
+          path: dist/hfy/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish complete CLI release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/cli-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cli-release-*
+          path: artifacts/cli-release
+
+      - name: Assemble and verify all six packages
+        run: python3 scripts/assemble-cli-release.py artifacts/cli-release dist/release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || printf missing)
+          if [[ "$state" == false ]]; then echo 'This release is already published; bump the CLI version.' >&2; exit 1; fi
+          if [[ "$state" == missing ]]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "HireFerry CLI ${RELEASE_TAG#cli-v}" --notes-file docs/cli-release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
