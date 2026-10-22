@@ -3,7 +3,7 @@ use crate::{
     AppError, AppResult, AppState,
     access::{self, Principal},
     admin, api, chat, chat_capabilities, chat_stream, commerce, feedback, humangrant,
-    humangrant_access, models, workbench,
+    humangrant_access, models, relation_views, workbench,
 };
 use axum::{
     Json, Router,
@@ -689,6 +689,7 @@ pub fn admin_tools() -> Vec<Value> {
         ),
     ];
     result.extend(conversation_tools(true));
+    result.extend(relation_views::tools());
     result
 }
 
@@ -762,6 +763,14 @@ fn take_string(args: &mut Value, key: &str, required: bool) -> AppResult<Option<
 
 pub async fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> AppResult<Value> {
     access::ensure_active(&*s.conn()?, p)?;
+    if name.starts_with("hf_") {
+        let (state, principal, tool) = (s.clone(), p.clone(), name.to_owned());
+        return tokio::task::spawn_blocking(move || {
+            relation_views::call(&state, &principal, &tool, args)
+        })
+        .await
+        .map_err(AppError::internal)?;
+    }
     match name {
         "get_site_config" => return Ok(api::public_config(s)),
         "get_chat_capabilities" => {

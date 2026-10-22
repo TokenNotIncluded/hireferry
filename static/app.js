@@ -19,6 +19,7 @@ import { createControlsUI } from './controls.js';
 import { createFinanceUI } from './finance-ui.js';
 import { createPeopleJobsUI } from './people-jobs-ui.js';
 import { syncPageMetadata } from './seo.js';
+import { createRelationTools } from './relation-webmcp.js';
 import { createWebMCPOwner } from './webmcp-lifecycle.js';
 
 let humanGrantModule;
@@ -317,8 +318,9 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
   const requestIdentity=identityOf(state);
   const write=method!=='GET',identityChange=write&&authMutation(path);
   const changesProfile=write&&(path==='/api/profile'||path.startsWith('/api/profile/'));
-  // Read receipts and idempotent room creation do not invalidate unrelated navigation reads.
-  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&path!=='/api/markdown';
+  // Graph queries and presentation state never mutate people, jobs or introductions.
+  // Like read receipts, they must not invalidate unrelated navigation reads on every interaction.
+  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&!path.startsWith('/api/admin/relations/')&&path!=='/api/markdown';
   if(identityChange)invalidateIdentity();else if(changesData){requests.invalidate();state.eligibility=null;}
   if(changesProfile)sessionReader.invalidate();
   try {
@@ -1037,9 +1039,9 @@ window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView(
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
 
 const webMCPOwner=createWebMCPOwner();
-let webMCPEligibilityRead=null,webMCPEpoch=0;
+let webMCPEligibilityRead=null,webMCPEpoch=0,relationWebMCPOwner;
 const webMCPIdentity=(value=state)=>JSON.stringify([identityOf(value),!!value.admin,!!value.owner,value.staffRole||value.staff_role||null,value.user?.role||null,!!value.user?.banned]);
-function clearWebMCPCatalog() {webMCPEpoch++;void webMCPOwner.clear();}
+function clearWebMCPCatalog() {webMCPEpoch++;void webMCPOwner.clear();void relationWebMCPOwner?.clear();}
 function invalidateWebMCP() {webMCPEligibilityRead=null;clearWebMCPCatalog();}
 function registerWebMCP({refreshEligibility=false}={}) {
   const context=document.modelContext||navigator.modelContext;
@@ -1060,6 +1062,15 @@ function registerWebMCP({refreshEligibility=false}={}) {
   const epoch=webMCPEpoch;
   const isCurrent=()=>webMCPEpoch===epoch&&webMCPIdentity()===scope&&(state.admin||state.eligibility?.eligible!==false);
   void webMCPOwner.sync({scope,tools:webMCPTools(()=>isCurrent()&&webMCPOwner.isCurrent(scope)),isCurrent});
+  if(state.admin&&relationPageActive()&&root.querySelector('.people-jobs-workspace')){
+    relationWebMCPOwner ||= createRelationTools({api:(path,options={})=>api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}})});
+    void relationWebMCPOwner.sync({scope,isCurrent:()=>isCurrent()&&state.admin&&relationPageActive()});
+  }else void relationWebMCPOwner?.clear();
+}
+function relationPageActive() {
+  if(location.pathname!=='/admin')return false;
+  const query=qs(),tab=query.get('tab');
+  return ['users','jobs'].includes(tab)||(tab==='matches'&&!['search','followups'].includes(query.get('view'))&&!query.has('job')&&!query.has('candidate'));
 }
 function webMCPTools(isCurrent) {
   const tools=[];
