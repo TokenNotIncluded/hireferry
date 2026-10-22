@@ -69,6 +69,32 @@ impl AuthService {
         };
         Ok(Self { webauthn, mailer })
     }
+
+    pub(crate) fn smtp_enabled(&self) -> bool {
+        self.mailer.is_some()
+    }
+
+    /// Only the passkey-authenticated owner may request this mail via staff routes.
+    pub(crate) async fn send_staff_invitation(
+        &self, config: &Config, email: &str, link: &str,
+    ) -> AppResult<()> {
+        let mailer = self.mailer.as_ref()
+            .ok_or_else(|| AppError::unavailable("SMTP is not configured"))?;
+        let mut builder = Message::builder()
+            .from(config.smtp.from.parse().map_err(AppError::internal)?)
+            .to(email.parse().map_err(AppError::internal)?)
+            .subject("聘渡 HireFerry · 团队经理邀请 / Manager invitation")
+            .header(ContentType::TEXT_PLAIN);
+        if !config.smtp.reply_to.is_empty() {
+            builder = builder.reply_to(config.smtp.reply_to.parse().map_err(AppError::internal)?);
+        }
+        let message = builder.body(format!(
+            "你收到了一份聘渡团队经理邀请。请使用收件邮箱登录并在 7 天内接受：\n{link}\n\n             You are invited to join the HireFerry team as a manager. Sign in with this email and accept within 7 days:\n{link}\n\n             如果你不认识邀请人，请忽略此邮件。不要转发邀请链接。\n             If unexpected, ignore this email. Do not forward the invitation link."
+        )).map_err(AppError::internal)?;
+        mailer.send(message).await
+            .map_err(|_| AppError::unavailable("Could not deliver the staff invitation email"))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -431,20 +457,19 @@ fn session_response(
 async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Response> {
     let Some(s) = session(&state, &headers)? else {
         return Ok(
-            Json(json!({"user":null,"admin":false,"bootstrap":false,"csrf":null})).into_response(),
+            Json(json!({"user":null,"admin":false,"bootstrap":false,"staff_role":null,"csrf":null})).into_response(),
         );
     };
-    let user = if let Some(id) = &s.user_id {
-        let db = state
-            .db
-            .lock()
-            .map_err(|_| AppError::internal("Database lock failed"))?;
-        serde_json::to_value(crate::models::load_user(&db, id)?)?
+    let (user, staff_role) = if let Some(id) = &s.user_id {
+        let db = state.conn()?;
+        (serde_json::to_value(crate::models::load_user(&db, id)?)?,
+         crate::staff::active_role(&db, id)?)
     } else {
-        Value::Null
+        (Value::Null, None)
     };
     Ok(
-        Json(json!({"user":user,"admin":s.admin,"bootstrap":s.bootstrap,"csrf":s.csrf}))
+        Json(json!({"user":user,"admin":s.admin,"bootstrap":s.bootstrap,
+                    "staff_role":staff_role,"csrf":s.csrf}))
             .into_response(),
     )
 }
@@ -455,7 +480,7 @@ struct EmailStart {
     email: String,
 }
 
-fn normalized_email(value: &str) -> AppResult<String> {
+pub(crate) fn normalized_email(value: &str) -> AppResult<String> {
     if value.contains(['\r', '\n']) {
         return Err(AppError::bad_request("Enter a valid email address"));
     }
