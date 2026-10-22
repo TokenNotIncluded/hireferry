@@ -3,6 +3,7 @@ use crate::{AppResult, config::Config};
 pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/",
     "/cli",
+    "/downloads",
     "/humangrant",
     "/contact",
     "/refunds",
@@ -84,6 +85,14 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
         ("/cli", true) => (
             "hfy CLI and AI skill installation",
             "Install the HireFerry hfy CLI, sign in, inspect account permissions and connect your AI assistant. Available for Linux, macOS and Windows.",
+        ),
+        ("/downloads", false) => (
+            "软件下载与安装",
+            "下载 HireFerry 已正式发布的命令行工具和服务端软件，查看平台、架构、版本与校验值，以及桌面和移动客户端的发布状态。",
+        ),
+        ("/downloads", true) => (
+            "Software downloads and installation",
+            "Download released HireFerry CLI and server packages. Check platforms, architectures, versions, checksums and desktop or mobile release availability.",
         ),
         ("/humangrant", false) => (
             "HumanGrant 人类辅助登录",
@@ -214,6 +223,34 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                 escape(&cfg.public_url),
                 escape(&cfg.public_url)
             ),
+            "/downloads" => {
+                let catalog: serde_json::Value =
+                    serde_json::from_str(include_str!("../static/downloads.json"))?;
+                let links = catalog["assets"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|asset| {
+                        format!(
+                            "<li><a href=\"{}\">{}</a> · {} · {} · {}</li>",
+                            escape(asset["url"].as_str().unwrap_or_default()),
+                            escape(asset["name"].as_str().unwrap_or_default()),
+                            escape(asset["platform"].as_str().unwrap_or_default()),
+                            escape(asset["architecture"].as_str().unwrap_or_default()),
+                            escape(asset["version"].as_str().unwrap_or_default())
+                        )
+                    })
+                    .collect::<String>();
+                format!(
+                    "<h1>{title}</h1><p>{description}</p><h2>{}</h2><ul>{links}</ul><p>{}</p><p><a href=\"/cli\">{}</a></p>",
+                    t("已发布的软件包", "Released packages"),
+                    t(
+                        "桌面、Android 和 iOS 客户端尚未正式发布。工程构建和模拟器产物不属于正式安装包。",
+                        "Desktop, Android and iOS clients are not formally released yet. Engineering builds and simulator artifacts are not release packages."
+                    ),
+                    t("CLI 安装与登录说明", "CLI installation and sign-in guide")
+                )
+            }
             "/refunds" => format!(
                 "<h1>{title}</h1><p>{description}</p><h2>{}</h2><p>{}</p><p>{}</p>{}",
                 t("如何提出退款问题", "How to ask about a refund"),

@@ -1,4 +1,5 @@
 import { renderCliGuide } from './cli-guide.js';
+import { renderDownloads, mountDownloads } from './downloads.js';
 import { mountCliGuide, copyCliCommand } from './cli-motion.js';
 import { createPublicConfigCache, samePublicConfig } from './browser-cache.js';
 import { animateContentRefresh } from './content-refresh.js';
@@ -259,7 +260,7 @@ let sessionKnown=false;
 const configCache = createPublicConfigCache(() => api('/api/config',{fresh:true}));
 const cachedConfig = configCache.peek();
 if(cachedConfig){applyConfig(cachedConfig);state.configCached=true;}
-const publicPages = new Set(['/','/cli','/contact','/refunds']);
+const publicPages = new Set(['/','/cli','/downloads','/contact','/refunds']);
 function applyConfig(config) {
   state.config=config;state.configCached=false;
   if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
@@ -272,6 +273,7 @@ function updatePageMetadata() {
 function publicBody(path) {
   if(path==='/')return home();
   if(path==='/cli')return renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
+  if(path==='/downloads')return renderDownloads({lang:state.lang,icon});
   if(path==='/contact')return contactPage();
   if(path==='/refunds')return refundsPage();
 }
@@ -294,10 +296,12 @@ async function refreshPublicPage(version,{refreshConfig=true}={}) {
     const html=header()+publicBody(path)+footer();
     await animateContentRefresh(root,html,()=>{
       state.cliGuide?.dispose();state.cliGuide=null;
+      state.downloads?.dispose();state.downloads=null;
       if(path==='/'){state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;state.sculpture?.dispose();state.sculpture=null;}
       mountPage(root,html,pageIdentity(path,qs().get('tab')));
       disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();mountBrand();
       if(path==='/cli')state.cliGuide=mountCliGuide(root);
+      if(path==='/downloads')state.downloads=mountDownloads(root,{lang:state.lang,icon});
       if(path==='/')void mountHome();
     },{isCurrent});
   }catch{if(isCurrent())root.dataset.configState='stale';}
@@ -398,11 +402,11 @@ async function mountGithubStars() {
 }
 function header() {
   const workspace=(location.pathname==='/admin'&&state.admin)||(location.pathname.startsWith('/app')&&state.user);
-  const navigation = `<a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a><a href="/cli" data-nav>CLI</a>`;
+  const navigation = `<a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a><a href="/downloads" data-nav>${t('下载','Downloads')}</a>`;
   if(workspace)return `<header class="site-header workspace-header" data-dom-key="site-header">${brand()}<div class="workspace-location"><span class="workspace-location-divider" aria-hidden="true">/</span>${state.admin?t('管理工作台','Administration'):t('我的工作台','Workspace')}</div><div class="nav-right"><a href="/contact" data-nav class="workspace-help">${icon('info')}<span>${t('帮助','Help')}</span></a>${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button></div></header>${state.config?.development?`<div class="environment-banner workspace-environment" data-dom-key="environment">${t('测试环境 · 以下为测试资料','Test environment · Test data only')}</div>`:''}`;
   return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right">${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
 }
-function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('自由开源 · AGPL-3.0','Free & open source · AGPL-3.0')}</a></nav></footer>`;}
+function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/downloads" data-nav>${t('下载','Downloads')}</a><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('自由开源 · AGPL-3.0','Free & open source · AGPL-3.0')}</a></nav></footer>`;}
 function heading(title,subtitle='',action='') {return `<div class="page-heading"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div>${action}</div>`;}
 function empty(title,description,action='',ico='file') {return `<div class="empty-state"><span class="empty-icon">${icon(ico)}</span><h3>${title}</h3><p>${description}</p>${action}</div>`;}
 function notice(text,style='') {return `<div class="notice ${style}">${icon('info')}<div>${text}</div></div>`;}
@@ -708,6 +712,7 @@ async function render({navigation=false}={}) {
   }
   requests.cancel(`navigation:${state.render}`);
   const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';updatePageMetadata();
+  state.downloads?.dispose();state.downloads=null;
   const path=location.pathname,tab=qs().get('tab');
   const publicPage=publicPages.has(path);
   const pageKey=pageIdentity(path,tab);
@@ -733,6 +738,7 @@ async function render({navigation=false}={}) {
     let body;
     if(path==='/')body=home();
     else if(path==='/cli')body=renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
+    else if(path==='/downloads')body=renderDownloads({lang:state.lang,icon});
     else if(path==='/humangrant')body=humanGrant().intro();
     else if(/^\/human\/[A-Za-z0-9_-]+$/.test(path)){await session(version);if(version!==state.render)return;body=await humanGrant().reviewPage(path.split('/')[2],version);}
     else if(path==='/team/invite'){await session(version);if(version!==state.render)return;body=await team().reviewPage(location.hash.slice(1),version);}
@@ -766,6 +772,7 @@ async function render({navigation=false}={}) {
     else body=`<main id="main" class="page-width page-error"><h1 style="margin-top:20px">${t('页面未找到','Page not found')}</h1><p>${t('请检查地址。','Check the address.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to home')}${icon('arrow')}</a></main>`;
     if(version!==state.render||resumeCliLogin())return;controlsUI.clear(root);mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();controlsUI.sync(root);if(path==='/admin'){financeCleanup=financeModule?.bind(root);peopleJobsModule?.mount(root);}recordPaint('ready');mountBrand();if(path==='/')void mountHome();
     if(path==='/cli')state.cliGuide=mountCliGuide(root);
+    if(path==='/downloads')state.downloads=mountDownloads(root,{lang:state.lang,icon});
     if(publicPage)void refreshPublicPage(version,{refreshConfig:!loadedConfig});
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&tab!=='promos'&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
