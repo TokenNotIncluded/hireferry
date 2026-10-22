@@ -80,19 +80,34 @@ export function createControlsUI({doc = document, win = window} = {}) {
     wrapper.append(trigger);
     const id = `choice-menu-${++sequence}`;
     trigger.setAttribute('aria-controls',id);
-    let highlighted = -1, typed = '', typedAt = 0;
+    let highlighted = -1, typed = '', typedAt = 0, renderedOptions = [], renderedKey = '';
     const options = () => [...source.options];
     const enabled = option => !!option && !option.disabled && !option.parentElement?.disabled && !option.hidden;
+    const optionKey = () => JSON.stringify(options().map((option,index) => [option.label,option.value,enabled(option),option.hidden,option.parentElement?.label,index===source.selectedIndex]));
     const sync = () => {
       const selected = source.selectedOptions[0];
-      label.textContent = selected?.label || text('请选择','Select');
+      const value = selected?.label || text('请选择','Select');
+      if (label.textContent !== value) label.textContent = value;
       trigger.disabled = source.disabled;
       trigger.setAttribute('aria-label',`${name(source)}: ${label.textContent}`);
       trigger.setAttribute('aria-required',String(source.required));
       if (source.getAttribute('aria-describedby')) trigger.setAttribute('aria-describedby',source.getAttribute('aria-describedby'));
       trigger.setAttribute('aria-invalid',source.getAttribute('aria-invalid') || 'false');
+      if (active?.source === source) {
+        if (source.disabled) { close();return; }
+        const panel = active.panel;
+        panel.setAttribute('aria-label',name(source));
+        if (optionKey() !== renderedKey) {
+          const previous = renderedOptions[highlighted], scrollTop = panel.scrollTop;
+          drawOptions(panel);
+          const index = options().indexOf(previous);
+          highlight(index >= 0 && enabled(previous) ? index : options().findIndex(enabled), false);
+          panel.scrollTop = scrollTop;
+        }
+        positionPopup(trigger,panel);
+      }
     };
-    function highlight(index) {
+    function highlight(index, scroll = true) {
       highlighted = index;
       const panel = active?.source === source && active.panel;
       if (!panel) return;
@@ -101,8 +116,8 @@ export function createControlsUI({doc = document, win = window} = {}) {
       if (item) {
         trigger.setAttribute('aria-activedescendant',item.id);
         // Only scroll the options, never the workspace behind the popup.
-        if (item.offsetTop < panel.scrollTop) panel.scrollTop = item.offsetTop;
-        else if (item.offsetTop+item.offsetHeight > panel.scrollTop+panel.clientHeight) panel.scrollTop = item.offsetTop+item.offsetHeight-panel.clientHeight;
+        if (scroll && item.offsetTop < panel.scrollTop) panel.scrollTop = item.offsetTop;
+        else if (scroll && item.offsetTop+item.offsetHeight > panel.scrollTop+panel.clientHeight) panel.scrollTop = item.offsetTop+item.offsetHeight-panel.clientHeight;
       }
     }
     function choose(index) {
@@ -113,11 +128,8 @@ export function createControlsUI({doc = document, win = window} = {}) {
       sync(); close(true);
       if (changed) { source.dispatchEvent(new Event('input',{bubbles:true})); source.dispatchEvent(new Event('change',{bubbles:true})); }
     }
-    function open() {
-      if (source.disabled) return;
-      sync();
-      const panel = make('div','control-menu choice-menu');
-      panel.id = id; panel.setAttribute('role','listbox'); panel.setAttribute('aria-label',name(source));
+    function drawOptions(panel) {
+      panel.replaceChildren();
       let previousGroup;
       options().forEach((option,index) => {
         if (option.hidden) return;
@@ -133,6 +145,14 @@ export function createControlsUI({doc = document, win = window} = {}) {
         row.addEventListener('click',() => choose(index));
         panel.append(row);
       });
+      renderedOptions = options();renderedKey = optionKey();
+    }
+    function open() {
+      if (source.disabled) return;
+      sync();
+      const panel = make('div','control-menu choice-menu');
+      panel.id = id; panel.setAttribute('role','listbox'); panel.setAttribute('aria-label',name(source));
+      drawOptions(panel);
       popup(source,trigger,panel);
       highlight(source.selectedIndex>=0 ? source.selectedIndex : options().findIndex(enabled));
       trigger.focus();
@@ -264,10 +284,21 @@ export function createControlsUI({doc = document, win = window} = {}) {
   const focusChanged=event=>{if(active && !active.panel.contains(event.target) && !active.trigger.contains(event.target))close();};
   const reset=()=>win.setTimeout(()=>sync(),0);
   doc.addEventListener('pointerdown',outside);doc.addEventListener('focusin',focusChanged);doc.addEventListener('scroll',moved,true);doc.addEventListener('reset',reset);win.addEventListener('resize',moved);
-  const observer=typeof MutationObserver==='function'?new MutationObserver(records=>{
-    if(scheduled || !records.some(record=>record.type==='attributes' ? record.target.matches('select,option,optgroup,input[type="date"]') : [...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1 && (node.matches('select,input[type="date"],.choice-control,.date-control') || node.querySelector('select,input[type="date"]')))))return;
+  const affectsField = record => {
+    const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+    if (target === doc.documentElement && record.attributeName === 'lang') return true;
+    if (target?.matches('select,option,optgroup,input[type="date"]') || target?.closest('option,optgroup')) return true;
+    // Native labels can change without replacing their fields. Ignore our own
+    // generated trigger text, including controls nested inside a label.
+    if (target?.closest('label') && !target.closest('.choice-trigger,.date-trigger,.control-menu')) return true;
+    return record.type === 'childList' && [...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1 && (node.matches('select,option,optgroup,label,input[type="date"],.choice-control,.date-control') || node.querySelector('select,label,input[type="date"]')));
+  };
+  const Observer = win.MutationObserver || globalThis.MutationObserver;
+  const observer=typeof Observer==='function'?new Observer(records=>{
+    if(scheduled || !records.some(affectsField))return;
     scheduled=true;queueMicrotask(()=>{scheduled=false;sync();});
   }):null;
-  observer?.observe(doc.body,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','selected','label','min','max','value']});
+  observer?.observe(doc.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['disabled','selected','label','min','max','value','aria-label','aria-describedby','aria-invalid','required','for']});
+  if (doc.documentElement) observer?.observe(doc.documentElement,{attributes:true,attributeFilter:['lang']});
   return {sync,clear,close,dispose(){observer?.disconnect();close();clear();doc.removeEventListener('pointerdown',outside);doc.removeEventListener('focusin',focusChanged);doc.removeEventListener('scroll',moved,true);doc.removeEventListener('reset',reset);win.removeEventListener('resize',moved);}};
 }
