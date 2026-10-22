@@ -457,7 +457,7 @@ def svg(data, manifest=None):
         products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows), ('Server', server_rows)) if present) or 'No published packages'
         cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">{products}</text>')
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
-<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
+<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Package integrity recorded with SHA-256.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
 <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f5f2e9"/><stop offset="1" stop-color="#e2e6db"/></linearGradient></defs>
 <style>text{{font-family:Inter,system-ui,sans-serif}}.platform{{font-size:25px;font-weight:650;fill:#fbfaf6}}.detail{{font-size:14px;fill:#bfcac0}}.formats{{font-size:12px;fill:#dce6de}}</style>
 <rect width="960" height="392" rx="24" fill="url(#paper)"/>

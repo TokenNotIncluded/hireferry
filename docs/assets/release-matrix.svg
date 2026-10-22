@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
-<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; 8 package variants. Published package checksums are verified.</desc>
+<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; 8 package variants. Package integrity recorded with SHA-256.</desc>
 <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f5f2e9"/><stop offset="1" stop-color="#e2e6db"/></linearGradient></defs>
 <style>text{font-family:Inter,system-ui,sans-serif}.platform{font-size:25px;font-weight:650;fill:#fbfaf6}.detail{font-size:14px;fill:#bfcac0}.formats{font-size:12px;fill:#dce6de}</style>
 <rect width="960" height="392" rx="24" fill="url(#paper)"/>
