@@ -691,3 +691,44 @@ async fn concurrent_cancel_and_redeem_leave_no_app_session() {
         1
     );
 }
+
+#[test]
+fn additive_login_schema_is_atomic_and_keeps_version_thirteen_on_retry() {
+    let f = Fixture::new();
+    let db = f.state.conn().unwrap();
+    db.execute_batch(
+        "DROP TABLE app_login_grants; CREATE TABLE app_login_expiry(blocker INTEGER);",
+    )
+    .unwrap();
+    assert!(hireferry::db::migrate(&db).is_err());
+    let exists: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='app_login_grants')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        !exists,
+        "A failed index creation must roll back the feature table"
+    );
+    assert_eq!(
+        db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        13
+    );
+    db.execute_batch("DROP TABLE app_login_expiry;").unwrap();
+    hireferry::db::migrate(&db).unwrap();
+    hireferry::db::migrate(&db).unwrap();
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM users WHERE id='member'", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        13
+    );
+}
