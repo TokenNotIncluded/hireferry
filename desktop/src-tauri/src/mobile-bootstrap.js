@@ -22,7 +22,10 @@
     if (document.getElementById('hireferry-app-settings')) return;
     const link = document.createElement('a');
     link.id = 'hireferry-app-settings';
-    link.href = 'hireferry-settings://return';
+    // Rust substitutes a fixed bundled page for this build's platform. Let the
+    // WebView perform this navigation normally; no native command, redirect
+    // payload, or second navigate() inside its navigation callback is needed.
+    link.href = '__HIREFERRY_LAUNCHER_URL__';
     const zh = navigator.language.startsWith('zh');
     link.textContent = zh ? '连接' : 'Connection';
     link.setAttribute('aria-label', zh ? '返回聘渡应用连接设置' : 'Return to HireFerry connection settings');

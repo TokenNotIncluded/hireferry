@@ -72,6 +72,19 @@ class MobilePackagingTests(unittest.TestCase):
         self.assertNotIn("remote", capability)
         self.assertEqual(set(capability["permissions"]), {"allow-connect", "allow-open-browser"})
 
+    def test_failed_native_smoke_preserves_diagnostics_and_still_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = types.SimpleNamespace(output=directory, serial=None)
+            captured = types.SimpleNamespace(stdout=b"native diagnostic", stderr=b"")
+            with patch.object(mobile, "android_tool", return_value=Path("adb")), \
+                    patch.object(mobile, "_smoke_android", side_effect=mobile.MobileError("failed UI")), \
+                    patch.object(mobile.subprocess, "run", return_value=captured):
+                with self.assertRaisesRegex(mobile.MobileError, "failed UI"):
+                    mobile.smoke_android(args)
+            self.assertEqual((Path(directory) / "android-logcat.txt").read_bytes(), b"native diagnostic")
+            self.assertTrue((Path(directory) / "android-exit-info.txt").exists())
+            self.assertTrue((Path(directory) / "android-final.png").exists())
+
     def test_apple_silicon_simulator_artifact_is_collected_from_simulator_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory) / "apple"

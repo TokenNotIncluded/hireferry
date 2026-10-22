@@ -75,39 +75,23 @@ pub fn run() {
             WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into()))
                 .title("HireFerry · 聘渡")
                 .use_https_scheme(true)
-                .initialization_script(include_str!("mobile-bootstrap.js"))
+                .initialization_script(
+                    include_str!("mobile-bootstrap.js")
+                        .replace("__HIREFERRY_LAUNCHER_URL__", launcher_url().as_str()),
+                )
                 .on_navigation(move |next| {
                     if policy::launcher_url(next) {
                         return true;
                     }
-                    // This link only returns to the bundled settings screen.
-                    // It carries no URL, code, token, session, or native action.
-                    if policy::settings_return(next) {
-                        let app = navigation_app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            if let Some(window) = app.get_webview_window("launcher") {
-                                let _ = window.navigate(launcher_url());
-                            }
-                        });
-                        return false;
-                    }
-                    let same_service =
-                        navigation_app
-                            .state::<Connection>()
-                            .0
-                            .read()
-                            .is_ok_and(|selected| {
-                                selected
-                                    .as_ref()
-                                    .is_some_and(|origin| policy::service_navigation(origin, next))
-                            });
-                    if same_service {
-                        if next.path() == "/api/auth/google/start" {
+                    let selected = navigation_app
+                        .state::<Connection>()
+                        .0
+                        .read()
+                        .ok()
+                        .and_then(|selected| selected.clone());
+                    if let Some(origin) = selected {
+                        if let Some(landing) = policy::login_landing(&origin, next) {
                             let app = navigation_app.clone();
-                            let mut landing = next.clone();
-                            landing.set_path("/auth/app");
-                            landing.set_query(None);
-                            landing.set_fragment(None);
                             tauri::async_runtime::spawn(async move {
                                 if let Some(window) = app.get_webview_window("launcher") {
                                     let _ = window.navigate(landing);
@@ -115,7 +99,9 @@ pub fn run() {
                             });
                             return false;
                         }
-                        if next.path() != "/auth/app/authorize" {
+                        if policy::service_navigation(&origin, next)
+                            && !policy::login_authorization(&origin, next)
+                        {
                             return true;
                         }
                     }

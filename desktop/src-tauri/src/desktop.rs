@@ -22,12 +22,14 @@ fn show_launcher(app: &AppHandle) {
 pub async fn connect(window: WebviewWindow, app: AppHandle, server: String) -> Result<(), String> {
     require_launcher(&window)?;
     let url = policy::server_origin(&server).map_err(str::to_owned)?;
-    let origin = url.origin();
-    let browser_home = url.clone();
+    let selected = url.clone();
+    let popup_selected = url.clone();
     let navigation_app = app.clone();
     let popup_app = app.clone();
     let home = url.clone();
     let label = format!("workbench-{}", NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
+    let navigation_label = label.clone();
+    let popup_label = label.clone();
     let old_windows: Vec<_> = app
         .webview_windows()
         .into_values()
@@ -44,20 +46,33 @@ pub async fn connect(window: WebviewWindow, app: AppHandle, server: String) -> R
         // No remote capability is assigned to workbench-* windows. The remote
         // service keeps its own CSP; it can never invoke our native commands.
         .on_navigation(move |next| {
-            if next.origin() == origin && policy::web_url(next) {
-                // A browser session cannot be transferred back to this webview.
-                // Start Google's entire flow in the browser, including its CSRF cookie.
-                if next.path() == "/api/auth/google/start" {
-                    let _ = open_external(&navigation_app, &browser_home);
-                    return false;
-                }
+            if let Some(landing) = policy::login_landing(&selected, next) {
+                navigate_later(&navigation_app, &navigation_label, landing);
+                return false;
+            }
+            if policy::service_navigation(&selected, next)
+                && !policy::login_authorization(&selected, next)
+            {
                 return true;
             }
-            let _ = open_external(&navigation_app, next);
+            // Approval belongs to the system browser. The original WebView's
+            // HttpOnly proof alone can redeem the server's one-time grant.
+            let app = navigation_app.clone();
+            let next = next.clone();
+            std::thread::spawn(move || {
+                let _ = open_external(&app, &next);
+            });
             false
         })
         .on_new_window(move |url, _| {
-            let _ = open_external(&popup_app, &url);
+            if let Some(landing) = policy::login_landing(&popup_selected, &url) {
+                navigate_later(&popup_app, &popup_label, landing);
+            } else {
+                let app = popup_app.clone();
+                std::thread::spawn(move || {
+                    let _ = open_external(&app, &url);
+                });
+            }
             NewWindowResponse::Deny
         })
         .build()
@@ -65,7 +80,23 @@ pub async fn connect(window: WebviewWindow, app: AppHandle, server: String) -> R
 
     let handle = app.clone();
     let closed_label = label.clone();
+    let focus_origin = url;
     workbench.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Focused(true)) {
+            let app = handle.clone();
+            let label = closed_label.clone();
+            let origin = focus_origin.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(window) = app.get_webview_window(&label)
+                    && window.url().is_ok_and(|current| {
+                        policy::service_navigation(&origin, &current)
+                            && current.path() == "/auth/app"
+                    })
+                {
+                    let _ = window.eval("window.dispatchEvent(new Event('hireferry-app-return'))");
+                }
+            });
+        }
         if matches!(event, tauri::WindowEvent::Destroyed)
             && handle
                 .webview_windows()
@@ -95,6 +126,16 @@ pub async fn connect(window: WebviewWindow, app: AppHandle, server: String) -> R
     }
     window.hide().map_err(|_| "window_failed".to_owned())?;
     Ok(())
+}
+
+fn navigate_later(app: &AppHandle, label: &str, url: Url) {
+    let app = app.clone();
+    let label = label.to_owned();
+    tauri::async_runtime::spawn(async move {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.navigate(url);
+        }
+    });
 }
 
 pub fn run() {
