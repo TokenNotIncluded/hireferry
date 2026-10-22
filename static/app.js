@@ -863,6 +863,8 @@ function registerWebMCP() {
   if(!context?.registerTool)return;
   for(const name of registeredTools){try{context.unregisterTool(name);}catch{}}
   registeredTools=[];
+  // Human managers do not inherit the owner's browser-AI tool catalog.
+  if(state.staffRole&&!state.owner)return;
   if(!state.admin&&(!state.user||!state.eligibility?.eligible))return;
   const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
   const str={type:'string'},integer={type:'integer'},bool={type:'boolean'};
