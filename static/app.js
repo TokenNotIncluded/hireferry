@@ -17,6 +17,7 @@ import { createTeamUI } from './team-ui.js';
 import { createControlsUI } from './controls.js';
 import { createFinanceUI } from './finance-ui.js';
 import { createPeopleJobsUI } from './people-jobs-ui.js';
+import { registerRelationTools } from './relation-webmcp.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
@@ -308,8 +309,9 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
   const requestIdentity=identityOf(state);
   const write=method!=='GET',identityChange=write&&authMutation(path);
   const changesProfile=write&&(path==='/api/profile'||path.startsWith('/api/profile/'));
-  // Read receipts and idempotent room creation do not invalidate unrelated navigation reads.
-  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&path!=='/api/markdown';
+  // Graph queries and presentation state never mutate people, jobs or introductions.
+  // Like read receipts, they must not invalidate unrelated navigation reads on every interaction.
+  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&!path.startsWith('/api/admin/relations/')&&path!=='/api/markdown';
   if(identityChange)invalidateIdentity();else if(changesData){requests.invalidate();state.eligibility=null;}
   if(changesProfile)sessionReader.invalidate();
   try {
@@ -1026,8 +1028,9 @@ window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView(
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
 
-let registeredTools=[];
+let registeredTools=[], webMcpGeneration=0;
 function registerWebMCP() {
+  const registration=++webMcpGeneration, identity=identityOf(state);
   const context=document.modelContext||navigator.modelContext;
   if(!context?.registerTool)return;
   for(const name of registeredTools){try{context.unregisterTool(name);}catch{}}
@@ -1069,6 +1072,7 @@ function registerWebMCP() {
   tool(chatToolPrefix+'get_chat_updates','Read new messages across permitted conversations with an incremental numeric cursor. Poll no faster than every 5 seconds.',object({after:integer,limit:{type:'integer',minimum:1,maximum:100}}),x=>aiApi(queryPath('/api/chat/updates',x)),true);
   tool(chatToolPrefix+'mark_read','Mark messages in a permitted conversation as read.',object({conversation_id:str,message_id:integer},['conversation_id','message_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/read`,{method:'POST',body:{message_id:x.message_id}}));
   if(state.admin){
+    if(root.querySelector('.people-jobs-workspace'))void registerRelationTools({context,api:aiApi,isCurrent:()=>registration===webMcpGeneration&&identity===identityOf(state)&&state.admin,onRegistered:name=>registeredTools.push(name)});
     const listSchema=object({q:str,role:{type:'string',enum:['seeker','employer','unassigned']},page:{type:'integer',minimum:1}});
     tool('hireferry_admin_list_users','List platform users for service operations. Never disclose private data to an unrelated party.',listSchema,x=>aiApi(queryPath('/api/admin/users',x)),true);
     tool('hireferry_admin_get_user','Read a user profile as the platform administrator.',idSchema,x=>aiApi(`/api/admin/users/${encodeURIComponent(x.id)}`),true);

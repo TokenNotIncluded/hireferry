@@ -2,7 +2,8 @@
 use crate::{
     AppError, AppResult, AppState,
     access::{self, Principal},
-    admin, api, chat, commerce, feedback, humangrant, humangrant_access, models, workbench,
+    admin, api, chat, commerce, feedback, humangrant, humangrant_access, models, relation_views,
+    workbench,
 };
 use axum::{
     Json, Router,
@@ -604,6 +605,7 @@ pub fn admin_tools() -> Vec<Value> {
         ),
     ];
     result.extend(conversation_tools(true));
+    result.extend(relation_views::tools());
     result
 }
 
@@ -663,6 +665,9 @@ fn take_string(args: &mut Value, key: &str, required: bool) -> AppResult<Option<
 
 pub async fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> AppResult<Value> {
     access::ensure_active(&*s.conn()?, p)?;
+    if name.starts_with("hf_") {
+        return relation_views::call(s, p, name, args);
+    }
     match name {
         "get_site_config" => return Ok(api::public_config(s)),
         "list_conversations" => return chat::list_conversations(s, p),

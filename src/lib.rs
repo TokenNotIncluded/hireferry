@@ -20,6 +20,8 @@ pub mod mcp;
 pub mod models;
 pub mod payments;
 pub mod promos;
+pub mod relation_views;
+pub mod relations;
 pub mod safety;
 pub mod staff;
 pub mod team;
@@ -40,6 +42,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub struct AppState {
     pub cfg: Arc<config::Config>,
     pub db: Arc<Mutex<rusqlite::Connection>>,
+    pub relations_cache: Arc<Mutex<relations::Cache>>,
     pub client: reqwest::Client,
     pub auth: Arc<auth::AuthService>,
     // Scoped per request; never placed in the shared application router state.
@@ -60,6 +63,7 @@ impl AppState {
         Ok(Self {
             cfg: Arc::new(cfg),
             db: Arc::new(Mutex::new(db)),
+            relations_cache: Arc::new(Mutex::new(relations::Cache::default())),
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(std::time::Duration::from_secs(20))
@@ -132,6 +136,8 @@ pub fn app(state: AppState) -> Router {
         .merge(mcp::routes())
         .merge(webhooks::routes())
         .merge(workbench::routes())
+        .merge(relations::routes())
+        .merge(relation_views::routes())
         .route(
             "/healthz",
             axum::routing::get(|| async { StatusCode::NO_CONTENT }),
