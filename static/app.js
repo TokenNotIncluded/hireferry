@@ -104,14 +104,15 @@ const qs = () => new URLSearchParams(location.search);
 const contactEmail = () => state.config?.support_email?.trim() || state.config?.contact_email?.trim() || 'support@lmm.best';
 const contactMailto = subject => `mailto:${encodeURIComponent(contactEmail())}${subject?'?subject='+encodeURIComponent(subject):''}`;
 const billingReturnKey = 'hireferry-billing-return';
+const staffReturnKey = 'hireferry-staff-return';
 function billingReturnPath(orderId='') {return '/billing/return'+(orderId?'?'+new URLSearchParams({order_id:orderId}):'');}
 function safeBillingReturn(value) {
   if(!value)return '';
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
-function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}}
+function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}}
 function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
-function afterSignIn() {let saved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);}catch{}return safeStaffReturn(qs().get('return_to'))||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(state.staffRole?'/admin?tab=matches':state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app');}
+function afterSignIn() {let saved='',staffSaved='';try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);}catch{}return safeStaffReturn(qs().get('return_to'))||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(state.staffRole?'/admin?tab=matches':state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app');}
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {
   const rules=terms||pricing(),option=currencies().find(item=>item.currency===currency(record).currency);
