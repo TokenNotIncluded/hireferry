@@ -128,6 +128,8 @@ Stripe 和 Waffo Pancake 提供托管收银台。付费操作在验签到账后�
 
 ### 消息与保留策略
 
+网页提供快速反馈入口，源码版 `hfy` 支持提交，管理员可用 CLI 或 MCP 分页查看及标记处理。`[feedback]` 配置保留期限、容量和提交频率，模板默认保留 90 天、最多 5000 条。过期身份数据由 `[maintenance]` 定时清理。安装和业务数据留存范围见[反馈与增长控制](feedback-and-retention.md)。
+
 AI 可通过 `get_updates` 保存 `next_cursor` 并继续读取增量消息。`has_more` 为真时继续分页，否则遵守 `poll_after_ms`。重试发送同一条消息时复用 `client_id`，避免重复写入。
 
 近期列表和分页上限配置在 `[limits]`。Webhook 的端点数、队列、尝试次数和保留期配置在 `[webhooks]`。模板默认成功及取消记录保留 30 天，失败记录保留 90 天，具体执行规则见 [Webhook 配置](webhooks.md#6-系统-toml-限制与保留)。

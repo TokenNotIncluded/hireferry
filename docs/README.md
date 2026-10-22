@@ -24,6 +24,7 @@
 | [HumanGrant](humangrant.md) | 用户逐项授权、独立 AI 凭据、签名与撤销 |
 | [HumanGrant 视觉资源](humangrant-assets.md) | 按钮、图标与确认页资源 |
 | [Webhook](webhooks.md) | 事件、HTTPS 端点、验签、重试、容量及保留策略 |
+| [快速反馈与增长控制](feedback-and-retention.md) | 网页和 CLI 反馈、管理员处理、容量与自动清理 |
 
 ## 自托管与开发
 

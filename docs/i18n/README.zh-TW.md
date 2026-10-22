@@ -124,6 +124,8 @@ hfy capabilities --json
 
 遠端終端機使用 `hfy auth login --device`。設定、授權範圍、升級與移除請見 [CLI 指南](../cli.md)。
 
+網頁支援快速回饋，目前從原始碼建置的 `hfy` 也可提交。管理員透過 CLI 或 MCP 處理，保留期限與容量可設定。安裝方式與操作請見[回饋指南](../feedback-and-retention.md)。
+
 ### 串接 AI
 
 | 方式 | 用途 | 文件 |
@@ -164,6 +166,7 @@ npx skills add TokenNotIncluded/hireferry --skill hireferry
 | CLI 安裝與帳號連線 | [CLI 指南](../cli.md) |
 | AI 授權與介面 | [身分驗證](../auth.md) · [HumanGrant](../humangrant.md) · [API / MCP](../api.md) |
 | 支付、優惠與事件通知 | [支付](../payments.md) · [優惠碼](../promo-codes.md) · [Webhook](../webhooks.md) |
+| 快速回饋與資料維護 | [回饋與資料保留](../feedback-and-retention.md) |
 | 部署、設定與維護 | [自行架設](../self-hosting.md) · [部署交接](../deployment-handoff.md) |
 | 測試結果與後續工作 | [驗收紀錄](../acceptance.md) · [待完成事項](../remaining-work.md) |
 

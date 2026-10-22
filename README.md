@@ -124,6 +124,8 @@ hfy capabilities --json
 
 远程终端使用 `hfy auth login --device`。配置、授权范围、升级与卸载见 [CLI 指南](docs/cli.md)。
 
+网页支持快速反馈，当前源码版 `hfy` 也可提交。管理员通过 CLI 或 MCP 处理，保留期限与容量可配置。安装方式与操作见[反馈指南](docs/feedback-and-retention.md)。
+
 ### 接入 AI
 
 | 方式 | 用途 | 文档 |
@@ -164,6 +166,7 @@ npx skills add TokenNotIncluded/hireferry --skill hireferry
 | CLI 安装与账户连接 | [CLI 指南](docs/cli.md) |
 | AI 授权与接口 | [身份认证](docs/auth.md) · [HumanGrant](docs/humangrant.md) · [API / MCP](docs/api.md) |
 | 支付、优惠与事件通知 | [支付](docs/payments.md) · [优惠码](docs/promo-codes.md) · [Webhook](docs/webhooks.md) |
+| 快速反馈与数据维护 | [反馈与增长控制](docs/feedback-and-retention.md) |
 | 部署、配置和维护 | [自托管](docs/self-hosting.md) · [部署交接](docs/deployment-handoff.md) |
 | 测试结果与后续工作 | [验收记录](docs/acceptance.md) · [待完成事项](docs/remaining-work.md) |
 

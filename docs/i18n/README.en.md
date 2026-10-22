@@ -124,6 +124,8 @@ hfy capabilities --json
 
 For a remote terminal, use `hfy auth login --device`. See the [CLI guide](../cli.md) for configuration, authorization scopes, upgrades and removal.
 
+Send quick feedback from the website or a build of `hfy` from the current source. Administrators handle it through CLI or MCP, with configurable retention and capacity. See the [feedback guide](../feedback-and-retention.md) for installation and usage.
+
 ### Connect AI
 
 | Method | Purpose | Documentation |
@@ -164,6 +166,7 @@ Production needs no Node.js service or separate database service. Currencies, pr
 | CLI installation and account connections | [CLI guide](../cli.md) |
 | AI authorization and APIs | [Authentication](../auth.md) · [HumanGrant](../humangrant.md) · [API / MCP](../api.md) |
 | Payments, promotions and events | [Payments](../payments.md) · [Promotion codes](../promo-codes.md) · [Webhooks](../webhooks.md) |
+| Quick feedback and data maintenance | [Feedback and retention](../feedback-and-retention.md) |
 | Deployment, configuration and maintenance | [Self-hosting](../self-hosting.md) · [Deployment handoff](../deployment-handoff.md) |
 | Test results and next steps | [Acceptance records](../acceptance.md) · [Remaining work](../remaining-work.md) |
 
