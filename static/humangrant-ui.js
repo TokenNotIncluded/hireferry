@@ -63,8 +63,8 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
     try { storage()?.removeItem(RETURN_KEY); } catch { /* Optional browser storage. */ }
   };
   const returnAfterLogin = () => state.user?.role === 'unassigned' ? '/app' : savedHumanReview(storage()) || '/app';
-  const mark = (large = false) => `<svg class="hg-mark${large ? ' hg-mark-large' : ''}" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="25" cy="19" r="8" fill="currentColor"/><path d="M9 48v-6a16 16 0 0 1 27-11.6" stroke="currentColor" stroke-width="5.5" stroke-linecap="round"/><path class="hg-mark-check" d="m34 44 8 8 15-20" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  const artwork = () => `<div class="hg-art" aria-hidden="true"><img class="hg-asset-light" src="/static/humangrant/consent-light.svg" alt="" width="480" height="320"><img class="hg-asset-dark" src="/static/humangrant/consent-dark.svg" alt="" width="480" height="320"></div>`;
+  const loginName = () => t('人类辅助登录', 'Human Login');
+  const mark = (large = false) => `<svg class="hg-mark${large ? ' hg-mark-large' : ''}" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="10" r="3.75"/><path d="M4.75 25v-2.25a7.25 7.25 0 0 1 11.8-5.65"/><circle cx="23" cy="22" r="6.25"/><path d="m20.25 22 1.85 1.85 3.9-4.2"/></svg>`;
   const title = action => PERMISSIONS[action] ? t(PERMISSIONS[action][0], PERMISSIONS[action][1]) : action;
   const description = action => PERMISSIONS[action] ? t(PERMISSIONS[action][2], PERMISSIONS[action][3]) : t('请核对这项权限。', 'Check this permission.');
   const resource = value => value === 'self'
@@ -107,15 +107,45 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
 
   function loginButton() {
     if (!enabled()) return '';
-    return `<div class="hg-login-option"><a href="/humangrant" data-nav class="button hg-continue full">${mark()}<span lang="en">Continue with human beings</span>${icon('arrow')}</a><p>${t('由你确认，再让 AI 登录。', 'Let your AI sign in with your permission.')}</p></div>`;
+    return `<div class="hg-login-option"><a href="/humangrant" data-nav class="button hg-continue full"><span class="hg-login-icon">${mark()}</span><span class="hg-login-copy"><span class="hg-login-label">${loginName()}</span><span class="hg-login-description">${t('由你确认，再让 AI 登录。', 'Approve access for your AI.')}</span></span>${icon('arrow')}</a></div>`;
   }
 
   function intro() {
-    if (!enabled()) return page(`<section class="hg-card">${mark(true)}<h1>${t('HumanGrant 暂未开放', 'HumanGrant is not available')}</h1><p>${t('请使用现有登录方式。', 'Use an available sign-in method.')}</p><a href="/login" data-nav class="button">${t('返回登录', 'Back to sign-in')}</a></section>`);
+    if (!enabled()) return page(`<section class="hg-card">${mark(true)}<h1>${t('人类辅助登录暂未开放', 'Human Login is not available')}</h1><p>${t('请使用现有登录方式。', 'Use an available sign-in method.')}</p><a href="/login" data-nav class="button">${t('返回登录', 'Back to sign-in')}</a></section>`);
     const prompt = state.lang === 'en'
       ? `Use HumanGrant to connect to ${location.origin}. First read https://github.com/LIghtJUNction/humangrant/blob/main/skills/humangrant-use/SKILL.md and ${location.origin}/api/humangrant/config. Use target_service=hireferry and client_id=hireferry-web. Request only profile.read/self and matches.read/self for up to one hour, within the service limit. Give me the human_authorization_url and wait for my approval. Keep your private key on your own device. Do not ask for my password or sign-in code.`
       : `请用 HumanGrant 连接 ${location.origin}。先阅读 https://github.com/LIghtJUNction/humangrant/blob/main/skills/humangrant-use/SKILL.md 和 ${location.origin}/api/humangrant/config。设置 target_service=hireferry、client_id=hireferry-web。只申请 profile.read/self 和 matches.read/self，有效期最多一小时，且不超过本站配置的上限。把 human_authorization_url 发给我，等待我确认后再继续。私钥保留在你自己的设备上，不要索取我的密码或登录验证码。`;
-    return page(`<a href="${state.user ? '/app?tab=agents' : '/login'}" data-nav class="back-link">${icon('back')}${state.user ? t('返回 AI 连接', 'Back to AI connections') : t('返回登录', 'Back to sign-in')}</a><div class="hg-intro-grid"><section class="hg-intro"><div class="hg-brand">${mark()}<span>HumanGrant</span></div><h1>${t('由你确认。<br>AI 才能继续。', 'You decide.<br>Your AI can continue.')}</h1><p class="hg-lead">${t('让 AI 使用你选定的权限。你决定它能做什么、能用多久，也可以随时撤销。', 'Give your AI the access you choose. Set what it can do, set an expiry time, and revoke access at any time.')}</p>${artwork()}<ol class="hg-steps"><li><span>01</span><div><strong>${t('让 AI 发起申请', 'Ask your AI to request access')}</strong><p>${t('把右侧说明发给你的 AI，它会给你一个确认链接。', 'Share the instructions with your AI. It will give you a review link.')}</p></div></li><li><span>02</span><div><strong>${t('登录并选择权限', 'Sign in and choose permissions')}</strong><p>${t('查看申请者、权限和期限，再决定是否允许。', 'Check the requester, permissions, and expiry before you decide.')}</p></div></li><li><span>03</span><div><strong>${t('回到 AI 继续', 'Return to your AI')}</strong><p>${t('允许后，AI 获得独立访问凭据。你的登录凭据留在浏览器中。', 'After approval, the AI gets its own access credential. Your sign-in stays in your browser.')}</p></div></li></ol></section><div class="hg-intro-panels"><section class="hg-card"><div class="eyebrow">${t('第一步', 'START HERE')}</div><h2>${t('把这段说明发给你的 AI', 'Share this with your AI')}</h2><p>${t('先申请查看资料与匹配。更多权限可以另行申请。', 'Start with access to your profile and introductions. Request other permissions separately.')}</p><label class="field-label" for="hg-prompt">${t('接入说明', 'Connection instructions')}</label><textarea class="input hg-prompt" id="hg-prompt" readonly rows="9" spellcheck="false">${esc(prompt)}</textarea><button type="button" class="button full" data-action="hg-copy-prompt">${icon('copy')}${t('复制说明', 'Copy instructions')}</button></section><section class="hg-card hg-link-card"><h2>${t('已经收到确认链接？', 'Already have a review link?')}</h2><form data-form="hg-open-link"><label for="hg-link">${t('本站的 HumanGrant 链接', 'A HumanGrant link for this site')}</label><input id="hg-link" name="link" class="input" type="text" autocomplete="off" placeholder="${esc(location.origin)}/human/…" required maxlength="500"><button class="button secondary full" type="submit">${t('查看申请', 'Review request')}${icon('arrow')}</button></form></section></div></div>`);
+    return page(`
+      <a href="${state.user ? '/app?tab=agents' : '/login'}" data-nav class="back-link">${icon('back')}${state.user ? t('返回 AI 连接', 'Back to AI connections') : t('返回登录', 'Back to sign-in')}</a>
+      <header class="hg-intro">
+        <span class="hg-heading-icon">${mark(true)}</span>
+        <div><p class="eyebrow">${t('你来授权，AI 来协作', 'YOUR AI, WITH YOUR PERMISSION')}</p>
+          <h1>${loginName()}</h1>
+          <p class="hg-lead">${t('让 AI 在你的许可范围内协助求职或招聘。权限和有效期，由你决定。', 'Let your AI help with your job search or hiring. You choose its permissions and how long access lasts.')}</p>
+        </div>
+      </header>
+      <ol class="hg-steps" aria-label="${t('连接步骤', 'Connection steps')}">
+        <li><span>01</span><strong>${t('把说明发给 AI', 'Share with your AI')}</strong></li>
+        <li><span>02</span><strong>${t('打开链接，确认权限', 'Review its request')}</strong></li>
+        <li><span>03</span><strong>${t('回到 AI 继续', 'Return to your AI')}</strong></li>
+      </ol>
+      <div class="hg-intro-grid">
+        <section class="hg-card hg-start-card" aria-labelledby="hg-start-title">
+          <div class="hg-section-heading"><span class="hg-card-icon">${icon('bot')}</span><div><p class="eyebrow">${t('从这里开始', 'START HERE')}</p><h2 id="hg-start-title">${t('让 AI 发起申请', 'Ask your AI to connect')}</h2></div></div>
+          <p>${t('复制说明，粘贴到你与 AI 的对话中。它会为你生成一个确认链接。', 'Copy the instructions into your conversation with your AI. It will send you a link to review.')}</p>
+          <div class="hg-scope"><span class="hg-detail-label">${t('默认申请范围', 'Initial access request')}</span><ul><li>${icon('person')}${t('查看资料', 'Read profile')}</li><li>${icon('target')}${t('查看匹配', 'Read matches')}</li><li>${icon('clock')}${t('最长 1 小时', 'Up to 1 hour')}</li></ul></div>
+          <button type="button" class="button full hg-copy-button" data-action="hg-copy-prompt">${icon('copy')}<span>${t('复制接入说明', 'Copy instructions')}</span></button>
+          <details class="hg-instructions"><summary>${t('查看完整说明', 'View full instructions')}${icon('plus')}</summary><label class="field-label" for="hg-prompt">${t('发给 AI 的接入说明', 'Instructions for your AI')}</label><textarea class="input hg-prompt" id="hg-prompt" readonly rows="7" spellcheck="false">${esc(prompt)}</textarea></details>
+        </section>
+        <section class="hg-card hg-link-card" aria-labelledby="hg-link-title">
+          <div class="hg-section-heading"><span class="hg-card-icon">${icon('link')}</span><div><p class="eyebrow">${t('已有确认链接', 'HAVE A LINK?')}</p><h2 id="hg-link-title">${t('查看 AI 的申请', 'Review your AI’s request')}</h2></div></div>
+          <p>${t('粘贴 AI 发来的本站链接，登录后核对申请者、权限与有效期。', 'Paste the link your AI sent for this site. Sign in to check who is asking, the permissions, and the expiry.')}</p>
+          <form data-form="hg-open-link"><label for="hg-link">${t('确认链接', 'Review link')}</label><input id="hg-link" name="link" class="input" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(location.origin)}/human/…" required maxlength="500"><button class="button secondary full" type="submit">${t('查看申请', 'Review request')}${icon('arrow')}</button></form>
+          <p class="hg-link-note">${t('打开链接后，仍需你亲自确认。', 'You will review and approve access yourself.')}</p>
+        </section>
+      </div>
+      <p class="hg-control-note">${icon('shield')}<span>${t('权限可选 · 到期自动停止 · 随时撤销', 'Choose permissions · Access expires automatically · Revoke anytime')}</span></p>
+    `);
   }
 
   async function reviewPage(link, renderVersion = state.render) {
@@ -142,11 +172,13 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
     const options = [...new Set([900, 3600, 28800, 86400].map(n => checkedAt + n).filter(n => n <= deadline).concat(Number.isFinite(deadline) && deadline > checkedAt ? [deadline] : []))].sort((a, b) => a - b);
     const durationLabel = expiry => {
       const minutes = Math.max(1, Math.round((expiry - checkedAt) / 60));
-      return minutes < 60 ? t(`${minutes} 分钟`, `${minutes} minutes`) : minutes % 60 === 0 ? t(`${minutes / 60} 小时`, `${minutes / 60} hours`) : t(`${minutes} 分钟`, `${minutes} minutes`);
+      return minutes % 60 === 0
+        ? t(`${minutes / 60} 小时`, `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`)
+        : t(`${minutes} 分钟`, `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`);
     };
     let decision;
     if (!isPending) {
-      decision = `<section class="hg-result" role="status"><span class="hg-result-icon">${icon(outcome?.confirmed ? 'check' : 'info')}</span><h2>${esc(displayStatus)}</h2><p>${esc(outcome?.description || t('这次申请已结束。如果仍需连接，请让 AI 发起新申请。', 'This request has ended. Ask your AI for a new request if you still want to connect.'))}</p><a href="${state.user ? '/app?tab=agents' : '/humangrant'}" data-nav class="button secondary">${state.user ? t('查看 AI 连接', 'View AI connections') : t('返回 HumanGrant', 'Back to HumanGrant')}</a></section>`;
+      decision = `<section class="hg-result" role="status"><span class="hg-result-icon">${icon(outcome?.confirmed ? 'check' : 'info')}</span><h2>${esc(displayStatus)}</h2><p>${esc(outcome?.description || t('这次申请已结束。如果仍需连接，请让 AI 发起新申请。', 'This request has ended. Ask your AI for a new request if you still want to connect.'))}</p><a href="${state.user ? '/app?tab=agents' : '/humangrant'}" data-nav class="button secondary">${state.user ? t('查看 AI 连接', 'View AI connections') : t('返回人类辅助登录', 'Back to Human Login')}</a></section>`;
     } else if (!signedIn) {
       decision = `<section class="hg-signin">${notice(state.admin ? t('请使用普通用户账户确认这次申请。管理员权限不能通过此入口授予。', 'Use a member account for this request. This page cannot grant administrator access.') : t('先登录你的聘渡账户，再选择允许的权限。打开链接不会自动授权。', 'Sign in to your HireFerry account, then choose permissions. Opening this link does not grant access.'))}<a href="/login" data-nav class="button full">${t('登录后确认', 'Sign in to review')}${icon('arrow')}</a></section>`;
     } else if (wrongAccount) {
@@ -157,7 +189,7 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
     const permissionsSummary = !signedIn || !isPending || wrongAccount
       ? `<section><h3>${wasApproved ? historicalPermissions ? t('当时批准的权限', 'Permissions approved at the time') : t('已批准的权限', 'Approved permissions') : t('申请的权限', 'Requested permissions')}</h3>${permissionList(wasApproved ? review.granted_permissions || [] : choices)}${historicalPermissions ? `<p class="help">${t('以上是当时批准的范围，不代表当前仍可执行。', 'This records the scope approved at the time, not the permissions currently available.')}</p>` : ''}</section>`
       : '';
-    return page(`<a href="/humangrant" data-nav class="back-link">${icon('back')}${t('关于 HumanGrant', 'About HumanGrant')}</a><div class="hg-review-layout"><aside class="hg-review-aside"><div class="hg-brand">${mark()}<span>HumanGrant</span></div><h1>${t('确认 AI 的访问申请', 'Review AI access')}</h1><p class="hg-lead">${t('核对这是谁的申请，以及它想做什么。只有你确认后，授权才会生效。', 'Check who is asking and what they want to do. Access starts only after your approval.')}</p><div class="hg-account"><span class="hg-detail-label">${t('当前账户', 'Current account')}</span><strong>${signedIn ? esc(review.human_name || state.user?.name || t('已登录账户', 'Signed-in account')) : t('尚未登录', 'Not signed in')}</strong>${signedIn ? `<code>${esc(review.human_id)}</code>` : ''}</div><dl class="hg-request-details"><div><dt>${t('服务', 'Service')}</dt><dd>${esc(review.target_service)}</dd></div><div><dt>${t('连接来源', 'Client')}</dt><dd>${esc(review.client_id)}</dd></div><div><dt>${t('申请到期时间', 'Request expires')}</dt><dd><time>${esc(fullDate(review.expires_at))}</time></dd></div>${wasApproved && Number.isFinite(grantExpiry) && grantExpiry > 0 ? `<div><dt>${t('授权到期时间', 'Grant expires')}</dt><dd><time>${esc(fullDate(grantExpiry))}</time></dd></div>` : ''}</dl><details class="hg-identity" open><summary>${t('核对 AI 身份', 'Check AI identity')}</summary><p>${t('与 AI 提供的身份标识核对。这个标识不能证明申请者可信。', 'Compare this identifier with the one your AI provides. The identifier alone does not prove that the requester is trusted.')}</p><code>${esc(review.actor_id)}</code><span class="hg-detail-label">${t('申请编号', 'Request ID')}</span><code>${esc(review.request_id)}</code></details></aside><section class="hg-card hg-review-card"><div class="hg-card-heading"><span class="eyebrow">${t('访问确认', 'ACCESS REVIEW')}</span><span class="hg-status">${esc(displayStatus)}</span></div><h2>${t('这次想做什么', 'The requested task')}</h2><blockquote class="hg-purpose">${esc(review.purpose || t('申请者未填写用途。', 'The requester gave no purpose.'))}</blockquote><p class="help hg-purpose-help">${t('以上内容由申请者填写。请按你的真实意愿决定。', 'The requester wrote this text. Decide according to your own intent.')}</p>${permissionsSummary}${decision}</section></div>`, `human:${link}:${review.human_id || 'anonymous'}`);
+    return page(`<a href="/humangrant" data-nav class="back-link">${icon('back')}${loginName()}</a><div class="hg-review-layout"><aside class="hg-review-aside"><div class="hg-brand">${mark()}<span>${loginName()}</span></div><h1>${t('确认 AI 的访问申请', 'Review AI access')}</h1><p class="hg-lead">${t('核对这是谁的申请，以及它想做什么。只有你确认后，授权才会生效。', 'Check who is asking and what they want to do. Access starts only after your approval.')}</p><div class="hg-account"><span class="hg-detail-label">${t('当前账户', 'Current account')}</span><strong>${signedIn ? esc(review.human_name || state.user?.name || t('已登录账户', 'Signed-in account')) : t('尚未登录', 'Not signed in')}</strong>${signedIn ? `<code>${esc(review.human_id)}</code>` : ''}</div><dl class="hg-request-details"><div><dt>${t('服务', 'Service')}</dt><dd>${esc(review.target_service)}</dd></div><div><dt>${t('连接来源', 'Client')}</dt><dd>${esc(review.client_id)}</dd></div><div><dt>${t('申请到期时间', 'Request expires')}</dt><dd><time>${esc(fullDate(review.expires_at))}</time></dd></div>${wasApproved && Number.isFinite(grantExpiry) && grantExpiry > 0 ? `<div><dt>${t('授权到期时间', 'Grant expires')}</dt><dd><time>${esc(fullDate(grantExpiry))}</time></dd></div>` : ''}</dl><details class="hg-identity" open><summary>${t('核对 AI 身份', 'Check AI identity')}</summary><p>${t('与 AI 提供的身份标识核对。这个标识不能证明申请者可信。', 'Compare this identifier with the one your AI provides. The identifier alone does not prove that the requester is trusted.')}</p><code>${esc(review.actor_id)}</code><span class="hg-detail-label">${t('申请编号', 'Request ID')}</span><code>${esc(review.request_id)}</code></details></aside><section class="hg-card hg-review-card"><div class="hg-card-heading"><span class="eyebrow">${t('访问确认', 'ACCESS REVIEW')}</span><span class="hg-status">${esc(displayStatus)}</span></div><h2>${t('这次想做什么', 'The requested task')}</h2><blockquote class="hg-purpose">${esc(review.purpose || t('申请者未填写用途。', 'The requester gave no purpose.'))}</blockquote><p class="help hg-purpose-help">${t('以上内容由申请者填写。请按你的真实意愿决定。', 'The requester wrote this text. Decide according to your own intent.')}</p>${permissionsSummary}${decision}</section></div>`, `human:${link}:${review.human_id || 'anonymous'}`);
   }
 
   async function grantsPanel(renderVersion = state.render) {
@@ -168,11 +200,11 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
     grantsCsrf = result.csrf;
     knownGrants = new Set((result.grants || []).map(x => x.grant_id));
     const now = Date.now() / 1000;
-    return `<section class="panel hg-grants"><div class="panel-header"><div><div class="hg-brand">${mark()}<h2>${t('HumanGrant 授权', 'HumanGrant access')}</h2></div><p>${t('每次授权有独立权限与到期时间。你可以随时撤销。', 'Each grant has its own permissions and expiry. You can revoke access at any time.')}</p></div><a href="/humangrant" data-nav class="button secondary small">${icon('plus')}${t('连接 AI', 'Connect AI')}</a></div>${result.grants?.length ? `<div class="hg-grant-list">${result.grants.map(grant => {
+    return `<section class="panel hg-grants"><div class="panel-header"><div><div class="hg-brand">${mark()}<h2>${loginName()}</h2></div><p>${t('每次授权有独立权限与到期时间。你可以随时撤销。', 'Each grant has its own permissions and expiry. You can revoke access at any time.')}</p></div><a href="/humangrant" data-nav class="button secondary small">${icon('plus')}${t('连接 AI', 'Connect AI')}</a></div>${result.grants?.length ? `<div class="hg-grant-list">${result.grants.map(grant => {
       const revoked = !!grant.revoked_at;
       const expired = Number(grant.expires_at) <= now;
       return `<article class="hg-grant"><div class="hg-grant-top"><div><h3>${t('AI 连接', 'AI connection')} <span>${esc(String(grant.actor_id).slice(-10))}</span></h3><p>${revoked ? t('已撤销', 'Revoked') : expired ? t('已到期', 'Expired') : `${t('有效至', 'Expires')} ${esc(fullDate(grant.expires_at))}`}</p></div>${!revoked && !expired ? `<button type="button" class="text-button" data-action="hg-revoke" data-id="${esc(grant.grant_id)}">${t('撤销授权', 'Revoke access')}</button>` : ''}</div><details><summary>${t('查看权限与身份', 'View permissions and identity')}</summary>${permissionList(grant.permissions)}<dl class="hg-request-details"><div><dt>${t('AI 身份', 'AI identity')}</dt><dd><code>${esc(grant.actor_id)}</code></dd></div><div><dt>${t('创建时间', 'Created')}</dt><dd>${esc(fullDate(grant.created_at))}</dd></div></dl></details></article>`;
-    }).join('')}</div>` : `<div class="hg-no-grants">${mark(true)}<h3>${t('还没有 HumanGrant 授权', 'No HumanGrant grants yet')}</h3><p>${t('让 AI 发起申请后，你可以逐项确认权限。', 'Ask your AI to request access. You can then select its permissions.')}</p></div>`}</section>`;
+    }).join('')}</div>` : `<div class="hg-no-grants">${mark(true)}<h3>${t('还没有授权记录', 'No access grants yet')}</h3><p>${t('让 AI 发起申请后，你可以逐项确认权限。', 'Ask your AI to request access. You can then select its permissions.')}</p></div>`}</section>`;
   }
 
   async function submit(form, data) {
@@ -203,8 +235,12 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
       const field = document.querySelector('#hg-prompt');
       try {
         await navigator.clipboard.writeText(field.value);
+        button.innerHTML = `${icon('check')}<span>${t('已复制，发给你的 AI', 'Copied — share with your AI')}</span>`;
         notify(t('说明已复制。', 'Instructions copied.'));
       } catch {
+        button.innerHTML = `${icon('copy')}<span>${t('复制接入说明', 'Copy instructions')}</span>`;
+        const details = field.closest('details');
+        if (details) details.open = true;
         field.focus();
         field.select();
         notify(t('请手动复制已选中的说明。', 'Copy the selected instructions manually.'));
