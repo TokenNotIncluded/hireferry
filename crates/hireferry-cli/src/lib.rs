@@ -1,9 +1,11 @@
 //! Network-only client: no dependency on the HireFerry service or database.
 pub mod callback;
+pub mod chat;
 pub mod defaults;
 pub mod error;
 pub mod keyring;
 pub mod login;
+pub mod mcp;
 pub mod server;
 pub mod settings;
 pub mod storage;
@@ -23,7 +25,7 @@ use storage::{AccountSubject, Credential, Store};
 #[command(
     name = "hfy",
     version,
-    about = "Sign in to HireFerry from your terminal."
+    about = "Connect to HireFerry and work with conversations from your terminal."
 )]
 pub struct Cli {
     /// Print one JSON result on stdout. Prompts stay on stderr.
@@ -70,6 +72,39 @@ pub enum Command {
         #[command(subcommand)]
         command: FeedbackCommand,
     },
+    /// Read, send and stream messages with your authorized account.
+    Chat {
+        #[command(subcommand)]
+        command: chat::ChatCommand,
+    },
+    /// Connect Agent software using the Model Context Protocol.
+    Mcp {
+        #[command(subcommand)]
+        command: mcp::McpCommand,
+    },
+}
+
+impl Cli {
+    /// Streaming protocols own stdout; no final human-readable wrapper follows.
+    pub fn streams_stdout(&self) -> bool {
+        matches!(
+            self.command,
+            Command::Chat {
+                command: chat::ChatCommand::Watch { .. } | chat::ChatCommand::Stream { .. }
+            } | Command::Mcp {
+                command: mcp::McpCommand::Serve
+            }
+        )
+    }
+
+    pub fn mcp_stdio(&self) -> bool {
+        matches!(
+            self.command,
+            Command::Mcp {
+                command: mcp::McpCommand::Serve
+            }
+        )
+    }
 }
 
 #[derive(Subcommand)]
@@ -136,6 +171,8 @@ pub async fn run(cli: Cli) -> Result<Value> {
         settings.storage,
     );
     match cli.command {
+        Command::Chat { command } => chat::run(command, &server, &store).await,
+        Command::Mcp { command } => mcp::run(command, &server, &store).await,
         Command::Auth {
             command: AuthCommand::Login(args),
         } => {
@@ -334,6 +371,21 @@ pub async fn run(cli: Cli) -> Result<Value> {
             )
         }
     }
+}
+
+/// Read and refresh credentials under the existing process lock, then release
+/// it before a long-lived chat stream or a stdio reader waits for input.
+pub(crate) async fn business_token(server: &Server, store: &Store) -> Result<String> {
+    let _guard = store.lock().await?;
+    let mut credential = store.load()?.ok_or_else(Error::signed_out)?;
+    let (identity, _) = verified_identity(server, store, &mut credential, false).await?;
+    if !identity.capabilities.mcp && !identity.capabilities.admin {
+        return Err(Error::new(
+            "mcp_scope_required",
+            "Run hfy --scope mcp auth login (or --scope admin for platform staff) before using chat or MCP.",
+        ));
+    }
+    Ok(credential.access_token)
 }
 
 async fn verified_identity(

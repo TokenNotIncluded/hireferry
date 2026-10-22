@@ -5,6 +5,8 @@ pub mod api;
 mod assets;
 pub mod auth;
 pub mod chat;
+pub mod chat_capabilities;
+pub mod chat_stream;
 pub mod cli_auth;
 pub mod cli_distribution;
 pub mod commerce;
@@ -43,6 +45,8 @@ pub struct AppState {
     pub db: Arc<Mutex<rusqlite::Connection>>,
     pub client: reqwest::Client,
     pub auth: Arc<auth::AuthService>,
+    /// Database cursors survive restarts; notifications only wake live readers.
+    pub chat_notify: Arc<tokio::sync::Notify>,
     // Scoped per request; never placed in the shared application router state.
     humangrant: Option<humangrant_access::Execution>,
 }
@@ -67,6 +71,7 @@ impl AppState {
                 .build()
                 .map_err(AppError::internal)?,
             auth: Arc::new(auth),
+            chat_notify: Arc::new(tokio::sync::Notify::new()),
             humangrant: None,
         })
     }
@@ -128,6 +133,7 @@ pub fn app(state: AppState) -> Router {
         .merge(admin_ai::routes())
         .merge(team::routes())
         .merge(chat::routes())
+        .merge(chat_capabilities::routes())
         .merge(payments::routes())
         .merge(promos::routes())
         .merge(mcp::routes())

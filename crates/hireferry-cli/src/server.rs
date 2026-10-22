@@ -220,6 +220,198 @@ impl Server {
             .map_err(Error::network)?;
         decode_feedback(response).await
     }
+
+    /// Conversation IDs are always URL path segments, never interpolated as a
+    /// URL or path suffix supplied by a remote party.
+    pub fn conversation_path(id: &str, suffix: Option<&str>) -> Result<String> {
+        if id.is_empty()
+            || matches!(id, "." | "..")
+            || id.len() > 256
+            || id.chars().any(char::is_control)
+        {
+            return Err(Error::new(
+                "invalid_conversation",
+                "Use a valid conversation ID.",
+            ));
+        }
+        let mut url = Url::parse("https://localhost/api/chat/conversations/").unwrap();
+        {
+            let mut path = url.path_segments_mut().unwrap();
+            path.pop_if_empty().push(id);
+            if let Some(suffix) = suffix {
+                path.push(suffix);
+            }
+        }
+        Ok(url.path().to_owned())
+    }
+
+    pub async fn chat_get(
+        &self,
+        token: &str,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<Value> {
+        let response = self
+            .client
+            .get(self.endpoint(path))
+            .bearer_auth(token)
+            .query(query)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode_business(response).await
+    }
+
+    pub async fn chat_post(&self, token: &str, path: &str, body: &Value) -> Result<Value> {
+        let response = self
+            .client
+            .post(self.endpoint(path))
+            .bearer_auth(token)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode_business(response).await
+    }
+
+    pub async fn chat_events(
+        &self,
+        token: &str,
+        conversation: Option<&str>,
+        after: i64,
+    ) -> Result<reqwest::Response> {
+        let mut query = vec![("after", after.to_string())];
+        if let Some(conversation) = conversation {
+            query.push(("conversation_id", conversation.to_owned()));
+        }
+        let response = self
+            .client
+            .get(self.endpoint("/api/chat/events/stream"))
+            .bearer_auth(token)
+            .header("accept", "text/event-stream")
+            .header("last-event-id", after.to_string())
+            .query(&query)
+            // Renew a connection periodically so short-lived CLI credentials
+            // can rotate. The durable cursor makes this independent of uptime.
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(Error::network)?;
+        let response = business_response(response)?;
+        if !response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.split(';').next() == Some("text/event-stream"))
+        {
+            return Err(Error::invalid_response());
+        }
+        Ok(response)
+    }
+
+    pub async fn chat_upload(
+        &self,
+        token: &str,
+        conversation: &str,
+        body: reqwest::Body,
+    ) -> Result<reqwest::Response> {
+        let path = Self::conversation_path(conversation, Some("stream"))?;
+        let response = self
+            .client
+            .post(self.endpoint(&path))
+            .bearer_auth(token)
+            .header("content-type", "application/x-ndjson")
+            .header("accept", "application/x-ndjson")
+            .timeout(Duration::from_secs(300))
+            .body(body)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        let response = business_response(response)?;
+        if !response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.split(';').next() == Some("application/x-ndjson"))
+        {
+            return Err(Error::invalid_response());
+        }
+        Ok(response)
+    }
+
+    pub async fn mcp_rpc(&self, token: &str, request: &Value) -> Result<Option<Value>> {
+        let response = self
+            .client
+            .post(self.endpoint("/mcp"))
+            .bearer_auth(token)
+            .header("mcp-protocol-version", "2025-11-25")
+            .header("accept", "application/json, text/event-stream")
+            .json(request)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        if response.status() == reqwest::StatusCode::ACCEPTED && request.get("id").is_none() {
+            return Ok(None);
+        }
+        let body = decode_business(response).await?;
+        if body["jsonrpc"] != "2.0"
+            || body.get("id") != request.get("id")
+            || (body.get("result").is_some() == body.get("error").is_some())
+        {
+            return Err(Error::invalid_response());
+        }
+        Ok(Some(body))
+    }
+}
+
+fn business_response(response: reqwest::Response) -> Result<reqwest::Response> {
+    if response.status().is_success() {
+        return Ok(response);
+    }
+    Err(match response.status().as_u16() {
+        301..=399 => Error::new(
+            "unexpected_redirect",
+            "The server redirected an API request.",
+        ),
+        400 | 413 | 415 | 422 => Error::new(
+            "invalid_chat_request",
+            "Check the message format, size, conversation and stream sequence.",
+        ),
+        401 => Error::signed_out(),
+        403 => Error::new(
+            "access_denied",
+            "This account is not allowed to access this operation.",
+        ),
+        404 => Error::new(
+            "chat_not_found",
+            "The conversation or message is unavailable.",
+        ),
+        409 => Error::new(
+            "chat_conflict",
+            "The message changed or this stream sequence conflicts with a previous request.",
+        ),
+        429 => Error::new("rate_limited", "Too many requests. Try again later."),
+        _ => Error::new("server_error", "The server could not complete the request."),
+    })
+}
+
+async fn decode_business(response: reqwest::Response) -> Result<Value> {
+    let mut response = business_response(response)?;
+    const MAX_CHAT_RESPONSE: usize = 16 * 1024 * 1024;
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_CHAT_RESPONSE as u64)
+    {
+        return Err(Error::invalid_response());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(Error::network)? {
+        if bytes.len() + chunk.len() > MAX_CHAT_RESPONSE {
+            return Err(Error::invalid_response());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| Error::invalid_response())
 }
 
 // Feedback endpoints return application errors, not OAuth protocol errors.

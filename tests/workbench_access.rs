@@ -582,15 +582,38 @@ async fn admin_mcp_searches_are_bounded_strict_and_separate_from_member_and_lega
     let member_token = f.token(&seekers[0]);
     let catalog = rpc(&f, &admin_token, "tools/list", json!({})).await;
     let tools = catalog.value["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 35);
+    assert_eq!(tools.len(), 42);
     let member_catalog = rpc(&f, &member_token, "tools/list", json!({})).await;
     assert_eq!(
         member_catalog.value["result"]["tools"]
             .as_array()
             .unwrap()
             .len(),
-        32
+        39
     );
+    for catalog in [
+        tools,
+        member_catalog.value["result"]["tools"].as_array().unwrap(),
+    ] {
+        for name in [
+            "get_chat_capabilities",
+            "get_conversation",
+            "get_chat_events",
+            "begin_message",
+            "append_message",
+            "finish_message",
+            "cancel_message",
+        ] {
+            let matching: Vec<_> = catalog.iter().filter(|tool| tool["name"] == name).collect();
+            assert_eq!(
+                matching.len(),
+                1,
+                "Expected exactly one shared chat tool: {name}"
+            );
+            assert_eq!(matching[0]["inputSchema"]["additionalProperties"], false);
+            assert_eq!(matching[0]["outputSchema"]["type"], "object");
+        }
+    }
     let before = f.counts();
     for name in [
         "admin_search_jobs",
