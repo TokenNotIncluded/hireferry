@@ -12,6 +12,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const staticRoot = join(root, 'static');
+const relationCore = await readFile(join(staticRoot, 'relation-graph-core.js'), 'utf8');
+const { emptyGraphView, applyGraphCommands } = await import('data:text/javascript;base64,' + Buffer.from(relationCore).toString('base64'));
 const DAY = 86400000;
 const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
 const day = offset => new Date(today + offset * DAY).toISOString().slice(0, 10);
@@ -83,6 +85,37 @@ function report(query) {
   };
 }
 const list = items => ({ items, total: items.length, page: 1, page_size: 50, limit: 50, next_cursor: null });
+const relationRevision = 'synthetic-relations-v1', relationViewId = 'synthetic-view';
+let relationView = emptyGraphView(), relationViewRev = 1, relationAckRev = 0, heldViewRead = null;
+const relationState = () => ({ view_id: relationViewId, view_rev: relationViewRev, data_rev: relationRevision, state: structuredClone(relationView), ui: { status: relationAckRev === relationViewRev ? 'applied' : 'queued' } });
+function relationQuery(query) {
+  const filters = query.filters || {}, grouping = query.grouping || { left: 'role', right: 'status' };
+  assert.deepEqual(grouping, { left: 'role', right: 'status' }, 'The lightweight fixture supports the real default grouping');
+  const contains = (value, needle) => !needle || value.toLowerCase().includes(needle.toLowerCase());
+  const users = people.filter(person => contains(person.name, filters.user_q) && (!filters.role || person.role === filters.role) && (!filters.account_status || (filters.account_status === 'suspended') === person.banned) && (!filters.user_ids || filters.user_ids.includes(person.id)) && (!filters.left_group_ids || filters.left_group_ids.includes('role:' + person.role)));
+  const roles = jobs.filter(job => contains(job.title, filters.job_q) && (!filters.job_status || job.status === filters.job_status) && (!filters.employer_id || job.owner_id === filters.employer_id) && (!filters.job_ids || filters.job_ids.includes(job.id)) && (!filters.right_group_ids || filters.right_group_ids.includes('status:' + job.status)));
+  const userIds = new Set(users.map(person => person.id)), jobIds = new Set(roles.map(job => job.id));
+  const edges = matches.filter(match => userIds.has(match.seeker_id) && jobIds.has(match.job_id) && (!filters.match_status || match.status === filters.match_status)).map(({ id, seeker_id, job_id, status, updated_at }) => ({ id, seeker_id, job_id, status, updated_at, left_group_id: 'role:seeker', right_group_id: 'status:' + jobs.find(job => job.id === job_id).status }));
+  const counts = items => items.reduce((sum, edge) => { sum[edge.status]++;return sum; }, { introduced: 0, interview: 0, hired: 0, declined: 0, unknown: 0 });
+  const left = users.map(person => ({ id: person.id, kind: 'user', label: person.name, name: person.name, role: person.role, banned: person.banned, status: person.banned ? 'suspended' : 'active', group_id: 'role:' + person.role, relation_count: edges.filter(edge => edge.seeker_id === person.id).length, created_at: person.created_at, updated_at: person.created_at }));
+  const right = roles.map(job => ({ ...job, kind: 'job', label: job.title, owner_name: '演示招聘方', group_id: 'status:' + job.status, relation_count: edges.filter(edge => edge.job_id === job.id).length, updated_at: job.created_at }));
+  const envelope = { data_rev: relationRevision, query_key: JSON.stringify(query), limit: Math.min(query.limit || 100, 100), next_cursor: null, remaining: 0 };
+  if (query.mode === 'nodes') { const items = query.side === 'left' ? left : right;return { ...envelope, items, total: items.length }; }
+  if (query.mode === 'neighbors') {
+    const isLeft = query.focus.side === 'left', focus = (isLeft ? left : right).find(node => node.id === query.focus.id);
+    assert.ok(focus, 'Synthetic focused node must belong to the query scope');
+    const selected = edges.filter(edge => edge[isLeft ? 'seeker_id' : 'job_id'] === focus.id);
+    return { ...envelope, focus, items: selected.map(edge => ({ edge, node: (isLeft ? right : left).find(node => node.id === edge[isLeft ? 'job_id' : 'seeker_id']) })), total: selected.length, state_counts: counts(selected) };
+  }
+  assert.equal(query.mode, 'overview', 'The UI should not fetch the full edge collection');
+  const groups = side => [...new Set((side === 'left' ? left : right).map(node => node.group_id))].map(id => ({ id, label: id === 'role:seeker' ? '求职者' : id === 'role:employer' ? '招聘方' : '招聘中', count: (side === 'left' ? left : right).filter(node => node.group_id === id).length, seekers: side === 'left' ? left.filter(node => node.group_id === id && node.role === 'seeker').length : undefined, edges: edges.filter(edge => edge[side + '_group_id'] === id).length }));
+  const groupSets = { left: groups('left'), right: groups('right') }, bundles = [];
+  for (const a of groupSets.left) for (const b of groupSets.right) {
+    const selected = edges.filter(edge => edge.left_group_id === a.id && edge.right_group_id === b.id);
+    if (selected.length) bundles.push({ left_group_id: a.id, right_group_id: b.id, count: selected.length, seekers: new Set(selected.map(edge => edge.seeker_id)).size, jobs: new Set(selected.map(edge => edge.job_id)).size, possible_pairs: a.seekers * b.count, pair_scope: 'filtered_directory', state_counts: counts(selected) });
+  }
+  return { ...envelope, summary: { users: left.length, seekers: left.filter(node => node.role === 'seeker').length, jobs: right.length, edges: edges.length, matched_users: new Set(edges.map(edge => edge.seeker_id)).size, matched_jobs: new Set(edges.map(edge => edge.job_id)).size, state_counts: counts(edges) }, groups: groupSets, bundles };
+}
 async function fixture(url, request) {
   const query = url.searchParams, path = url.pathname, method = request.method;
   const body = method === 'GET' ? {} : JSON.parse(await Array.fromAsync(request).then(parts => Buffer.concat(parts).toString()) || '{}');
@@ -105,6 +138,22 @@ async function fixture(url, request) {
   }
   if (path === '/api/admin/overview') return report(query);
   if (path === '/api/admin/orders') return list(filteredOrders(query));
+  if (path === '/api/admin/relations/query' && method === 'POST') return relationQuery(body);
+  if (path === '/api/admin/relations/views' && method === 'POST') return relationState();
+  if (path === '/api/admin/relations/views/active' && method === 'GET') return query.get('view_id') === relationViewId && Number(query.get('after_rev')) === relationViewRev ? { unchanged: true, view_id: relationViewId, view_rev: relationViewRev, data_rev: relationRevision, ui: relationState().ui } : relationState();
+  if (path === '/api/admin/relations/views/' + relationViewId && method === 'GET') {
+    const value = relationState(), held = heldViewRead;heldViewRead = null;
+    if (held) { held.started();await held.release; }return value;
+  }
+  if (path === '/api/admin/relations/views/' + relationViewId && method === 'PATCH') {
+    assert.equal(body.if_view_rev, relationViewRev);assert.ok(body.operation_id);assert.ok(body.commands.length <= 20);
+    relationView = applyGraphCommands(relationView, body.commands);relationViewRev++;
+    return { view_id: relationViewId, view_rev: relationViewRev, data_rev: relationRevision, ui: { status: 'queued' } };
+  }
+  if (path === '/api/admin/relations/views/' + relationViewId + '/ack' && method === 'POST') {
+    if (body.view_rev !== relationViewRev) return { error: 'Revision changed', http_status: 409 };
+    relationAckRev = body.view_rev;return { view_id: relationViewId, view_rev: relationViewRev, ui: { status: 'applied' } };
+  }
   if (path === '/api/admin/users') return list(people.filter(person => (!query.get('q') || `${person.name} ${person.email}`.toLowerCase().includes(query.get('q').toLowerCase())) && (!query.get('role') || person.role === query.get('role')) && (!query.get('status') || (query.get('status') === 'suspended') === person.banned)));
   if (path === '/api/admin/jobs') return list(jobs.filter(job => (!query.get('q') || job.title.toLowerCase().includes(query.get('q').toLowerCase())) && (!query.get('status') || job.status === query.get('status'))));
   if (path === '/api/admin/workbench/matches') {
@@ -122,7 +171,7 @@ const server = createServer(async (request, response) => {
     if (url.pathname.startsWith('/api/')) {
       response.setHeader('content-type', 'application/json');
       const value = await fixture(url, request);
-      response.statusCode = value.error ? 404 : 200;
+      response.statusCode = value.http_status || (value.error ? 404 : 200);
       response.end(JSON.stringify(value)); return;
     }
     if (url.pathname === '/favicon.ico') { response.statusCode = 204; response.end(); return; }
@@ -284,44 +333,69 @@ try {
     assert.equal(new URL(page.url()).searchParams.get('from'), day(-3));
   });
 
-  await step('two-column matching only connects real records and highlights selected relationships', async () => {
-    await navigate('matches');
-    await page.waitForFunction(() => document.querySelectorAll('.pj-connection').length === 3);
+  await step('aggregate overview, bounded focus, matrix and shared filters describe the same records', async () => {
+    await navigate('matches', '&graph_mode=overview');
+    await page.waitForFunction(() => document.querySelector('[data-pj-ai-status]')?.textContent.includes('版本'));
     assert.equal(await page.locator('.sidebar-nav a[href="/admin?tab=users"],.sidebar-nav a[href="/admin?tab=jobs"]').count(), 0);
-    const left = await page.locator('.pj-people-column').boundingBox(), right = await page.locator('.pj-jobs-column').boundingBox();
+    assert.equal(await page.locator('[data-pj-mode="overview"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-pj-group="role:seeker"]').count(), 1);
+    assert.equal(await page.locator('[data-pj-group="role:employer"]').count(), 1);
+    assert.equal(await page.locator('[data-pj-canvas]').count(), 1);
+    assert.equal(requests.some(request => request.path === '/api/admin/relations/query' && request.body.mode === 'edges'), false);
+    const left = await page.locator('[data-pj-column="left"]').boundingBox(), right = await page.locator('[data-pj-column="right"]').boundingBox();
     assert.ok(left.x + left.width < right.x);
-    assert.deepEqual(await page.locator('.pj-connection').evaluateAll(nodes => nodes.map(node => node.dataset.id).sort()), ['match-a', 'match-b', 'match-c']);
-    await page.locator('[data-graph-select="person"][data-id="person-a"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('.pj-connection.is-highlighted').length === 1);
-    assert.equal(await page.locator('.pj-connection.is-highlighted').getAttribute('data-id'), 'match-a');
-    assert.equal(await page.locator('[data-graph-node="job:job-rust"].is-related').count(), 1);
-    await page.locator('[data-graph-select="job"][data-id="job-rust"]').click();
-    assert.equal(await page.locator('[data-graph-followup]').isVisible(), true);
-    assert.equal(await page.locator('[data-graph-introduce]').isVisible(), false);
-    await screenshot('matching-selected-dark-1440');
-    const beforePreview = requests.length;
-    await page.locator('[data-graph-select="job"][data-id="job-qa"]').click();
-    assert.equal(await page.locator('[data-graph-introduce]').isVisible(), true);
-    await page.locator('[data-graph-preview]').waitFor();
-    assert.equal(await page.locator('.pj-connection[data-id]').count(), 3, 'A pending preview must not increase existing introductions');
-    assert.equal(await page.locator('[data-graph-preview] .pj-connection[data-id]').count(), 0, 'Pending previews must not claim a saved match identifier');
-    assert.equal(await page.locator('[data-graph-relation]').count(), 3);
-    assert.equal(await page.locator('[data-graph-preview-legend]').isVisible(), true);
-    await screenshot('matching-preview-dark-1440');
-    await page.locator('[data-graph-select="job"][data-id="job-rust"]').click();
-    await page.locator('[data-graph-preview]').waitFor({ state: 'detached' });
-    assert.equal(await page.locator('[data-graph-followup]').isVisible(), true);
-    await page.locator('[data-graph-select="person"][data-id="employer-a"]').click();
-    assert.equal(await page.locator('[data-graph-preview]').count(), 0, 'Employers must not become seeker-side previews');
-    assert.equal(await page.locator('[data-graph-introduce]').isVisible(), false);
-    assert.equal(requests.length, beforePreview, 'Selection and previews must stay local until explicit confirmation');
-    await page.locator('[data-graph-clear]').click();
-    await choose('select[name="graph_status"]', 'interview');
-    await page.waitForFunction(() => document.querySelectorAll('.pj-connection').length === 1 && document.querySelector('.pj-connection')?.dataset.id === 'match-b');
+    await screenshot('matching-overview-dark-1440');
+
+    // Force a stale canonical response to finish after a newer local focus. It
+    // must never repaint the old directory or acknowledge it as the new view.
+    let releaseRead, readStarted;
+    const blocked = new Promise(resolve_ => { readStarted = resolve_; });
+    heldViewRead = { started: readStarted, release: new Promise(resolve_ => { releaseRead = resolve_; }) };
+    await page.locator('[data-pj-mode="list"]').click();
+    await blocked;
+    assert.equal(await page.locator('[data-graph-node="person:employer-a"] [data-action="admin-edit-user"]').count(), 1);
+    await page.locator('[data-pj-focus-node="person-a"][data-side="left"]').click();
+    await page.waitForFunction(() => document.querySelector('.pj-focus-summary')?.textContent.includes('演示候选人 A'));
+    await page.evaluate(() => {
+      window.syntheticRelationModes = [];
+      window.syntheticRelationObserver = new MutationObserver(() => window.syntheticRelationModes.push(document.querySelector('[data-pj-mode][aria-pressed="true"]')?.dataset.pjMode));
+      window.syntheticRelationObserver.observe(document.querySelector('[data-pj-board]'), { childList: true, subtree: true });
+    });
+    const expectedRev = relationViewRev + 1;
+    const applied = page.waitForResponse(response => response.url().endsWith('/' + relationViewId + '/ack') && response.request().postDataJSON().view_rev === expectedRev);
+    releaseRead();await applied;
+    assert.ok((await page.evaluate(() => { window.syntheticRelationObserver.disconnect();return [...new Set(window.syntheticRelationModes)].filter(Boolean); })).every(mode => mode === 'focus'), 'A stale canonical response must not repaint the old directory');
+    assert.equal(await page.locator('[data-pj-mode="focus"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(relationAckRev, expectedRev);assert.equal(relationView.mode, 'focus');
+    assert.equal(await page.locator('[data-pj-column="left"] [data-graph-node]').count(), 1);
+    assert.equal(await page.locator('[data-pj-column="right"] [data-graph-node]').count(), 1);
+    assert.equal(await page.locator('[data-action="match-detail"][data-id="match-a"]').count(), 1);
+    assert.equal(await page.locator('[data-pj-focus-node="job-qa"]').count(), 0, 'A focus only lists saved neighbors');
+    await screenshot('matching-focused-dark-1440');
+    const before = requests.filter(request => request.path === '/api/admin/relations/query').length;
+    await page.locator('[data-pj-action="lines"]').click();
+    assert.equal(await page.locator('[data-pj-action="lines"]').getAttribute('aria-pressed'), 'false');
+    assert.equal(requests.filter(request => request.path === '/api/admin/relations/query').length, before, 'Hiding the line layer must not query or mutate relationships');
+    await page.locator('[data-pj-action="lines"]').click();
+    await page.locator('[data-pj-mode="matrix"]').click();
+    const cell = page.locator('.pj-matrix [data-pj-matrix-left="role:seeker"][data-pj-matrix-right="status:published"]');
+    assert.equal((await cell.locator('strong').textContent()).trim(), '3');
+    await cell.click();
+    await page.locator('[data-pj-action="clear-groups"]').waitFor();
+    await page.locator('[data-pj-mode="matrix"]').click();
+    assert.equal(await page.locator('[data-pj-action="clear-groups"]').count(), 1, 'Changing mode retains the shared group scope');
+    await page.locator('[data-pj-action="clear-groups"]').click();
+    await page.locator('[data-pj-mode="list"]').click();
+    await page.locator('[data-pj-action="stage"][data-stage="interview"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-pj-action="stage"][data-stage="interview"]')?.getAttribute('aria-pressed') === 'true');
     await page.locator('input[name="people_q"]').fill('候选人 A');
     await page.locator('[data-list="people"] button[type="submit"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('.pj-person').length === 1 && document.querySelectorAll('.pj-connection').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('[data-pj-column="left"] [data-graph-node]').length === 1);
     assert.equal(await page.locator('[data-graph-node="person:person-a"]').count(), 1);
+    const last = requests.filter(request => request.path === '/api/admin/relations/query' && request.body.mode === 'overview').at(-1);
+    assert.equal(last.body.filters.user_q, '候选人 A');assert.equal(last.body.filters.match_status, 'interview');
+    assert.equal(last.body.filters.left_group_ids, undefined);assert.equal(last.body.filters.right_group_ids, undefined);
+    assert.equal(await page.locator('[data-pj-focus-node="job-qa"]').count(), 1, 'Unrelated jobs remain manageable in the directory');
   });
 
   await step('1440 light/dark and 390/320 mobile layouts stay inside the viewport', async () => {
@@ -329,7 +403,7 @@ try {
     for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [390, 'dark'], [320, 'light']]) {
       await page.setViewportSize({ width, height: width < 600 ? 844 : 1000 });
       for (const tab of ['team', 'orders', 'matches']) {
-        await navigate(tab, tab === 'orders' ? `&mode=live&from=${day(-6)}&to=${day(0)}` : '');
+        await navigate(tab, tab === 'orders' ? `&mode=live&from=${day(-6)}&to=${day(0)}` : tab === 'matches' ? '&graph_mode=overview' : '');
         await page.evaluate(value => { const root_ = document.documentElement; root_.dataset.theme = value; root_.dataset.palette = value === 'light' ? 'neutral' : 'amber'; root_.classList.toggle('dark', value === 'dark'); root_.classList.toggle('light', value === 'light'); }, theme);
         await noHorizontalOverflow();
         if (tab === 'orders') {
@@ -337,17 +411,14 @@ try {
           assert.ok(amountsFit, 'Each summary amount must remain on one line, including cents');
         }
         if (tab === 'matches') {
-          const columns = await page.locator('.pj-column').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
-          assert.ok(columns[0] < columns[1], 'Mobile must preserve left/right columns inside its own scroll area');
-          assert.equal(await page.locator('.pj-scroll').evaluate(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowX)), true);
+          const columns = await page.locator('.pj-column').evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, y: node.getBoundingClientRect().y, right: node.getBoundingClientRect().right })));
           if (width < 600) {
-            const right = await page.locator('.pj-jobs-column').boundingBox();
-            assert.ok(right.x + right.width <= width + 1, `${width}px should show both columns together`);
-            const person = await page.locator('.pj-person').first().boundingBox(), job = await page.locator('.pj-job').first().boundingBox();
-            assert.ok(Math.abs(person.y - job.y) <= 1, `${width}px must align both columns after the enhanced filters`);
-            const titlesReadable = await page.locator('.pj-node-select strong').evaluateAll(nodes => nodes.every(node => parseFloat(getComputedStyle(node).fontSize) >= 12));
-            assert.ok(titlesReadable, `${width}px card titles must remain at least 12px`);
-          }
+            assert.ok(columns[0].y < columns[1].y, 'Narrow screens stack independent lists into readable cards');
+            assert.ok(columns.every(column => column.right <= width + 1));
+            assert.equal(await page.locator('[data-pj-canvas]').isVisible(), false);
+          } else assert.ok(columns[0].x < columns[1].x, 'Desktop presents separate left and right lists');
+          const titlesReadable = await page.locator('.pj-node-select strong').evaluateAll(nodes => nodes.every(node => parseFloat(getComputedStyle(node).fontSize) >= 12));
+          assert.ok(titlesReadable, `${width}px card titles must remain at least 12px`);
         }
         await screenshot(`${tab}-${theme}-${width}`);
         if (tab === 'orders' && width === 1440 && theme === 'dark') {
