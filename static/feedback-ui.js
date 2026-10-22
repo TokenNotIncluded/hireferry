@@ -108,17 +108,24 @@ export function mountQuickFeedback(doc = document, win = window) {
     observer.observe(launch);
     observer.observe(panel);
   }
-  let pending = false;
+  let pending = false, resultKey = '', resultId = null;
   const words = () => {
+    const language = doc.documentElement?.lang;
+    if (language) return translations[language.toLowerCase().startsWith('en') ? 'en' : 'zh'];
     try { return translations[win.localStorage.getItem('hireferry-language') === 'en' ? 'en' : 'zh']; }
     catch { return translations.zh; }
   };
   function translate() {
     const t = words();
-    root.querySelectorAll('[data-feedback]').forEach(el => { el.textContent = t[el.dataset.feedback]; });
+    root.querySelectorAll('[data-feedback]').forEach(el => {
+      const value = t[el.dataset.feedback === 'submit' && pending ? 'sending' : el.dataset.feedback];
+      if (el.textContent !== value) el.textContent = value;
+    });
     message.placeholder = t.placeholder;
     launch.title = t.move;
-    $('[data-feedback-close]').ariaLabel = t.close;
+    launch.setAttribute('aria-label', t.open);
+    $('[data-feedback-close]').setAttribute('aria-label', t.close);
+    result.textContent = resultKey ? t[resultKey] + (resultKey === 'success' ? ` · #${resultId}` : '') : '';
   }
   function toggle(open, anchor = launch) {
     panel.hidden = !open;
@@ -132,6 +139,12 @@ export function mountQuickFeedback(doc = document, win = window) {
   }
   translate();
   layout();
+  // The SPA and standalone OAuth pages both publish their active locale here.
+  // Translate the existing widget so drafts, selections and dragged positions survive.
+  if (doc.documentElement && win.MutationObserver) {
+    const languageObserver = new win.MutationObserver(translate);
+    languageObserver.observe(doc.documentElement, {attributes:true, attributeFilter:['lang']});
+  }
   launch.addEventListener('click', event => {
     // Keyboard and assistive-technology clicks have no pointer click count.
     if (dragged && event.detail !== 0) { dragged = false; event.preventDefault(); return; }
@@ -152,7 +165,7 @@ export function mountQuickFeedback(doc = document, win = window) {
   $('[data-feedback-close]').addEventListener('click', () => toggle(false));
   doc.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) toggle(false); });
   doc.addEventListener('pointerdown', event => {
-    if (!panel.hidden && !root.contains(event.target)) toggle(false);
+    if (!panel.hidden && !root.contains(event.target) && !event.target.closest?.('[data-action="language"], #language')) toggle(false);
   });
   message.addEventListener('input', () => { $('#feedback-length').textContent = String([...message.value].length); });
   form.addEventListener('submit', async event => {
@@ -160,8 +173,7 @@ export function mountQuickFeedback(doc = document, win = window) {
     if (pending || !form.reportValidity()) return;
     pending = true;
     send.disabled = true;
-    send.textContent = words().sending;
-    result.textContent = '';
+    resultKey = '';resultId = null;translate();
     result.classList.remove('error');
     try {
       // A logged-in browser reports as its actual account and must send CSRF;
@@ -181,16 +193,16 @@ export function mountQuickFeedback(doc = document, win = window) {
       if (response.status === 503) throw new Error('unavailable');
       if (!response.ok) throw new Error('submit');
       const data = await response.json();
-      result.textContent = `${words().success} · #${data.id}`;
+      resultKey = 'success';resultId = data.id;
       form.reset();
       $('#feedback-length').textContent = '0';
     } catch (error) {
-      result.textContent = ['limit','duplicate','unavailable'].includes(error.message) ? words()[error.message] : words().error;
+      resultKey = ['limit','duplicate','unavailable'].includes(error.message) ? error.message : 'error';
       result.classList.add('error');
     } finally {
       pending = false;
       send.disabled = false;
-      send.textContent = words().submit;
+      translate();
     }
   });
 }

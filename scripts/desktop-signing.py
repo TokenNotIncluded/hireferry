@@ -22,11 +22,14 @@ def required():
     return os.environ.get('DESKTOP_REQUIRE_SIGNATURES', '').lower() == 'true'
 
 
-def run(command, *, check=True, env=None):
-    result = subprocess.run(command, text=True, capture_output=True, env=env)
+def run(command, *, check=True, env=None, input_text=None, private=False):
+    result = subprocess.run(command, text=True, encoding='utf-8', errors='replace',
+                            capture_output=True, env=env, input=input_text)
     if check and result.returncode:
-        # Native signing errors can contain account details. Do not echo secrets.
-        raise ValueError(f'{Path(command[0]).name} failed (exit {result.returncode}); inspect the native signing configuration')
+        # Certificate import can contain account details; verification diagnostics
+        # have no private keys/passwords and are needed to troubleshoot final files.
+        detail = '' if private else ': ' + (result.stderr.strip() or result.stdout.strip())[-1200:]
+        raise ValueError(f'{Path(command[0]).name} {command[1]} failed (exit {result.returncode}){detail}')
     return result
 
 
@@ -68,7 +71,7 @@ $certs = Import-PfxCertificate -FilePath $env:HF_PFX_FILE -CertStoreLocation Cer
 $cert = @($certs | Where-Object { $_.Thumbprint -eq $env:HF_SIGN_THUMBPRINT -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) })
 if ($cert.Count -ne 1) { throw 'Requested signing certificate/private key was not imported or has expired' }
 '''
-                run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', script], env=env)
+                run(['pwsh', '-NoProfile', '-NonInteractive', '-Command', script], env=env, private=True)
             config = {'bundle': {'windows': {'certificateThumbprint':thumbprint,
                        'digestAlgorithm':'sha256', 'timestampUrl':timestamp, 'tsp':True}}}
     elif platform == 'macOS':
@@ -143,7 +146,10 @@ def macos_verification(path):
             return verify_app(apps[0])
         mount = folder/'mounted'
         mount.mkdir()
-        run(['hdiutil', 'attach', '-nobrowse', '-readonly', '-mountpoint', str(mount), str(path.resolve())])
+        # Tauri embeds this project's licenseFile as a DMG license prompt. Quit
+        # its pager, then acknowledge our license; keep image validation enabled.
+        run(['hdiutil', 'attach', '-nobrowse', '-readonly', '-mountpoint', str(mount), str(path.resolve())],
+            input_text='qy\n')
         try:
             apps = list(mount.glob('*.app'))
             if len(apps) != 1:

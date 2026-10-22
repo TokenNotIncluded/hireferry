@@ -112,5 +112,30 @@ class SigningPolicy(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'not stapled'):
                 signing.verify_app(self.root/'HireFerry.app')
 
+    def test_final_dmg_mount_handles_own_license_and_always_detaches(self):
+        commands = []
+        def native(command, **kwargs):
+            commands.append((command,kwargs))
+            if command[:2] == ['hdiutil','attach']:
+                self.assertEqual(kwargs['input_text'], 'qy\n')
+                self.assertIn('-readonly', command)
+                self.assertNotIn('-noverify', command)
+                mount = Path(command[command.index('-mountpoint')+1])
+                (mount/'HireFerry.app').mkdir()
+            return SimpleNamespace()
+        with patch.object(signing,'run',side_effect=native), patch.object(signing,'verify_app',side_effect=ValueError('bad signature')):
+            with self.assertRaisesRegex(ValueError,'bad signature'):
+                signing.macos_verification(self.root/'package.dmg')
+        self.assertEqual(commands[-1][0][:2], ['hdiutil','detach'])
+
+    def test_native_verification_errors_are_actionable_and_import_errors_private(self):
+        result = SimpleNamespace(returncode=1,stdout='',stderr='image not recognized')
+        with patch.object(signing.subprocess,'run',return_value=result):
+            with self.assertRaisesRegex(ValueError, 'hdiutil attach.*image not recognized'):
+                signing.run(['hdiutil','attach','fixture.dmg'])
+            with self.assertRaises(ValueError) as error:
+                signing.run(['pwsh','-Command','import'],private=True)
+            self.assertNotIn('image not recognized', str(error.exception))
+
 
 if __name__ == '__main__': unittest.main()
