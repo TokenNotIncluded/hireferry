@@ -210,7 +210,7 @@ async function consent(page, link) {
   await page.locator('#consent').waitFor({ state: 'visible' });
   check((await page.locator('#scope').textContent()).trim() === 'identity', 'Consent displayed an unexpected scope');
   check((await page.locator('#site').textContent()).trim() === origin, 'Consent displayed the wrong issuer');
-  check((await page.locator('#permissions').textContent()).includes('Basic sign-in does not grant'), 'Consent did not distinguish basic identity from business permissions');
+  check((await page.locator('#permissions').textContent()).includes('No AI tools or business actions.'), 'Consent did not distinguish basic identity from business permissions');
   if (link.pathname === '/oauth/device') {
     check((await page.locator('#display-code').textContent()).trim() === link.searchParams.get('user_code'), 'Consent did not display the terminal device code');
   }
@@ -290,7 +290,7 @@ try {
     await page.waitForURL(url => url.pathname === '/oauth/authorize' && url.searchParams.get('state') === link.searchParams.get('state'));
     await page.locator('#consent').waitFor({ state: 'visible' });
     check((await page.locator('#scope').textContent()).trim() === 'identity', 'Resumed authorization changed the requested scope');
-    check((await page.locator('#permissions').textContent()).includes('Basic sign-in does not grant'), 'Basic identity consent included unexpected business permissions');
+    check((await page.locator('#permissions').textContent()).includes('No AI tools or business actions.'), 'Basic identity consent included unexpected business permissions');
     await page.locator('#approve').click();
     const result = await finish(process_);
     check(result.authenticated && !result.reused, 'OAuth login did not create a new session');

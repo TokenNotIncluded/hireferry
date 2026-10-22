@@ -24,7 +24,7 @@ const words = {
   signIn: ['请先登录。', 'Please sign in first.'],
   checkDetails: ['', ''],
   approvalUnavailable: ['当前账户无法批准此权限。请切换账户或拒绝请求。', 'This account cannot approve these permissions. Switch accounts or decline.'],
-  identityPermissions: ['允许读取账户身份、AI 使用资格和已授予的权限。', 'Read your account identity, AI eligibility and granted permissions.'],
+  identityPermissions: ['查看账户、AI 资格和现有权限。不含 AI 工具或业务操作权限。', 'Read account, AI eligibility and granted permissions. No AI tools or business actions.'],
   memberPermissions: ['允许按你现有的 AI 权限管理资料、委托、岗位、订单、匹配和会话。收费操作按订单结算。', 'Use your existing AI permissions to manage profiles, briefs, jobs, orders, introductions and conversations. Paid actions use the normal checkout.'],
   adminPermissions: ['允许管理全平台业务资料、用户、匹配和会话。范围不含 Passkey、凭据签发与服务器密钥。', 'Manage platform records, users, introductions and conversations. Passkeys, credential issuance and server secrets are outside this scope.'],
   administrator: ['平台管理员', 'Platform administrator'],
