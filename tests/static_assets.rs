@@ -215,3 +215,25 @@ async fn static_text_is_compressed_but_session_and_private_api_responses_remain_
         assert!(response.headers().get("etag").is_none(), "{path}");
     }
 }
+
+#[tokio::test]
+async fn public_pages_allow_github_star_reads_without_loading_third_party_scripts() {
+    let response = request(&app(), Method::GET, "/", &[]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let policy = response.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
+    let directive = |name: &str| {
+        policy
+            .split(';')
+            .map(str::trim)
+            .find(|value| value.starts_with(name))
+            .unwrap()
+    };
+    assert_eq!(
+        directive("connect-src "),
+        "connect-src 'self' https://api.github.com"
+    );
+    assert_eq!(directive("script-src "), "script-src 'self'");
+    assert_eq!(directive("default-src "), "default-src 'self'");
+}

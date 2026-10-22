@@ -162,7 +162,7 @@ async fn security(State(state): State<AppState>, req: Request, next: Next) -> Re
         "permissions-policy",
         HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
     );
-    h.insert("content-security-policy",HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
+    h.insert("content-security-policy",HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
     if !state.cfg.development {
         h.insert(
             "strict-transport-security",
