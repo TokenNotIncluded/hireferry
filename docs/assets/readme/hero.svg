@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
   <title id="title">HireFerry — private recruiting, shared progress</title>
-  <desc id="desc">A sailboat crosses a quiet field of particles. HireFerry brings people and opportunities together through human HR and authorized AI. The illustration adapts to light and dark color schemes.</desc>
+  <desc id="desc">A sailboat crosses a quiet field of particles. HireFerry brings people and opportunities together through authorized AI agents connected through MCP. The illustration adapts to light and dark color schemes.</desc>
   <style>
     .paper { fill: #f5f3ed; }
     .ink { fill: #181917; }
@@ -27,7 +27,7 @@
   <text class="ink" x="48" y="112" font-size="72" font-weight="600" letter-spacing="-3" style="font-family: Georgia, 'Times New Roman', serif">HireFerry</text>
   <text class="ink" x="52" y="176" font-size="31" letter-spacing="-0.5">Private recruiting.</text>
   <text class="ink" x="52" y="216" font-size="31" letter-spacing="-0.5">Shared progress.</text>
-  <text class="muted" x="53" y="300" font-size="22">Human HR + authorized AI</text>
+  <text class="muted" x="53" y="300" font-size="22">AI-native screening + matching</text>
   <circle class="sun" cx="813" cy="91" r="34"/>
   <g class="line" stroke-width="3">
     <path d="M660 220 H843 L810 253 H696 Z"/>

@@ -24,15 +24,15 @@ We use necessary information to sign you in, keep briefs, understand needs, scre
 
 We do not sell personal information, use résumés, conversations or hiring briefs for advertising targeting, or use them to train general-purpose AI models.
 
-## What HR, AI HR and introduced parties can access {#sharing}
+## What the platform, AI agents and introduced parties can access {#sharing}
 
-There is no public directory of people or jobs. Authorized platform administrators, human HR and AI HR can access relevant information within their duties and permissions to deliver your requested service. After an introduction, the relevant job seeker and employer can view the associated résumé, role, contact email and shared room. Your sign-in email is not published as your contact email by default. Private platform messages are not automatically copied into introduction rooms.
+There is no public directory of people or jobs. Authorized platform administrators and AI agents can access relevant information within their duties and permissions to deliver your requested service. After an introduction, the relevant job seeker and employer can view the associated résumé, role, contact email and shared room. Your sign-in email is not published as your contact email by default. Private platform messages are not automatically copied into introduction rooms.
 
 Contacting external businesses or channels, applying, or sharing information that identifies you requires your external-outreach authorization. You may change or withdraw that permission and ask support to stop future processing. Withdrawal cannot automatically retrieve emails or copies already received; we will assist within our control.
 
 ## AI involvement and API authorization {#ai}
 
-AI HR can help organize needs, screen, match and draft communications. Models can make errors, omit information or show bias. AI suggestions are not hiring decisions, and you may request human explanation, review and correction. The relevant parties make interview, contract and hiring decisions.
+Authorized AI agents connected through MCP can automatically organize needs, screen, match and draft communications; connected agent clients run the ongoing tasks. Models can make errors, omit information or show bias. AI suggestions are not hiring decisions, and you may request human explanation, review and correction. The relevant parties make interview, contract and hiring decisions.
 
 When you connect an AI client, it may read or act through a token you create, within the account’s current permissions. Platform AI HR also operates through authorized access. Only information necessary for the task should be supplied to tools or models. Before supplying information to an additional third-party model provider, we will explain the recipient, purpose and necessary scope, and obtain required authorization. Revoking a token prevents future access; copies already read, exported or cached must also be handled by the recipient.
 
@@ -74,7 +74,7 @@ We perform necessary, proportionate verification and respond or complete process
 
 ## Security and younger users {#security}
 
-We protect information with HTTPS, account permission checks, administrator passkeys, token verification and restricted server file access. Administrators and authorized HR may use relevant information only for service, support or security purposes. No system is absolutely secure; protect your email and tokens and report suspicious activity.
+We protect information with HTTPS, account permission checks, administrator passkeys, token verification and restricted server file access. Authorized platform administrators and AI agents may use relevant information only for service, support or security purposes. No system is absolutely secure; protect your email and tokens and report suspicious activity.
 
 If a security incident affects personal information, we will take response measures and notify affected users and relevant authorities as required, explaining known effects and available steps.
 

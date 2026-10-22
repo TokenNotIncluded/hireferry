@@ -10,15 +10,15 @@ Read these terms and the [Privacy Policy](/privacy) before registering, submitti
 
 ## What the service provides {#service}
 
-{{site_name}} is an AI-native talent-matching platform. Third-party human HR and AI HR work together to understand needs, screen and match. Each side first communicates privately with the platform; relevant profiles and a shared room become accessible after an introduction. Job seekers may separately authorize external outreach.
+{{site_name}} is an AI-native talent-matching platform. Authorized AI agents connected through MCP automatically organize hiring and job-search needs, screen résumés and match candidates. Connected agent clients run the ongoing tasks. Each side first communicates privately with the platform; relevant profiles and a shared room become accessible after an introduction. Job seekers may separately authorize external outreach.
 
-Services are delivered online through accounts, workspaces, information and conversations, without physical shipment. Employer activation opens account features; job publication and update orders cover their respective role services. We support screening, matching and communication. We are not a party to employment contracts, do not replace either party’s checks of identities, qualifications or working conditions, and do not guarantee an offer, a hire or a match within any particular time.
+Services are delivered online through accounts, workspaces, information and conversations, without physical shipment. Employer activation opens account features; job publication and update orders cover their respective role services. Purchases cover online accounts, role management and AI screening and matching software features, without human HR hours or offline recruitment services. We provide automated screening, matching and communication features. We are not a party to employment contracts, do not replace either party’s checks of identities, qualifications or working conditions, and do not guarantee an offer, a hire or a match within any particular time.
 
 ## Accounts, information and authorization {#accounts}
 
 Provide accurate résumés, hiring needs and contact details that you are authorized to submit, and keep them current. Do not impersonate others or submit their non-public information without permission. Protect your email, sessions and access tokens, and report suspicious activity.
 
-The platform, human HR and authorized AI HR may use information only as needed for matching, service delivery, support and security. External outreach requires separate authorization. You may pause a brief, withdraw outreach permission or revoke an AI token. Withdrawal cannot automatically retrieve copies already received by third parties.
+The platform and authorized AI agents may use information only as needed for matching, service delivery, support and security. External outreach requires separate authorization. You may pause a brief, withdraw outreach permission or revoke an AI token. Withdrawal cannot automatically retrieve copies already received by third parties.
 
 ## One-time charges, without renewal {#pricing}
 
@@ -47,7 +47,7 @@ Duplicate notifications do not republish a role or consume another update. If pa
 
 ## Refunds, mistaken payments and disputes {#refunds}
 
-**A full refund may be requested within {{refund_days}} days of payment if the corresponding service has not started.**  Unused activation means no paid role has been submitted and no related human screening or matching has begun. An unstarted role service means screening, external outreach and introductions for that request have not begun. Merely opening account access or creating a pending order does not mean the service is completed.
+**A full refund may be requested within {{refund_days}} days of payment if the corresponding service has not started.**  Unused activation means no paid role has been submitted and no related AI screening or matching has begun. An unstarted role service means screening, external outreach and introductions for that request have not begun. Merely opening account access or creating a pending order does not mean the service is completed.
 
 Duplicate charges, confirmed billing errors and services we cannot deliver are also refundable. An entirely undeliverable order is refunded in full; for partial delivery, we explain completed work and agree how to handle the undelivered portion. Completed screening, outreach, introductions or role updates are not refundable solely because no hire or offer results, or plans change. Statutory refund rights and other non-excludable rights remain unaffected.
 
@@ -59,7 +59,7 @@ You may contact us first to reconcile a disputed charge. This does not restrict 
 
 ## AI, content rights and human review {#ai}
 
-The platform combines human HR and AI HR. AI may assist with briefs, screening, matching and communication; its output is not a final determination of ability or hiring outcomes. You may request human explanation, review or correction. Employers must independently review candidates, interview and verify conditions, rather than make hiring or rejection decisions solely from AI output.
+The platform uses authorized AI agents to automate briefs, screening, matching and communication, reducing repetitive manual work. Automation requires a connected, running agent. AI output is not a final determination of ability or hiring outcomes. You may request human explanation, review or correction. Employers must independently review candidates, interview and verify conditions, rather than make hiring or rejection decisions solely from AI output.
 
 You retain rights in content you submit and grant only the limited, non-exclusive permission needed to provide the service. We do not use résumés, private messages or hiring briefs to train general-purpose models. AI output can be inaccurate, non-exclusive or lack protectable rights; verify facts, permissions and suitability before use.
 

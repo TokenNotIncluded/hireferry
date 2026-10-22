@@ -4,7 +4,7 @@
 
 <h1 align="center">聘渡 · HireFerry</h1>
 
-<p align="center">人类 HR 与 AI 协作，让人才与机会相遇。</p>
+<p align="center">AI 原生，自动初筛，让人才与机会相遇。</p>
 
 <p align="center">
   <strong>简体中文</strong> ·
@@ -28,7 +28,7 @@
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">问题反馈</a>
 </p>
 
-聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由人类 HR 与已授权的 AI 整理需求、建立介绍、跟进进展。双方在匹配后查看对应资料，并进入独立会话。
+聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由通过 MCP 连接的获授权 AI agent 自动整理需求、筛选简历、建立匹配与跟进进展。持续运行的 agent 客户端负责自动化循环，服务器提供权限、业务接口与记录。双方在匹配后查看对应资料，并进入独立会话。
 
 服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。求职者免费，招聘方费用按站点配置收取。
 
@@ -52,7 +52,7 @@
 
 ## 服务流程
 
-<img src="docs/assets/readme/workflow.svg" alt="求职者和招聘方各自与平台 HR 私聊，平台建立介绍后开启新的匹配会话" width="100%">
+<img src="docs/assets/readme/workflow.svg" alt="求职者和招聘方各自与平台 AI 私聊，平台建立介绍后开启新的匹配会话" width="100%">
 
 1. **提交需求**：求职者填写资料和委托，招聘方创建岗位。
 2. **平台介绍**：HR 按岗位筛选，并将合适的候选人介绍给招聘方。

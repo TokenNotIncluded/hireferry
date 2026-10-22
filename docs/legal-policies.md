@@ -72,7 +72,7 @@ server log retention and actual handling procedures aligned with the published
 values. A request to retain necessary transaction records does not authorize
 retaining an unrelated complete résumé or private conversation.
 
-The defaults cover the product's current human HR and AI HR matching workflow,
+The defaults cover the product's AI-native screening and matching workflow through authorized MCP agents,
 free headcount changes, one-time restoration, permanent content deletion with
 financial references retained, verified Waffo refund events and explicitly
 configured Webhooks. Stripe refund records are not synchronized automatically.

@@ -205,7 +205,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "list_matches",
-            "Read the human HR team's introductions for your account.",
+            "Read the platform's AI matching records for your account.",
             json!({}),
             &[],
             true,
