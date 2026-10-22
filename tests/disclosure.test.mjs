@@ -14,11 +14,11 @@ class Events {
   }
   removeEventListener(type, fn) { this.listeners.get(type)?.delete(fn); }
   dispatch(type, target = this) {
-    for (const fn of this.listeners.get(type)?.keys() || []) fn({ target });
+    for (const fn of this.listeners.get(type)?.keys() || []) fn({ target, preventDefault() {} });
   }
 }
 
-function fixture() {
+function fixture({ storage } = {}) {
   const root = new Events(), doc = new Events(), scroller = new Events();
   const classes = new Set(), frames = new Map();
   let nextFrame = 0;
@@ -26,16 +26,18 @@ function fixture() {
   root.dataset = { pageKey: 'app:orders' };
   const header = { offsetHeight: 64, contains: node => node?.inHeader === true };
   Object.assign(scroller, { scrollTop: 0, scrollHeight: 2000, clientHeight: 600 });
-  let currentScroller = scroller, details = [], menuOpen = false, modalOpen = false;
+  let currentScroller = scroller, details = [], panels = [], menuOpen = false, modalOpen = false;
   root.querySelector = selector => {
     if (selector === '.workspace-header') return currentScroller ? header : null;
     if (selector === '.workspace-layout > .app-content') return currentScroller;
     if (selector === '.theme-menu[open], .workspace-more[open]') return menuOpen ? {} : null;
+    if (selector.startsWith('[data-workspace-panel="inbox"]')) return panels.find(button => button.dataset.workspacePanel === 'inbox' && button.restore === !selector.includes(':not'));
     throw new Error(`Unexpected selector: ${selector}`);
   };
-  root.querySelectorAll = () => details;
+  root.querySelectorAll = selector => selector === '[data-workspace-panel]' ? panels : details;
   doc.querySelector = () => modalOpen ? {} : null;
   const win = {
+    localStorage: storage,
     requestAnimationFrame(fn) { frames.set(++nextFrame, fn); return nextFrame; },
     cancelAnimationFrame(id) { frames.delete(id); },
   };
@@ -48,6 +50,8 @@ function fixture() {
   return {
     root, doc, scroller, ui, frames, flush,
     get collapsed() { return classes.has('workspace-chrome-collapsed'); },
+    panelCollapsed: name => classes.has(`workspace-${name}-collapsed`),
+    setPanels(value) { panels = value; },
     scroll(y, paint = true) { scroller.scrollTop = y; scroller.dispatch('scroll'); if (paint) flush(); },
     setDetails(value) { details = value; },
     setScroller(value) { currentScroller = value; },
@@ -56,6 +60,54 @@ function fixture() {
     sync(scope = 'account-a') { ui.sync({ scope }); },
   };
 }
+
+function panel(name, restore = false) {
+  return {
+    dataset: { workspacePanel: name, labelExpand: `Expand ${name}`, labelCollapse: `Collapse ${name}` },
+    restore, attributes: {}, focused: false,
+    setAttribute(key, value) { this.attributes[key] = value; },
+    closest() { return this; },
+    focus() { this.focused = true; },
+  };
+}
+
+test('navigation and inbox fold independently and preferences survive a new page load', () => {
+  const values = new Map(), storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  const f = fixture({ storage }), nav = panel('navigation'), inbox = panel('inbox'), restore = panel('inbox', true);
+  f.setPanels([nav, inbox, restore]); f.sync();
+  f.root.dispatch('click', nav);
+  assert.equal(f.panelCollapsed('navigation'), true);
+  assert.equal(f.panelCollapsed('inbox'), false);
+  assert.equal(nav.attributes['aria-expanded'], 'false');
+  assert.equal(nav.attributes['aria-label'], 'Expand navigation');
+  f.root.dispatch('click', inbox);
+  assert.equal(f.panelCollapsed('inbox'), true);
+  assert.equal(restore.focused, true, 'focus moves out of the hidden list');
+  f.root.dispatch('click', restore);
+  assert.equal(f.panelCollapsed('inbox'), false);
+  assert.equal(inbox.focused, true);
+  f.ui.reset(); f.sync('another-account');
+  assert.equal(f.panelCollapsed('navigation'), true, 'layout preferences contain no account data');
+  const next = fixture({ storage }), replacement = panel('navigation');
+  next.setPanels([replacement]); next.sync();
+  assert.equal(next.panelCollapsed('navigation'), true);
+  assert.equal(next.panelCollapsed('inbox'), false);
+  assert.equal(replacement.attributes['aria-expanded'], 'false');
+  f.ui.dispose(); next.ui.dispose();
+});
+
+test('folding still works when browser storage is blocked or contains invalid data', () => {
+  const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+  for (const storage of [blocked, { getItem: () => '{invalid' }, { getItem: () => '{"inbox":"false"}' }]) {
+    const f = fixture({ storage }), button = panel('navigation');
+    f.setPanels([button]); f.sync();
+    assert.equal(f.panelCollapsed('inbox'), false);
+    f.root.dispatch('click', button);
+    assert.equal(f.panelCollapsed('navigation'), true);
+    f.ui.dispose();
+    assert.equal(f.root.listeners.get('click').size, 0);
+  }
+});
 
 function disclosure(key, open = false, parent = null) {
   const node = {

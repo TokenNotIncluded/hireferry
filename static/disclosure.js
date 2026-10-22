@@ -1,6 +1,12 @@
 // Only the workspace chrome moves with scrolling. Reading content stays in place.
 export function createDisclosureUI({ root, doc = document, win = window }) {
   const choices = new Map();
+  const panelStorageKey = 'hireferry-workspace-panels';
+  const panels = { navigation: false, inbox: false };
+  try {
+    const saved = JSON.parse(win.localStorage?.getItem(panelStorageKey) || '{}');
+    for (const name of Object.keys(panels)) panels[name] = saved?.[name] === true;
+  } catch {}
   let scope, pageKey, scroller, frame = null, lastY = 0, distance = 0, direction = 0;
   const keyFor = node => `${root.dataset.pageKey || ''}:${node.dataset.disclosure}`;
   const position = () => Math.max(0, scroller?.scrollTop || 0);
@@ -11,6 +17,34 @@ export function createDisclosureUI({ root, doc = document, win = window }) {
     choices.set(key, open);
     if (choices.size > 256) choices.delete(choices.keys().next().value);
   };
+
+  function syncPanels() {
+    for (const name of Object.keys(panels)) {
+      root.classList[panels[name] ? 'add' : 'remove'](`workspace-${name}-collapsed`);
+    }
+    for (const button of root.querySelectorAll('[data-workspace-panel]')) {
+      const collapsed = panels[button.dataset.workspacePanel];
+      const label = collapsed ? button.dataset.labelExpand : button.dataset.labelCollapse;
+      button.setAttribute('aria-expanded', String(!collapsed));
+      button.setAttribute('aria-label', label);
+      button.title = label;
+    }
+  }
+
+  function onPanelClick(event) {
+    const button = event.target.closest?.('[data-workspace-panel]');
+    const name = button?.dataset.workspacePanel;
+    if (!Object.hasOwn(panels, name)) return;
+    event.preventDefault();
+    panels[name] = !panels[name];
+    try { win.localStorage?.setItem(panelStorageKey, JSON.stringify(panels)); } catch {}
+    syncPanels();
+    if (name === 'inbox') {
+      root.querySelector(panels.inbox
+        ? '[data-workspace-panel="inbox"][data-panel-restore]'
+        : '[data-workspace-panel="inbox"]:not([data-panel-restore])')?.focus({ preventScroll: true });
+    }
+  }
 
   function shouldStayOpen() {
     const active = doc.activeElement;
@@ -76,6 +110,7 @@ export function createDisclosureUI({ root, doc = document, win = window }) {
   }
 
   function sync({ scope: nextScope = '' } = {}) {
+    syncPanels();
     if (scope !== nextScope) { choices.clear(); scope = nextScope; reveal(); }
     const nextPageKey = root.dataset.pageKey;
     const nextScroller = root.querySelector('.workspace-layout > .app-content');
@@ -105,6 +140,7 @@ export function createDisclosureUI({ root, doc = document, win = window }) {
 
   root.addEventListener('toggle', onToggle, true);
   root.addEventListener('invalid', onInvalid, true);
+  root.addEventListener('click', onPanelClick);
   doc.addEventListener('focusin', onFocus);
   return {
     sync, reset,
@@ -112,6 +148,7 @@ export function createDisclosureUI({ root, doc = document, win = window }) {
       reset();
       root.removeEventListener('toggle', onToggle, true);
       root.removeEventListener('invalid', onInvalid, true);
+      root.removeEventListener('click', onPanelClick);
       doc.removeEventListener('focusin', onFocus);
     },
   };
