@@ -96,22 +96,25 @@ fn range(q: &QueryInput) -> AppResult<(i64, i64)> {
     Ok((from, to))
 }
 
+fn payment_mode(q: &QueryInput) -> AppResult<Option<bool>> {
+    match q.mode.as_deref() {
+        Some("live") => Ok(Some(true)),
+        Some("test") => Ok(Some(false)),
+        None => Ok(None),
+        Some(_) => Err(AppError::bad_request(
+            "Choose live or test payment statistics",
+        )),
+    }
+}
+
 /// Shared business functions recheck the principal while holding the database
 /// lock (and the write transaction for mutations). HTTP and MCP use these alike.
 pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Value> {
     let db = s.conn()?;
     access::ensure_admin(&db, p)?;
     let (from, to) = range(q)?;
-    let live = match q.mode.as_deref() {
-        Some("live") => true,
-        Some("test") => false,
-        None => !s.cfg.development,
-        Some(_) => {
-            return Err(AppError::bad_request(
-                "Choose live or test payment statistics",
-            ));
-        }
-    };
+    let live = payment_mode(q)?.unwrap_or(!s.cfg.development);
+    let status = q.status.as_deref().unwrap_or_default();
     let currency = q.currency.as_deref().unwrap_or(&s.cfg.pricing.currency);
     let currency_decimals = crate::config::currency_decimals(currency)
         .ok_or_else(|| AppError::bad_request("Choose a supported reporting currency"))?;
@@ -124,26 +127,26 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
         SELECT order_id,-amount_cents,0,amount_cents,0,succeeded_at,live_mode,currency FROM payment_refunds WHERE status='succeeded'
     )";
     let (revenue, gross, refunds, paid_orders): (i64, i64, i64, i64) = db.query_row(
-        &format!("{movements} SELECT COALESCE(sum(net),0),COALESCE(sum(gross),0),COALESCE(sum(refund),0),COALESCE(sum(payment),0) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?4"),
-        params![from, to, live, currency], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+        &format!("{movements} SELECT COALESCE(sum(net),0),COALESCE(sum(gross),0),COALESCE(sum(refund),0),COALESCE(sum(payment),0) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?4 AND (?5='' OR order_id IN (SELECT id FROM orders WHERE status=?5))"),
+        params![from, to, live, currency, status], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
     let currency_totals = db.prepare(&format!(
-        "{movements} SELECT currency,sum(net),sum(gross),sum(refund),sum(payment) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 GROUP BY currency ORDER BY currency"
-    ))?.query_map(params![from,to,live], |row| {
+        "{movements} SELECT currency,sum(net),sum(gross),sum(refund),sum(payment) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND (?4='' OR order_id IN (SELECT id FROM orders WHERE status=?4)) GROUP BY currency ORDER BY currency"
+    ))?.query_map(params![from,to,live,status], |row| {
         let currency: String = row.get(0)?;
         Ok(json!({"currency":currency,"currency_decimals":crate::config::currency_decimals(&currency),"revenue_cents":row.get::<_,i64>(1)?,"gross_cents":row.get::<_,i64>(2)?,"refund_cents":row.get::<_,i64>(3)?,"paid_orders":row.get::<_,i64>(4)?}))
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     let first: i64 = db.query_row(
         &format!(
-            "{movements} SELECT COALESCE(min(created_at),?1) FROM movements WHERE live_mode=?2 AND currency=?3"
+            "{movements} SELECT COALESCE(min(created_at),?1) FROM movements WHERE live_mode=?2 AND currency=?3 AND (?4='' OR order_id IN (SELECT id FROM orders WHERE status=?4))"
         ),
-        params![now(), live, currency],
+        params![now(), live, currency, status],
         |r| r.get(0),
     )?;
     let monthly = to - from.max(first) > 366 * 86400;
     let bucket = if monthly { "%Y-%m" } else { "%Y-%m-%d" };
     let series = db.prepare(
-        &format!("{movements} SELECT strftime(?4,created_at,'unixepoch') AS day,sum(net),sum(payment),sum(gross),sum(refund) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?5 GROUP BY day ORDER BY day"))?
-        .query_map(params![from, to, live, bucket, currency], |r| Ok(json!({
+        &format!("{movements} SELECT strftime(?4,created_at,'unixepoch') AS day,sum(net),sum(payment),sum(gross),sum(refund) FROM movements WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?5 AND (?6='' OR order_id IN (SELECT id FROM orders WHERE status=?6)) GROUP BY day ORDER BY day"))?
+        .query_map(params![from, to, live, bucket, currency, status], |r| Ok(json!({
             "date":r.get::<_,String>(0)?,
             "revenue_cents":r.get::<_,i64>(1)?,
             "orders":r.get::<_,i64>(2)?,
@@ -151,8 +154,8 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             "refund_cents":r.get::<_,i64>(4)?
         })))?.collect::<rusqlite::Result<Vec<_>>>()?;
     let by_kind = db.prepare(
-        &format!("{movements} SELECT o.kind,sum(l.net),sum(l.payment),sum(l.gross),sum(l.refund) FROM movements l JOIN orders o ON o.id=l.order_id WHERE l.created_at>=?1 AND l.created_at<?2 AND l.live_mode=?3 AND l.currency=?4 GROUP BY o.kind"))?
-        .query_map(params![from, to, live, currency], |r| Ok(json!({
+        &format!("{movements} SELECT o.kind,sum(l.net),sum(l.payment),sum(l.gross),sum(l.refund) FROM movements l JOIN orders o ON o.id=l.order_id WHERE l.created_at>=?1 AND l.created_at<?2 AND l.live_mode=?3 AND l.currency=?4 AND (?5='' OR o.status=?5) GROUP BY o.kind"))?
+        .query_map(params![from, to, live, currency, status], |r| Ok(json!({
             "kind":r.get::<_,String>(0)?,
             "amount_cents":r.get::<_,i64>(1)?,
             "count":r.get::<_,i64>(2)?,
@@ -160,8 +163,8 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             "refund_cents":r.get::<_,i64>(4)?
         })))?.collect::<rusqlite::Result<Vec<_>>>()?;
     let recent = db
-        .prepare("SELECT * FROM orders ORDER BY created_at DESC,id LIMIT 8")?
-        .query_map([], models::order_row)?
+        .prepare("SELECT * FROM orders WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?4 AND (?5='' OR status=?5) ORDER BY created_at DESC,id LIMIT 8")?
+        .query_map(params![from, to, live, currency, status], models::order_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({
         "stats":{
@@ -528,22 +531,29 @@ pub fn list_orders(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Val
     access::ensure_admin(&db, p)?;
     let (from, to) = range(q)?;
     let status = q.status.as_deref().unwrap_or_default();
+    let live = payment_mode(q)?;
+    let currency = q.currency.as_deref().unwrap_or_default();
+    if !currency.is_empty() && crate::config::currency_decimals(currency).is_none() {
+        return Err(AppError::bad_request(
+            "Choose a supported reporting currency",
+        ));
+    }
     let page = q.page.unwrap_or(1).clamp(1, s.cfg.limits.list_max_page);
     let page_size = s.cfg.limits.list_page_size;
     let offset = (page - 1) * page_size;
-    let condition = "created_at>=?1 AND created_at<?2 AND (?3='' OR status=?3)";
+    let condition = "created_at>=?1 AND created_at<?2 AND (?3='' OR status=?3) AND (?4 IS NULL OR live_mode=?4) AND (?5='' OR currency=?5)";
     let items = db
         .prepare(&format!(
-            "SELECT * FROM orders WHERE {condition} ORDER BY created_at DESC,id LIMIT ?4 OFFSET ?5"
+            "SELECT * FROM orders WHERE {condition} ORDER BY created_at DESC,id LIMIT ?6 OFFSET ?7"
         ))?
         .query_map(
-            params![from, to, status, page_size, offset],
+            params![from, to, status, live, currency, page_size, offset],
             models::order_row,
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let total: i64 = db.query_row(
         &format!("SELECT count(*) FROM orders WHERE {condition}"),
-        params![from, to, status],
+        params![from, to, status, live, currency],
         |r| r.get(0),
     )?;
     Ok(json!({"items":items,"total":total,"page":page,"page_size":page_size}))

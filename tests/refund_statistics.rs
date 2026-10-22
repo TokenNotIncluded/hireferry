@@ -134,3 +134,83 @@ fn different_currencies_are_never_added_in_overview_series_or_kind_totals() {
     assert_eq!(yen["revenue_cents"], 3000);
     assert!(report(Some("unknown")).is_err());
 }
+
+#[test]
+fn order_filters_apply_to_complete_report_and_paginated_details_without_mixing_money() {
+    let mut config = Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    };
+    config.limits.list_page_size = 2;
+    let state = AppState::new(config).unwrap();
+    let at = hireferry::now() - 10;
+    {
+        let db = state.conn().unwrap();
+        db.execute("INSERT INTO users(id,email,role,created_at,updated_at) VALUES('filter-owner','filters@example.invalid','employer',?1,?1)", [at]).unwrap();
+        for index in 0..8 {
+            let id = format!("filtered-{index}");
+            let currency = if index == 5 { "USD" } else { "CNY" };
+            let live = index == 6;
+            let status = if index == 7 {
+                "partially_refunded"
+            } else {
+                "paid"
+            };
+            db.execute("INSERT INTO orders(id,user_id,kind,amount_cents,currency,provider,live_mode,status,created_at,paid_at) VALUES(?1,'filter-owner','onboarding',1000,?2,'waffo',?3,?4,?5,?5)", params![id,currency,live,status,at]).unwrap();
+            db.execute("INSERT INTO ledger(order_id,provider,payment_id,amount_cents,currency,live_mode,created_at) VALUES(?1,'waffo',?1,1000,?2,?3,?4)", params![id,currency,live,at]).unwrap();
+        }
+        db.execute("INSERT INTO payment_refunds(provider,refund_id,order_id,payment_id,provider_order_id,amount_cents,currency,live_mode,status,reason,created_at,updated_at,succeeded_at) VALUES('waffo','filtered-refund','filtered-7','filtered-7','ORD_filtered',250,'CNY',0,'succeeded','',?1,?1,?1)", [at]).unwrap();
+    }
+    let principal = Principal {
+        user_id: None,
+        admin: true,
+        via_ai: false,
+        actor: "report-filter-test".into(),
+    };
+    let date = chrono::DateTime::from_timestamp(at, 0)
+        .unwrap()
+        .format("%Y-%m-%d")
+        .to_string();
+    let mut query = admin::QueryInput {
+        from: Some(date.clone()),
+        to: Some(date),
+        status: Some("paid".into()),
+        currency: Some("CNY".into()),
+        mode: Some("test".into()),
+        page: Some(2),
+        ..Default::default()
+    };
+    let report = admin::overview_data(&state, &principal, &query).unwrap();
+    let page = admin::list_orders(&state, &principal, &query).unwrap();
+    assert_eq!(report["stats"]["gross_cents"], 5000);
+    assert_eq!(report["stats"]["refund_cents"], 0);
+    assert_eq!(report["stats"]["paid_orders"], 5);
+    assert_eq!(report["series"][0]["revenue_cents"], 5000);
+    assert_eq!(report["revenue_by_kind"][0]["amount_cents"], 5000);
+    assert_eq!(report["recent_orders"].as_array().unwrap().len(), 5);
+    assert_eq!(page["total"], 5);
+    assert_eq!(page["items"].as_array().unwrap().len(), 2);
+    for row in page["items"].as_array().unwrap() {
+        assert_eq!(row["currency"], "CNY");
+        assert_eq!(row["live_mode"], false);
+        assert_eq!(row["status"], "paid");
+    }
+    query.status = Some("partially_refunded".into());
+    query.page = Some(1);
+    let refunded = admin::overview_data(&state, &principal, &query).unwrap();
+    assert_eq!(refunded["stats"]["gross_cents"], 1000);
+    assert_eq!(refunded["stats"]["refund_cents"], 250);
+    assert_eq!(refunded["stats"]["revenue_cents"], 750);
+    assert_eq!(refunded["currency_totals"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        admin::list_orders(&state, &principal, &query).unwrap()["total"],
+        1
+    );
+    query.mode = Some("invalid".into());
+    assert!(admin::list_orders(&state, &principal, &query).is_err());
+    assert!(admin::overview_data(&state, &principal, &query).is_err());
+    query.mode = None;
+    query.currency = Some("unknown".into());
+    assert!(admin::list_orders(&state, &principal, &query).is_err());
+}

@@ -12,7 +12,7 @@ async function until(condition){for(let i=0;i<200;i++){if(condition())return;awa
 
 test('cold signed-in entry keeps configuration and session reads parallel when the session finishes first',async()=>{
   const cases=[
-    {identity:{user:null,admin:true,super_admin:true,staff:null,csrf:'owner-csrf'},path:'/admin?tab=team',marker:'data-form="team-invite"'},
+    {identity:{user:null,admin:true,super_admin:true,staff:null,csrf:'owner-csrf'},path:'/admin?tab=team',marker:'data-action="team-add-member"'},
     {identity:{user:{id:'staff-user',role:'unassigned',email:'staff@example.test'},admin:true,super_admin:false,staff:{id:'staff-one',name:'QA staff',kind:'human',active:true},csrf:'staff-csrf'},path:'/admin?tab=users',marker:'QA staff'},
     {identity:{user:{id:'manager-user',name:'QA manager',role:'unassigned'},admin:false,super_admin:false,staff_role:'manager',staff:null,csrf:'manager-csrf'},path:'/admin?tab=users',marker:'QA manager'},
     {identity:{user:{id:'fixture-user',role:'seeker'},admin:false,super_admin:false,staff:null,csrf:'member-csrf'},path:'/app?tab=profile',marker:'QA_PROFILE_READY'},

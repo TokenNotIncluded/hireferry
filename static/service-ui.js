@@ -834,7 +834,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function workbenchTabs(view) {
-    return `<nav class="wb-tabs" aria-label="${t('匹配工作台视图', 'Matching workspace views')}"><a href="${esc(workbenchUrl({ view: null }))}" data-nav ${view === 'search' ? 'aria-current="page"' : ''}>${icon('search')}${t('筛选候选人', 'Find candidates')}</a><a href="${esc(workbenchUrl({ view: 'followups' }))}" data-nav ${view === 'followups' ? 'aria-current="page"' : ''}>${icon('link')}${t('匹配跟进', 'Follow-ups')}</a></nav>`;
+    return `<nav class="wb-tabs" aria-label="${t('匹配工作台视图', 'Matching workspace views')}"><a href="/admin?tab=matches" data-nav>${icon('link')}${t('关系视图', 'Connections')}</a><a href="${esc(workbenchUrl({ view: 'search' }))}" data-nav ${view === 'search' ? 'aria-current="page"' : ''}>${icon('search')}${t('筛选候选人', 'Find candidates')}</a><a href="${esc(workbenchUrl({ view: 'followups' }))}" data-nav ${view === 'followups' ? 'aria-current="page"' : ''}>${icon('board')}${t('匹配跟进', 'Follow-ups')}</a></nav>`;
   }
 
   function workbenchJobQueue(page, selectedId) {
@@ -1069,10 +1069,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     notify(t('对接记录已保存。', 'Introduction saved.'));
   }
 
-  async function newMatch() { return go(route(true, 'matches')); }
+  async function newMatch() { return go(route(true, 'matches', { view: 'search' })); }
   async function savedFollowup() {
     resetWorkbenchPages('matches');
     resetWorkbenchPages('candidates');
+    const current = query();
+    if (['users', 'jobs'].includes(current.get('tab')) || current.get('tab') === 'matches' && !['search', 'followups'].includes(current.get('view')) && !current.has('job') && !current.has('candidate')) return render();
     return go(workbenchUrl({ view: 'followups', matches_cursor: null, candidates_cursor: null }));
   }
 

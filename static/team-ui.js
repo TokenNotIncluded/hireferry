@@ -25,11 +25,12 @@ export function savedTeamInvitation(storage, now = Date.now()) {
   return null;
 }
 
-export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice, empty, openDialog, confirmDialog, notify, go, render, session }) {
+export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice, empty, openDialog, confirmDialog, notify, go, render, session, managerUI = null }) {
   let settings = { smtp_enabled: false };
   let members = new Map();
   let invitations = new Map();
   let review = null;
+  let roleFilter = 'all';
   const storage = () => { try { return globalThis.sessionStorage; } catch { return null; } };
   const clearReturn = () => { try { storage()?.removeItem(RETURN_KEY); } catch { /* Optional browser storage. */ } };
   const fullDate = value => value ? new Date(Number(value) < 1e12 ? Number(value) * 1000 : value).toLocaleString(state.lang === 'en' ? 'en-GB' : 'zh-CN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -48,24 +49,97 @@ export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice,
     return `<label class="team-email-choice" for="${id}"><input type="checkbox" id="${id}" name="send_email" ${enabled ? 'checked' : 'disabled'}><span>${t('通过本站邮件服务器发送邀请', 'Send an invitation using this site’s mail server')}</span></label>${!enabled ? `<p class="help">${t('邮件服务暂未启用。仍可生成邀请链接并复制给同事。', 'Email is not enabled. You can still create and copy an invitation link for your colleague.')}</p>` : ''}`;
   }
 
+  const roleChoices = () => [
+    ['all', t('全部', 'All')], ['human', t('人类员工', 'Human staff')],
+    ...(managerUI ? [['manager', t('招聘经理', 'Managers')]] : []), ['ai', t('AI 员工', 'AI staff')],
+  ];
+  const showKind = kind => roleFilter === 'all' || roleFilter === kind;
+  const roleTag = label => `<span class="team-role-label">${label}</span>`;
+
+  function memberRows() {
+    return [...members.values()].map(member => `<article class="team-member" data-team-kind="${member.kind === 'ai' ? 'ai' : 'human'}">
+      <div class="team-person"><span class="team-kind-icon">${icon(member.kind === 'ai' ? 'bot' : 'person')}</span><div>
+        <h3>${esc(member.name || member.email || member.id)}</h3><p>${esc(member.email || t('独立 AI 身份', 'Independent AI identity'))}</p>
+        <div class="list-meta">${roleTag(member.kind === 'ai' ? t('AI 员工', 'AI staff') : t('人类员工', 'Human staff'))}<span>${t('加入', 'Added')} ${esc(fullDate(member.created_at))}</span><span>${t('最近使用', 'Last active')} ${esc(fullDate(member.last_used_at))}</span>${member.kind === 'ai' && member.token_expires_at ? `<span>${t('凭据到期', 'Credential expires')} ${esc(fullDate(member.token_expires_at))}</span>` : ''}</div>
+      </div></div>
+      <div class="team-row-actions"><span class="status ${member.active ? 'active' : 'banned'}">${member.active ? t('已启用', 'Enabled') : t('已停用', 'Disabled')}</span>${member.kind === 'ai' && member.active ? `<button type="button" class="button secondary small" data-action="team-rotate-ai" data-id="${esc(member.id)}">${t('更换凭据', 'Replace credential')}</button>` : ''}<button type="button" class="button secondary small" data-action="team-toggle-member" data-id="${esc(member.id)}">${member.active ? t('停用', 'Disable') : t('重新启用', 'Enable')}</button></div>
+    </article>`).join('');
+  }
+
+  function invitationRows() {
+    return [...invitations.values()].map(invite => `<article class="team-member" data-team-kind="human">
+      <div class="team-person"><span class="team-kind-icon">${icon('mail')}</span><div><h3>${esc(invite.name || invite.email)}</h3>${invite.name ? `<p>${esc(invite.email)}</p>` : ''}
+        <div class="list-meta">${roleTag(t('人类员工', 'Human staff'))}<span>${esc(deliveryStatus(invite.delivery_status))}</span><span>${t('到期', 'Expires')} ${esc(fullDate(invite.expires_at))}</span>${invite.last_sent_at ? `<span>${t('最近发送', 'Last sent')} ${esc(fullDate(invite.last_sent_at))}</span>` : ''}</div>
+      </div></div>
+      <div class="team-row-actions"><span class="status ${invite.status === 'accepted' ? 'active' : 'closed'}">${invitationStatus(invite.status)}</span>${['pending', 'expired'].includes(invite.status) ? `<button type="button" class="button secondary small" data-action="team-resend-invite" data-id="${esc(invite.id)}">${t('生成新邀请', 'Create a new link')}</button>` : ''}${invite.status === 'pending' ? `<button type="button" class="button secondary small" data-action="team-revoke-invite" data-id="${esc(invite.id)}">${t('撤销', 'Revoke')}</button>` : ''}</div>
+    </article>`).join('');
+  }
+
+  function rosterSection(title, detail, rows, kinds, kind) {
+    const visible = kinds.filter(showKind).length;
+    const filtered = rows.replace(/data-team-kind="(human|manager|ai)"/g, (attribute, role) => attribute + (showKind(role) ? '' : ' hidden'));
+    return `<section class="panel team-roster-panel" data-team-section="${kind}"><div class="panel-header"><div><h2>${title} <span class="pill" data-team-visible-count aria-live="polite">${visible}</span></h2><p>${detail}</p></div></div>
+      <div class="team-member-list">${filtered}</div><div data-team-empty ${visible ? 'hidden' : ''}>${empty(kind === 'members' ? t('暂无符合条件的成员', 'No members in this view') : t('暂无符合条件的邀请', 'No invitations in this view'), kind === 'members' ? t('添加成员，或切换角色查看已有身份。', 'Add a member or select another role to view existing identities.') : t('创建邀请后，发送状态和有效期会显示在这里。', 'Invitation delivery and expiry will appear here.'), '', kind === 'members' ? 'person' : 'mail')}</div>
+    </section>`;
+  }
+
   async function teamPage() {
+    if (!state.super_admin) throw new Error(t('只有超级管理员可以管理团队。', 'Only the super administrator can manage the team.'));
     const version = state.render;
-    const data = await api('/api/admin/team');
+    const [data, managers] = await Promise.all([api('/api/admin/team'), managerUI ? managerUI.load() : Promise.resolve({})]);
     if (version !== state.render) return '';
     settings = data;
     members = new Map((data.members || []).map(member => [member.id, member]));
     invitations = new Map((data.invitations || []).map(invite => [invite.id, invite]));
-    const activeCount = (data.members || []).filter(member => member.active).length;
-    const pendingCount = (data.invitations || []).filter(invite => invite.status === 'pending').length;
-    return shell(`${heading(t('团队成员', 'Team members'), t('邀请同事加入总控台，也可以为 AI 创建独立的员工身份。', 'Invite colleagues to the control room, or create a separate staff identity for an AI.'))}
-      <div class="team-summary"><span>${icon('person')}<strong>${activeCount}</strong> ${t('位在职成员', 'active members')}</span><span>${icon('mail')}<strong>${pendingCount}</strong> ${t('份待接受邀请', 'pending invitations')}</span></div>
-      <section class="panel team-access-note"><div>${icon('shield')}<p>${scope()}</p></div><button type="button" class="text-button" data-action="admin-reauth">${icon('key')}${t('重新验证通行密钥', 'Verify passkey again')}</button><p class="help">${t('发送邀请、启用成员或签发 AI 凭据，需要最近 10 分钟内完成通行密钥验证。', 'Inviting or enabling members and issuing AI credentials require a passkey check within the last 10 minutes.')}</p></section>
-      <div class="team-create-grid">
-        <section class="panel"><div class="panel-header"><div><h2>${t('邀请同事', 'Invite a colleague')}</h2><p>${t('同事使用受邀邮箱登录，确认后即可加入。', 'Your colleague signs in with the invited email and confirms to join.')}</p></div>${icon('mail')}</div><form data-form="team-invite"><div class="field"><label for="team-email">${t('工作邮箱', 'Email address')}</label><input class="input" type="email" id="team-email" name="email" autocomplete="off" maxlength="254" required placeholder="colleague@example.com"></div><div class="field"><label for="team-name">${t('成员名称（可选）', 'Name (optional)')}</label><input class="input" id="team-name" name="name" autocomplete="off" maxlength="80" placeholder="${esc(t('例如：招聘顾问', 'For example: Recruiting consultant'))}"></div>${emailChoice('team-send-email')}<p class="help">${t(`邀请在 ${Number(data.invitation_ttl_hours) || 72} 小时后过期，只能由该邮箱接受一次。`, `The invitation expires after ${Number(data.invitation_ttl_hours) || 72} hours and can be accepted once by this email address.`)}</p><button class="button" type="submit">${icon('plus')}${t('创建邀请', 'Create invitation')}</button></form></section>
-        <section class="panel"><div class="panel-header"><div><h2>${t('添加 AI 员工', 'Add an AI staff member')}</h2><p>${t('每个 AI 使用自己的凭据，操作记录分别保留。', 'Each AI uses its own credential and has a separate activity record.')}</p></div>${icon('bot')}</div><form data-form="team-ai"><div class="field"><label for="team-ai-name">${t('AI 名称', 'AI name')}</label><input class="input" id="team-ai-name" name="name" maxlength="80" required placeholder="${esc(t('例如：候选人跟进助手', 'For example: Candidate follow-up assistant'))}"></div><p class="help">${t(`凭据仅显示一次，${Number(data.ai_token_ttl_days) || 30} 天后过期。AI 使用上述员工业务权限，可以随时停用或更换凭据。`, `The credential is shown once and expires after ${Number(data.ai_token_ttl_days) || 30} days. The AI receives the staff permissions above. You can disable it or replace its credential at any time.`)}</p><div class="field"><span class="field-label">${t('MCP 服务地址', 'MCP server URL')}</span><div class="code-box">${esc(location.origin)}/mcp</div></div><button class="button secondary" type="submit">${icon('plus')}${t('创建 AI 员工', 'Create AI staff member')}</button></form></section>
-      </div>
-      <section class="panel"><div class="panel-header"><h2>${t('成员', 'Members')}</h2><span class="pill">${activeCount}${data.max_members ? ` / ${Number(data.max_members)}` : ''}</span></div>${members.size ? `<div class="team-member-list">${[...members.values()].map(member => `<article class="team-member"><div class="team-person"><span class="team-kind-icon">${icon(member.kind === 'ai' ? 'bot' : 'person')}</span><div><h3>${esc(member.name || member.email || member.id)}</h3><p>${esc(member.email || t('独立 AI 身份', 'Independent AI identity'))}</p><div class="list-meta"><span>${member.kind === 'ai' ? t('AI 员工', 'AI staff') : t('员工', 'Staff')}</span><span>${t('加入', 'Added')} ${esc(fullDate(member.created_at))}</span><span>${t('最近使用', 'Last active')} ${esc(fullDate(member.last_used_at))}</span>${member.kind === 'ai' && member.token_expires_at ? `<span>${t('凭据到期', 'Credential expires')} ${esc(fullDate(member.token_expires_at))}</span>` : ''}</div></div></div><div class="team-row-actions"><span class="status ${member.active ? 'active' : 'banned'}">${member.active ? t('已启用', 'Enabled') : t('已停用', 'Disabled')}</span>${member.kind === 'ai' && member.active ? `<button type="button" class="text-button" data-action="team-rotate-ai" data-id="${esc(member.id)}">${t('更换凭据', 'Replace credential')}</button>` : ''}<button type="button" class="text-button" data-action="team-toggle-member" data-id="${esc(member.id)}">${member.active ? t('停用', 'Disable') : t('重新启用', 'Enable')}</button></div></article>`).join('')}</div>` : empty(t('还没有其他成员', 'No staff members yet'), t('邀请一位同事，或为可信的 AI 创建独立身份。', 'Invite a colleague or create a separate identity for a trusted AI.'), '', 'person')}</section>
-      <section class="panel"><div class="panel-header"><div><h2>${t('邀请记录', 'Invitations')}</h2><p>${t('重新生成会使旧链接失效。已接受的邀请不会重复添加成员。', 'Generating a new link invalidates the old one. Accepted invitations do not add the person again.')}</p></div></div>${invitations.size ? `<div class="team-member-list">${[...invitations.values()].map(invite => `<article class="team-member"><div class="team-person"><span class="team-kind-icon">${icon('mail')}</span><div><h3>${esc(invite.name || invite.email)}</h3>${invite.name ? `<p>${esc(invite.email)}</p>` : ''}<div class="list-meta"><span>${esc(deliveryStatus(invite.delivery_status))}</span><span>${t('到期', 'Expires')} ${esc(fullDate(invite.expires_at))}</span>${invite.last_sent_at ? `<span>${t('最近发送', 'Last sent')} ${esc(fullDate(invite.last_sent_at))}</span>` : ''}</div></div></div><div class="team-row-actions"><span class="status ${invite.status === 'accepted' ? 'active' : 'closed'}">${invitationStatus(invite.status)}</span>${['pending', 'expired'].includes(invite.status) ? `<button type="button" class="text-button" data-action="team-resend-invite" data-id="${esc(invite.id)}">${t('生成新邀请', 'Create a new link')}</button>` : ''}${invite.status === 'pending' ? `<button type="button" class="text-button" data-action="team-revoke-invite" data-id="${esc(invite.id)}">${t('撤销', 'Revoke')}</button>` : ''}</div></article>`).join('')}</div>` : empty(t('还没有发出邀请', 'No invitations yet'), t('生成链接后，可直接复制，也可以通过邮件发送。', 'Create a link to copy or send through email.'), '', 'mail')}</section>`, 'team', true);
+    const staffMembers = managers.members || [], staffInvites = managers.invitations || [];
+    const memberKinds = [...members.values()].map(member => member.kind === 'ai' ? 'ai' : 'human').concat(staffMembers.map(() => 'manager'));
+    const inviteKinds = [...invitations.values()].map(() => 'human').concat(staffInvites.map(() => 'manager'));
+    const activeCount = [...members.values(), ...staffMembers].filter(member => member.active).length;
+    const pendingCount = [...invitations.values()].filter(invite => invite.status === 'pending').length + staffInvites.filter(invite => managerUI.pending(invite)).length;
+    const aiCount = [...members.values()].filter(member => member.kind === 'ai' && member.active).length;
+    const actions = `<div class="team-header-actions"><button type="button" class="button secondary" data-action="admin-reauth">${icon('key')}${t('重新验证', 'Verify again')}</button><button type="button" class="button" data-action="team-add-member">${icon('plus')}${t('添加成员', 'Add a member')}</button></div>`;
+    return shell(`<div class="team-workspace">${heading(t('团队', 'Team'), t('员工、招聘经理与 AI，共用一个工作台。', 'Staff, recruiting managers, and AI in one workspace.'), actions)}
+      <div class="team-overview"><div>${icon('person')}<span>${t('已启用身份', 'Enabled identities')}</span><strong>${activeCount}</strong></div><div>${icon('mail')}<span>${t('等待加入', 'Pending invitations')}</span><strong>${pendingCount}</strong></div><div>${icon('bot')}<span>${t('已启用 AI', 'Enabled AI')}</span><strong>${aiCount}</strong></div></div>
+      <div class="team-role-filters" role="group" aria-label="${t('按团队角色筛选', 'Filter team roles')}">${roleChoices().map(([kind, label]) => `<button type="button" class="team-filter-button" data-action="team-filter" data-kind="${kind}" aria-pressed="${roleFilter === kind}">${label}<span>${kind === 'all' ? memberKinds.length : memberKinds.filter(value => value === kind).length}</span></button>`).join('')}</div>
+      ${rosterSection(t('成员', 'Members'), t('同一账户可拥有多个身份，每个身份的权限独立管理。', 'An account may have multiple identities. Manage access separately for each identity.'), memberRows() + (managerUI ? managerUI.memberRows(staffMembers) : ''), memberKinds, 'members')}
+      ${rosterSection(t('邀请记录', 'Invitations'), t('查看发送状态、有效期，或撤销待接受的邀请。', 'Review delivery and expiry, or revoke a pending invitation.'), invitationRows() + (managerUI ? managerUI.invitationRows(staffInvites) : ''), inviteKinds, 'invitations')}
+      <details class="team-permission-details"><summary>${icon('shield')}${t('角色权限与身份验证', 'Roles and identity verification')}</summary><div>
+        <p>${scope()}</p><p>${t('招聘经理负责用户资料、岗位、匹配与沟通，不能修改财务、封禁账户或管理团队。', 'Recruiting managers handle profiles, roles, matching, and messages. They cannot change finances, suspend accounts, or manage the team.')}</p>
+        <p class="help">${t('邀请或启用员工、签发 AI 凭据，需要最近 10 分钟内完成通行密钥验证。AI 凭据仅显示一次。', 'Inviting or enabling staff and issuing AI credentials require a passkey check within the last 10 minutes. AI credentials are shown once.')}</p>
+      </div></details></div>`, 'team', true);
+  }
+
+  function showAddMember() {
+    const choices = roleChoices().filter(([kind]) => kind !== 'all');
+    const employeeForm = `<form class="team-add-form" data-form="team-invite"><h3>${t('邀请人类员工', 'Invite a human staff member')}</h3><p class="help">${t('员工可处理业务并查看财务记录。受邀者使用自己的邮箱登录。', 'Staff can manage business operations and view financial records. Invitees sign in with their own email.')}</p>
+      <div class="field"><label for="team-email">${t('工作邮箱', 'Email address')}</label><input class="input" type="email" id="team-email" name="email" autocomplete="off" maxlength="254" required placeholder="colleague@example.com"></div>
+      <div class="field"><label for="team-name">${t('成员名称（可选）', 'Name (optional)')}</label><input class="input" id="team-name" name="name" autocomplete="off" maxlength="80" placeholder="${esc(t('例如：招聘顾问', 'For example: Recruiting consultant'))}"></div>${emailChoice('team-send-email')}
+      <p class="help">${t(`邀请在 ${Number(settings.invitation_ttl_hours) || 72} 小时后过期，只能由该邮箱接受一次。`, `The invitation expires after ${Number(settings.invitation_ttl_hours) || 72} hours and can be accepted once by this email address.`)}</p>
+      <div class="form-actions"><button class="button" type="submit">${icon('mail')}${t('创建邀请', 'Create invitation')}</button></div></form>`;
+    const aiForm = `<form class="team-add-form" data-form="team-ai"><h3>${t('添加 AI 员工', 'Add an AI staff member')}</h3><p class="help">${t('每个 AI 使用自己的凭据，操作记录分别保留。', 'Each AI uses its own credential and has a separate activity record.')}</p>
+      <div class="field"><label for="team-ai-name">${t('AI 名称', 'AI name')}</label><input class="input" id="team-ai-name" name="name" maxlength="80" required placeholder="${esc(t('例如：候选人跟进助手', 'For example: Candidate follow-up assistant'))}"></div>
+      <p class="help">${t(`凭据仅显示一次，${Number(settings.ai_token_ttl_days) || 30} 天后过期。可随时停用或更换凭据。`, `The credential is shown once and expires after ${Number(settings.ai_token_ttl_days) || 30} days. You can disable it or replace its credential at any time.`)}</p>
+      <div class="field"><span class="field-label">${t('MCP 服务地址', 'MCP server URL')}</span><div class="code-box">${esc(location.origin)}/mcp</div></div>
+      <div class="form-actions"><button class="button" type="submit">${icon('plus')}${t('创建 AI 员工', 'Create AI staff member')}</button></div></form>`;
+    openDialog(`<div class="team-add-dialog"><h2 id="dialog-title">${t('添加团队成员', 'Add a team member')}</h2><p class="dialog-intro">${t('选择身份，再创建邀请或访问凭据。', 'Choose an identity, then create an invitation or credential.')}</p>
+      <div class="team-add-choices" role="group" aria-label="${t('成员身份', 'Member identity')}">${choices.map(([kind, label]) => `<button type="button" class="team-kind-choice" data-action="team-add-kind" data-kind="${kind}" aria-pressed="${kind === 'human'}">${icon(kind === 'ai' ? 'bot' : kind === 'manager' ? 'briefcase' : 'person')}<span>${label}</span></button>`).join('')}</div>
+      <div data-team-add-kind="human">${employeeForm}</div>${managerUI ? `<div data-team-add-kind="manager" hidden>${managerUI.invitationForm({ smtpEnabled: settings.smtp_enabled })}</div>` : ''}<div data-team-add-kind="ai" hidden>${aiForm}</div>
+    </div>`);
+  }
+
+  function filterRoles(button) {
+    const selected = button.dataset.kind;
+    if (!roleChoices().some(([kind]) => kind === selected)) return;
+    roleFilter = selected;
+    const workspace = button.closest('.team-workspace');
+    if (!workspace) return;
+    for (const choice of workspace.querySelectorAll('[data-action="team-filter"]')) choice.setAttribute('aria-pressed', String(choice.dataset.kind === roleFilter));
+    for (const section of workspace.querySelectorAll('[data-team-section]')) {
+      let visible = 0;
+      for (const row of section.querySelectorAll('[data-team-kind]')) { row.hidden = !showKind(row.dataset.teamKind); if (!row.hidden) visible += 1; }
+      section.querySelector('[data-team-visible-count]').textContent = String(visible);
+      section.querySelector('[data-team-empty]').hidden = visible > 0;
+    }
   }
 
   function showInvitation(data) {
@@ -166,6 +240,17 @@ export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice,
       await go('/login'); return;
     }
     if (!state.super_admin) throw new Error(t('只有超级管理员可以管理团队。', 'Only the super administrator can manage the team.'));
+    if (actionName === 'team-add-member') { showAddMember(); return; }
+    if (actionName === 'team-filter') { filterRoles(button); return; }
+    if (actionName === 'team-add-kind') {
+      const kind = button.dataset.kind;
+      if (!roleChoices().some(([value]) => value === kind && value !== 'all')) return;
+      const dialog = button.closest('.team-add-dialog');
+      if (!dialog) return;
+      for (const choice of dialog.querySelectorAll('[data-action="team-add-kind"]')) choice.setAttribute('aria-pressed', String(choice.dataset.kind === kind));
+      for (const form of dialog.querySelectorAll('[data-team-add-kind]')) form.hidden = form.dataset.teamAddKind !== kind;
+      return;
+    }
     const id = button.dataset.id;
     if (actionName === 'team-toggle-member') {
       const member = members.get(id);
@@ -173,7 +258,7 @@ export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice,
       const enabled = !member.active;
       confirmDialog(enabled ? t('重新启用成员？', 'Enable this member?') : t('停用成员？', 'Disable this member?'), enabled
         ? t('该成员将重新获得员工业务权限。AI 需要重新生成凭据。', 'The member will regain staff access. An AI will need a new credential.')
-        : t('该成员将立即失去总控台和员工业务访问权限，历史记录保留。', 'The member will immediately lose staff access to the control room and business operations. History is retained.'), async () => { await api(`/api/admin/team/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: { active: enabled } }); await render(); notify(enabled ? t('成员已启用。', 'Member enabled.') : t('成员已停用。', 'Member disabled.')); }, { danger: !enabled });
+        : t('该员工身份的业务访问将立即停用，历史记录保留；其他角色权限不受影响。', 'This staff identity loses business access immediately. History and any other roles are retained.'), async () => { await api(`/api/admin/team/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: { active: enabled } }); await render(); notify(enabled ? t('成员已启用。', 'Member enabled.') : t('成员已停用。', 'Member disabled.')); }, { danger: !enabled });
     } else if (actionName === 'team-revoke-invite') {
       const invite = invitations.get(id);
       if (!invite || invite.status !== 'pending') return;
