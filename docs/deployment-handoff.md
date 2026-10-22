@@ -251,7 +251,7 @@ sudo -u hireferry sh -c 'umask 077; cd /var/lib/hireferry && /usr/local/bin/hire
 
 schema 7 新增 HumanGrant 申请、授权、会话、防重放与限流记录。schema 8 新增 CLI 授权及访问、刷新凭据的哈希记录，不保存凭据明文，并在账户停用时撤销相关授权。schema 9 在独立事务中新增优惠申请、优惠码、次数预占表与订单终态触发器；schema 10 在独立事务中新增有期限额的快速反馈表，并通过后台任务清理过期的临时身份数据。schema 11 在独立事务中增加团队经理成员与哈希化一次性邀请。升级失败不推进对应版本，旧程序会拒绝打开新库。务必先备份；优惠订单到期、迟到收款与额度规则见 [优惠码说明](promo-codes.md)。生命周期、权限及恢复条件见 [反馈与增长控制](feedback-and-retention.md)和[岗位管理](jobs.md)。
 
-Docker 部署方式见 [README](../README.md#docker)：容器以 UID/GID 10001 运行，配置只读挂载，数据库独立持久化。容器内监听 0.0.0.0:3000，但主机只映射 127.0.0.1:3000；仍由 HTTPS 代理提供公网入口。
+Docker 部署方式见 [自托管指南](self-hosting.md#docker)：容器以 UID/GID 10001 运行，配置只读挂载，数据库独立持久化。容器内监听 0.0.0.0:3000，但主机只映射 127.0.0.1:3000；仍由 HTTPS 代理提供公网入口。
 
 ## 10. 验证状态与交接界限
 
@@ -264,3 +264,4 @@ Docker 部署方式见 [README](../README.md#docker)：容器以 UID/GID 10001 �
 | 部署和外部服务 | 实际 DNS/HTTPS、Google、SMTP/Reply-To、实体 Passkey、Stripe/Waffo 商户付款与退款通知、接收方 Webhook、原生 WebMCP/独立 AI | 正式服务器与真实外部账号、设备、网络之间是否成功接通 |
 
 本次使用合成 QA 资料，不向用户发布默认测试账号或业务数据库。外部生产文件未提供的字段保持待部署方填写；没有任何一步可以通过返回 URL、手工改订单或模拟成功来替代真实付款确认。
+

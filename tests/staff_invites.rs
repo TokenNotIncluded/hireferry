@@ -312,3 +312,30 @@ async fn owner_can_revoke_unaccepted_link_and_listing_never_reveals_tokens() {
         StatusCode::CONFLICT
     );
 }
+
+#[test]
+fn version_ten_feedback_database_upgrades_to_staff_schema_eleven() {
+    let state = state();
+    let db = state.conn().unwrap();
+    db.execute_batch(
+        "DROP TABLE staff_invitations; DROP TABLE staff_members; PRAGMA user_version=10;",
+    )
+    .unwrap();
+    hireferry::db::migrate(&db).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        11
+    );
+    let existing_tables: i64 = db
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table'
+             AND name IN ('feedback','staff_members','staff_invitations')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(existing_tables, 3);
+    // Reopening a fully upgraded database is idempotent.
+    hireferry::db::migrate(&db).unwrap();
+}
