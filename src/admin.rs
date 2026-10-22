@@ -48,7 +48,7 @@ pub fn routes() -> Router<AppState> {
 
 fn guard(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principal> {
     let p = access::principal(s, h, write)?;
-    access::ensure_admin(&*s.conn()?, &p)?;
+    access::ensure_operator(&*s.conn()?, &p)?;
     Ok(p)
 }
 
@@ -186,7 +186,7 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
 
 pub fn list_users(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let search = format!(
         "%{}%",
         q.q.as_deref()
@@ -226,7 +226,7 @@ pub fn list_users(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Valu
 
 pub fn get_user(s: &AppState, p: &Principal, id: &str) -> AppResult<models::User> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     models::load_user(&db, id)
 }
 
@@ -384,7 +384,7 @@ pub fn remove_resume(s: &AppState, p: &Principal, id: &str) -> AppResult<()> {
 
 pub fn list_jobs(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let search = format!(
         "%{}%",
         q.q.as_deref()
@@ -414,7 +414,7 @@ pub fn list_jobs(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Value
 
 pub fn get_job(s: &AppState, p: &Principal, id: &str) -> AppResult<models::Job> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     models::load_job(&db, id)
 }
 
@@ -596,7 +596,7 @@ pub fn list_matches(s: &AppState, p: &Principal) -> AppResult<Value> {
 
 pub fn list_matches_page(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let page = q.page.unwrap_or(1).clamp(1, s.cfg.limits.list_max_page);
     let page_size = s.cfg.limits.list_page_size;
     let total: i64 = db.query_row("SELECT count(*) FROM matches", [], |r| r.get(0))?;
@@ -613,7 +613,7 @@ pub fn list_matches_page(s: &AppState, p: &Principal, q: &QueryInput) -> AppResu
 /// Archived records remain auditable; reading them does not grant member access.
 pub fn get_match(s: &AppState, p: &Principal, id: &str) -> AppResult<Value> {
     let db = s.conn()?;
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     safety::bounded_text(id, 80, "Match ID")?;
     db.query_row(&format!("{MATCH_SELECT} WHERE m.id=?1"), [id], match_row)
         .optional()?
@@ -626,7 +626,7 @@ pub fn candidate_detail(
     id: &str,
     job_id: Option<&str>,
 ) -> AppResult<Value> {
-    access::ensure_admin(&*s.conn()?, p)?;
+    access::ensure_operator(&*s.conn()?, p)?;
     safety::bounded_text(id, 80, "Candidate ID")?;
     if let Some(job) = job_id {
         safety::bounded_text(job, 80, "Job ID")?;
@@ -635,7 +635,7 @@ pub fn candidate_detail(
     let mandate = crate::chat::get_mandate(s, p, Some(id))?["mandate"].clone();
     let db = s.conn()?;
     // A token/session could be revoked between the separate read operations.
-    access::ensure_admin(&db, p)?;
+    access::ensure_operator(&db, p)?;
     let user = models::load_user(&db, id)?;
     if user.role != "seeker" {
         return Err(AppError::not_found("Candidate not found"));
@@ -703,7 +703,7 @@ pub fn add_match(s: &AppState, p: &Principal, i: MatchInput) -> AppResult<Value>
     safety::bounded_text(&i.note, 2000, "Match note")?;
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_operator(&tx, p)?;
     let employer_id = match_eligible(&tx, &i.seeker_id, &i.job_id)?;
     let id = uuid::Uuid::new_v4().to_string();
     let inserted = tx.execute(
@@ -753,7 +753,7 @@ pub fn add_matches(s: &AppState, p: &Principal, i: BulkMatchInput) -> AppResult<
     }
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_operator(&tx, p)?;
     let mut created = 0;
     let mut matches = Vec::with_capacity(i.seeker_ids.len());
     for seeker_id in &i.seeker_ids {
@@ -812,7 +812,7 @@ pub fn patch_match(s: &AppState, p: &Principal, id: &str, i: MatchPatch) -> AppR
     safety::bounded_text(&i.note, 2000, "Match note")?;
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    access::ensure_admin(&tx, p)?;
+    access::ensure_operator(&tx, p)?;
     let existing: Option<(String, String, String)> = tx
         .query_row(
             "SELECT status,seeker_id,job_id FROM matches WHERE id=?1",
