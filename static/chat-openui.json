@@ -1,0 +1,2286 @@
+{
+  "version": 1,
+  "library": "hireferry@1",
+  "language": "OpenUI Lang 1.0",
+  "upstream": "https://github.com/thesysdev/open-intelligent-ui",
+  "compatibility": "Documented subset; use only components and signatures in this contract.",
+  "components": [
+    "Col",
+    "Row",
+    "Box",
+    "Grid",
+    "Card",
+    "Divider",
+    "Spacer",
+    "Title",
+    "Text",
+    "Caption",
+    "Label",
+    "Badge",
+    "Link",
+    "Markdown",
+    "Quote",
+    "Code",
+    "Math",
+    "List",
+    "ListItem",
+    "Table",
+    "Button",
+    "Input",
+    "TextArea",
+    "Select",
+    "Checkbox",
+    "Slider",
+    "Form",
+    "Chart"
+  ],
+  "formats": [
+    "plain",
+    "markdown",
+    "openui"
+  ],
+  "actions": {
+    "ToAssistant": "Prepares a user-reviewed draft; never auto-sends.",
+    "Set": "Local state only.",
+    "Reset": "Local state only."
+  },
+  "restrictions": [
+    "No arbitrary HTML/JavaScript/iframes",
+    "No automatic Query or Mutation network calls",
+    "Remote images never load automatically",
+    "Chart supports unstacked bar, line and area"
+  ],
+  "limits": {
+    "messageCharacters": 10000,
+    "rendererCodeUnits": 65536,
+    "tableRows": 200,
+    "chartRows": 100,
+    "chartSeries": 6
+  },
+  "example": "root = Col([heading, body, table, button])\nheading = Title(\"面试安排\", \"lg\")\nbody = Markdown(\"请选择合适的时间。支持 **Markdown**、表格和公式。\")\ntable = Table([\"时间\", \"方式\"], [[\"周三 14:00\", \"视频面试\"], [\"周四 10:00\", \"视频面试\"]])\nbutton = Button(\"选择周三 14:00\", @ToAssistant(\"我想选择周三 14:00 面试\"))",
+  "spec": {
+    "root": "Col",
+    "components": {
+      "Col": {
+        "signature": "Col(children: Node[], gap?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\")",
+        "description": "Vertical layout; gap counts 4px steps."
+      },
+      "Row": {
+        "signature": "Row(children: Node[], gap?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\", justify?: \"start\" | \"center\" | \"end\" | \"between\", wrap?: boolean)",
+        "description": "Horizontal layout; use wrap for small screens."
+      },
+      "Box": {
+        "signature": "Box(children?: Node[], direction?: \"row\" | \"col\", gap?: number, padding?: number, background?: string, radius?: \"sm\" | \"md\" | \"lg\" | \"xl\" | \"full\" | $binding<number>, border?: boolean, width?: $binding<string> | $binding<number>, height?: $binding<string> | $binding<number>, flex?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\", justify?: \"start\" | \"center\" | \"end\" | \"between\", wrap?: boolean)",
+        "description": "Bounded layout box; use semantic colors."
+      },
+      "Grid": {
+        "signature": "Grid(children: Node[], columns?: number, minChildWidth?: number, gap?: number)",
+        "description": "Responsive grid with up to 6 columns."
+      },
+      "Card": {
+        "signature": "Card(children: Node[], variant?: \"outline\" | \"soft\", padding?: number, gap?: number)",
+        "description": "Panel with border or soft background."
+      },
+      "Divider": {
+        "signature": "Divider()",
+        "description": "Divider."
+      },
+      "Spacer": {
+        "signature": "Spacer()",
+        "description": "Fills free row space."
+      },
+      "Title": {
+        "signature": "Title(text: $binding<string>, size?: \"sm\" | \"md\" | \"lg\" | \"xl\" | \"2xl\" | \"3xl\", color?: string)",
+        "description": "Heading."
+      },
+      "Text": {
+        "signature": "Text(text: $binding<string> | Node[], size?: \"xs\" | \"sm\" | \"md\" | \"lg\", color?: string, weight?: \"normal\" | \"medium\" | \"semibold\", italic?: boolean, lineThrough?: boolean, tabularNums?: boolean, maxLines?: number)",
+        "description": "Inline Markdown text; use Markdown for rich blocks."
+      },
+      "Caption": {
+        "signature": "Caption(text: $binding<string>, color?: string)",
+        "description": "Secondary text."
+      },
+      "Label": {
+        "signature": "Label(text: $binding<string>)",
+        "description": "Field label."
+      },
+      "Badge": {
+        "signature": "Badge(text: $binding<string>, color?: \"neutral\" | \"info\" | \"success\" | \"warning\" | \"danger\" | \"purple\" | \"pink\", icon?: string)",
+        "description": "Status tag; text always conveys the status."
+      },
+      "Link": {
+        "signature": "Link(text: $binding<string>, url: $binding<string>)",
+        "description": "Safe http(s) or mailto link, opened only on click."
+      },
+      "Markdown": {
+        "signature": "Markdown(text: $binding<string>)",
+        "description": "Markdown with GFM tables, code and KaTeX math. Raw HTML is disabled."
+      },
+      "Quote": {
+        "signature": "Quote(text: $binding<string>, cite?: string)",
+        "description": "Quoted text."
+      },
+      "Code": {
+        "signature": "Code(code: $binding<string>, language?: string)",
+        "description": "Code block with syntax highlighting for common languages."
+      },
+      "Math": {
+        "signature": "Math(tex: $binding<string>, inline?: boolean)",
+        "description": "KaTeX equation; trusted commands are disabled."
+      },
+      "List": {
+        "signature": "List(items: ($binding<string> | ListItem)[], marker?: \"bullet\" | \"number\" | \"none\", timeline?: boolean)",
+        "description": "List with optional numbering."
+      },
+      "ListItem": {
+        "signature": "ListItem(title: $binding<string>, description?: string, marker?: string, children?: Node[])",
+        "description": "List entry with optional description."
+      },
+      "Table": {
+        "signature": "Table(columns: $binding<string>[], rows: Node[][])",
+        "description": "Table. Cells may contain text, numbers or registered components."
+      },
+      "Button": {
+        "signature": "Button(label: $binding<string>, action?: ActionExpression, variant?: \"solid\" | \"outline\" | \"soft\" | \"ghost\", color?: \"primary\" | \"danger\" | \"success\", size?: \"sm\" | \"md\" | \"lg\", icon?: string, disabled?: boolean, block?: boolean)",
+        "description": "User-clicked action. @ToAssistant prepares a draft for review; it never sends automatically."
+      },
+      "Input": {
+        "signature": "Input(value: $binding<$binding<string> | $binding<number>>, label?: string, type?: \"text\" | \"number\", placeholder?: string)",
+        "description": "Text or number field. Bind value to a $variable."
+      },
+      "TextArea": {
+        "signature": "TextArea(value: $binding<string>, label?: string, placeholder?: string, rows?: number)",
+        "description": "Multiline field."
+      },
+      "Select": {
+        "signature": "Select(value: $binding<string>, options: ($binding<string> | {value: $binding<string>, label: $binding<string>})[], label?: string, placeholder?: string)",
+        "description": "Selection field."
+      },
+      "Checkbox": {
+        "signature": "Checkbox(checked: $binding<boolean>, label: $binding<string>, lineThrough?: boolean)",
+        "description": "Checkbox."
+      },
+      "Slider": {
+        "signature": "Slider(value: $binding<number>, min: $binding<number>, max: $binding<number>, step?: number, label?: string, unit?: string, marks?: {value: $binding<number>, label: $binding<string>}[])",
+        "description": "Range slider."
+      },
+      "Form": {
+        "signature": "Form(children: Node[])",
+        "description": "Groups fields. Submit buttons only prepare a draft."
+      },
+      "Chart": {
+        "signature": "Chart(type: \"bar\" | \"line\" | \"area\", data: Record<string, $binding<string> | $binding<number>>[], x?: string, series?: $binding<string>[], format?: \"number\" | \"currency\" | \"percent\", currency?: string, stacked?: false, height?: number)",
+        "description": "Bar, line or area chart, at most 100 rows and 6 series. Values also available as a table. Stacking is unsupported."
+      }
+    },
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "Col": {
+          "$ref": "#/$defs/Col"
+        },
+        "Row": {
+          "$ref": "#/$defs/Row"
+        },
+        "Box": {
+          "$ref": "#/$defs/Box"
+        },
+        "Grid": {
+          "$ref": "#/$defs/Grid"
+        },
+        "Card": {
+          "$ref": "#/$defs/Card"
+        },
+        "Divider": {
+          "$ref": "#/$defs/Divider"
+        },
+        "Spacer": {
+          "$ref": "#/$defs/Spacer"
+        },
+        "Title": {
+          "$ref": "#/$defs/Title"
+        },
+        "Text": {
+          "$ref": "#/$defs/Text"
+        },
+        "Caption": {
+          "$ref": "#/$defs/Caption"
+        },
+        "Label": {
+          "$ref": "#/$defs/Label"
+        },
+        "Badge": {
+          "$ref": "#/$defs/Badge"
+        },
+        "Link": {
+          "$ref": "#/$defs/Link"
+        },
+        "Markdown": {
+          "$ref": "#/$defs/Markdown"
+        },
+        "Quote": {
+          "$ref": "#/$defs/Quote"
+        },
+        "Code": {
+          "$ref": "#/$defs/Code"
+        },
+        "Math": {
+          "$ref": "#/$defs/Math"
+        },
+        "List": {
+          "$ref": "#/$defs/List"
+        },
+        "ListItem": {
+          "$ref": "#/$defs/ListItem"
+        },
+        "Table": {
+          "$ref": "#/$defs/Table"
+        },
+        "Button": {
+          "$ref": "#/$defs/Button"
+        },
+        "Input": {
+          "$ref": "#/$defs/Input"
+        },
+        "TextArea": {
+          "$ref": "#/$defs/TextArea"
+        },
+        "Select": {
+          "$ref": "#/$defs/Select"
+        },
+        "Checkbox": {
+          "$ref": "#/$defs/Checkbox"
+        },
+        "Slider": {
+          "$ref": "#/$defs/Slider"
+        },
+        "Form": {
+          "$ref": "#/$defs/Form"
+        },
+        "Chart": {
+          "$ref": "#/$defs/Chart"
+        }
+      },
+      "required": [
+        "Col",
+        "Row",
+        "Box",
+        "Grid",
+        "Card",
+        "Divider",
+        "Spacer",
+        "Title",
+        "Text",
+        "Caption",
+        "Label",
+        "Badge",
+        "Link",
+        "Markdown",
+        "Quote",
+        "Code",
+        "Math",
+        "List",
+        "ListItem",
+        "Table",
+        "Button",
+        "Input",
+        "TextArea",
+        "Select",
+        "Checkbox",
+        "Slider",
+        "Form",
+        "Chart"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "Col": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            },
+            "gap": {
+              "type": "number"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "stretch"
+              ]
+            }
+          },
+          "required": [
+            "children"
+          ],
+          "additionalProperties": false,
+          "description": "Vertical layout; gap counts 4px steps."
+        },
+        "Row": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            },
+            "gap": {
+              "type": "number"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "stretch"
+              ]
+            },
+            "justify": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "between"
+              ]
+            },
+            "wrap": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "children"
+          ],
+          "additionalProperties": false,
+          "description": "Horizontal layout; use wrap for small screens."
+        },
+        "Box": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "row",
+                "col"
+              ]
+            },
+            "gap": {
+              "type": "number"
+            },
+            "padding": {
+              "type": "number"
+            },
+            "background": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "radius": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "sm",
+                    "md",
+                    "lg",
+                    "xl",
+                    "full"
+                  ]
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "border": {
+              "type": "boolean"
+            },
+            "width": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "height": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "flex": {
+              "type": "number"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "stretch"
+              ]
+            },
+            "justify": {
+              "type": "string",
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "between"
+              ]
+            },
+            "wrap": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Bounded layout box; use semantic colors."
+        },
+        "Grid": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            },
+            "columns": {
+              "type": "number"
+            },
+            "minChildWidth": {
+              "type": "number"
+            },
+            "gap": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "children"
+          ],
+          "additionalProperties": false,
+          "description": "Responsive grid with up to 6 columns."
+        },
+        "Card": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "outline",
+                "soft"
+              ]
+            },
+            "padding": {
+              "type": "number"
+            },
+            "gap": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "children"
+          ],
+          "additionalProperties": false,
+          "description": "Panel with border or soft background."
+        },
+        "Divider": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false,
+          "description": "Divider."
+        },
+        "Spacer": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false,
+          "description": "Fills free row space."
+        },
+        "Title": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "size": {
+              "type": "string",
+              "enum": [
+                "sm",
+                "md",
+                "lg",
+                "xl",
+                "2xl",
+                "3xl"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Heading."
+        },
+        "Text": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "maxItems": 200,
+                  "type": "array",
+                  "items": {}
+                }
+              ]
+            },
+            "size": {
+              "type": "string",
+              "enum": [
+                "xs",
+                "sm",
+                "md",
+                "lg"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "weight": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "medium",
+                "semibold"
+              ]
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "lineThrough": {
+              "type": "boolean"
+            },
+            "tabularNums": {
+              "type": "boolean"
+            },
+            "maxLines": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Inline Markdown text; use Markdown for rich blocks."
+        },
+        "Caption": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "color": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Secondary text."
+        },
+        "Label": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Field label."
+        },
+        "Badge": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "color": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "info",
+                "success",
+                "warning",
+                "danger",
+                "purple",
+                "pink"
+              ]
+            },
+            "icon": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Status tag; text always conveys the status."
+        },
+        "Link": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text",
+            "url"
+          ],
+          "additionalProperties": false,
+          "description": "Safe http(s) or mailto link, opened only on click."
+        },
+        "Markdown": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Markdown with GFM tables, code and KaTeX math. Raw HTML is disabled."
+        },
+        "Quote": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "cite": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false,
+          "description": "Quoted text."
+        },
+        "Code": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "language": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false,
+          "description": "Code block with syntax highlighting for common languages."
+        },
+        "Math": {
+          "type": "object",
+          "properties": {
+            "tex": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "inline": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "tex"
+          ],
+          "additionalProperties": false,
+          "description": "KaTeX equation; trusted commands are disabled."
+        },
+        "List": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  {
+                    "$ref": "#/$defs/ListItem"
+                  }
+                ]
+              }
+            },
+            "marker": {
+              "type": "string",
+              "enum": [
+                "bullet",
+                "number",
+                "none"
+              ]
+            },
+            "timeline": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "description": "List with optional numbering."
+        },
+        "ListItem": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "marker": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "additionalProperties": false,
+          "description": "List entry with optional description."
+        },
+        "Table": {
+          "type": "object",
+          "properties": {
+            "columns": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 65536
+              }
+            },
+            "rows": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "maxItems": 30,
+                "type": "array",
+                "items": {}
+              }
+            }
+          },
+          "required": [
+            "columns",
+            "rows"
+          ],
+          "additionalProperties": false,
+          "description": "Table. Cells may contain text, numbers or registered components."
+        },
+        "Button": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "action": {
+              "$ref": "#/$defs/ActionExpression"
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "solid",
+                "outline",
+                "soft",
+                "ghost"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "danger",
+                "success"
+              ]
+            },
+            "size": {
+              "type": "string",
+              "enum": [
+                "sm",
+                "md",
+                "lg"
+              ]
+            },
+            "icon": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "disabled": {
+              "type": "boolean"
+            },
+            "block": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "additionalProperties": false,
+          "description": "User-clicked action. @ToAssistant prepares a draft for review; it never sends automatically."
+        },
+        "ActionExpression": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "open_url"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "continue_conversation"
+                },
+                "context": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "params": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "Input": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "text",
+                "number"
+              ]
+            },
+            "placeholder": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false,
+          "description": "Text or number field. Bind value to a $variable."
+        },
+        "TextArea": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "placeholder": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "rows": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false,
+          "description": "Multiline field."
+        },
+        "Select": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "options": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "maxLength": 65536
+                      },
+                      "label": {
+                        "type": "string",
+                        "maxLength": 65536
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "placeholder": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "value",
+            "options"
+          ],
+          "additionalProperties": false,
+          "description": "Selection field."
+        },
+        "Checkbox": {
+          "type": "object",
+          "properties": {
+            "checked": {
+              "type": "boolean"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "lineThrough": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "checked",
+            "label"
+          ],
+          "additionalProperties": false,
+          "description": "Checkbox."
+        },
+        "Slider": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "step": {
+              "type": "number"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "unit": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "marks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 65536
+                  }
+                },
+                "required": [
+                  "value",
+                  "label"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "value",
+            "min",
+            "max"
+          ],
+          "additionalProperties": false,
+          "description": "Range slider."
+        },
+        "Form": {
+          "type": "object",
+          "properties": {
+            "children": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {}
+            }
+          },
+          "required": [
+            "children"
+          ],
+          "additionalProperties": false,
+          "description": "Groups fields. Submit buttons only prepare a draft."
+        },
+        "Chart": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "bar",
+                "line",
+                "area"
+              ]
+            },
+            "data": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              }
+            },
+            "x": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "series": {
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 65536
+              }
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "number",
+                "currency",
+                "percent"
+              ]
+            },
+            "currency": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "stacked": {
+              "type": "boolean",
+              "const": false
+            },
+            "height": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "additionalProperties": false,
+          "description": "Bar, line or area chart, at most 100 rows and 6 series. Values also available as a table. Stacking is unsupported."
+        }
+      }
+    },
+    "id": "hireferry@1"
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "Col": {
+        "$ref": "#/$defs/Col"
+      },
+      "Row": {
+        "$ref": "#/$defs/Row"
+      },
+      "Box": {
+        "$ref": "#/$defs/Box"
+      },
+      "Grid": {
+        "$ref": "#/$defs/Grid"
+      },
+      "Card": {
+        "$ref": "#/$defs/Card"
+      },
+      "Divider": {
+        "$ref": "#/$defs/Divider"
+      },
+      "Spacer": {
+        "$ref": "#/$defs/Spacer"
+      },
+      "Title": {
+        "$ref": "#/$defs/Title"
+      },
+      "Text": {
+        "$ref": "#/$defs/Text"
+      },
+      "Caption": {
+        "$ref": "#/$defs/Caption"
+      },
+      "Label": {
+        "$ref": "#/$defs/Label"
+      },
+      "Badge": {
+        "$ref": "#/$defs/Badge"
+      },
+      "Link": {
+        "$ref": "#/$defs/Link"
+      },
+      "Markdown": {
+        "$ref": "#/$defs/Markdown"
+      },
+      "Quote": {
+        "$ref": "#/$defs/Quote"
+      },
+      "Code": {
+        "$ref": "#/$defs/Code"
+      },
+      "Math": {
+        "$ref": "#/$defs/Math"
+      },
+      "List": {
+        "$ref": "#/$defs/List"
+      },
+      "ListItem": {
+        "$ref": "#/$defs/ListItem"
+      },
+      "Table": {
+        "$ref": "#/$defs/Table"
+      },
+      "Button": {
+        "$ref": "#/$defs/Button"
+      },
+      "Input": {
+        "$ref": "#/$defs/Input"
+      },
+      "TextArea": {
+        "$ref": "#/$defs/TextArea"
+      },
+      "Select": {
+        "$ref": "#/$defs/Select"
+      },
+      "Checkbox": {
+        "$ref": "#/$defs/Checkbox"
+      },
+      "Slider": {
+        "$ref": "#/$defs/Slider"
+      },
+      "Form": {
+        "$ref": "#/$defs/Form"
+      },
+      "Chart": {
+        "$ref": "#/$defs/Chart"
+      }
+    },
+    "required": [
+      "Col",
+      "Row",
+      "Box",
+      "Grid",
+      "Card",
+      "Divider",
+      "Spacer",
+      "Title",
+      "Text",
+      "Caption",
+      "Label",
+      "Badge",
+      "Link",
+      "Markdown",
+      "Quote",
+      "Code",
+      "Math",
+      "List",
+      "ListItem",
+      "Table",
+      "Button",
+      "Input",
+      "TextArea",
+      "Select",
+      "Checkbox",
+      "Slider",
+      "Form",
+      "Chart"
+    ],
+    "additionalProperties": false,
+    "$defs": {
+      "Col": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          },
+          "gap": {
+            "type": "number"
+          },
+          "align": {
+            "type": "string",
+            "enum": [
+              "start",
+              "center",
+              "end",
+              "stretch"
+            ]
+          }
+        },
+        "required": [
+          "children"
+        ],
+        "additionalProperties": false,
+        "description": "Vertical layout; gap counts 4px steps."
+      },
+      "Row": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          },
+          "gap": {
+            "type": "number"
+          },
+          "align": {
+            "type": "string",
+            "enum": [
+              "start",
+              "center",
+              "end",
+              "stretch"
+            ]
+          },
+          "justify": {
+            "type": "string",
+            "enum": [
+              "start",
+              "center",
+              "end",
+              "between"
+            ]
+          },
+          "wrap": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "children"
+        ],
+        "additionalProperties": false,
+        "description": "Horizontal layout; use wrap for small screens."
+      },
+      "Box": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "row",
+              "col"
+            ]
+          },
+          "gap": {
+            "type": "number"
+          },
+          "padding": {
+            "type": "number"
+          },
+          "background": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "radius": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sm",
+                  "md",
+                  "lg",
+                  "xl",
+                  "full"
+                ]
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "border": {
+            "type": "boolean"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 65536
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 65536
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "flex": {
+            "type": "number"
+          },
+          "align": {
+            "type": "string",
+            "enum": [
+              "start",
+              "center",
+              "end",
+              "stretch"
+            ]
+          },
+          "justify": {
+            "type": "string",
+            "enum": [
+              "start",
+              "center",
+              "end",
+              "between"
+            ]
+          },
+          "wrap": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Bounded layout box; use semantic colors."
+      },
+      "Grid": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          },
+          "columns": {
+            "type": "number"
+          },
+          "minChildWidth": {
+            "type": "number"
+          },
+          "gap": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "children"
+        ],
+        "additionalProperties": false,
+        "description": "Responsive grid with up to 6 columns."
+      },
+      "Card": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          },
+          "variant": {
+            "type": "string",
+            "enum": [
+              "outline",
+              "soft"
+            ]
+          },
+          "padding": {
+            "type": "number"
+          },
+          "gap": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "children"
+        ],
+        "additionalProperties": false,
+        "description": "Panel with border or soft background."
+      },
+      "Divider": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "description": "Divider."
+      },
+      "Spacer": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "description": "Fills free row space."
+      },
+      "Title": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "md",
+              "lg",
+              "xl",
+              "2xl",
+              "3xl"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Heading."
+      },
+      "Text": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 65536
+              },
+              {
+                "maxItems": 200,
+                "type": "array",
+                "items": {}
+              }
+            ]
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "xs",
+              "sm",
+              "md",
+              "lg"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "weight": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "medium",
+              "semibold"
+            ]
+          },
+          "italic": {
+            "type": "boolean"
+          },
+          "lineThrough": {
+            "type": "boolean"
+          },
+          "tabularNums": {
+            "type": "boolean"
+          },
+          "maxLines": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Inline Markdown text; use Markdown for rich blocks."
+      },
+      "Caption": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Secondary text."
+      },
+      "Label": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Field label."
+      },
+      "Badge": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "info",
+              "success",
+              "warning",
+              "danger",
+              "purple",
+              "pink"
+            ]
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Status tag; text always conveys the status."
+      },
+      "Link": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text",
+          "url"
+        ],
+        "additionalProperties": false,
+        "description": "Safe http(s) or mailto link, opened only on click."
+      },
+      "Markdown": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Markdown with GFM tables, code and KaTeX math. Raw HTML is disabled."
+      },
+      "Quote": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "cite": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false,
+        "description": "Quoted text."
+      },
+      "Code": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false,
+        "description": "Code block with syntax highlighting for common languages."
+      },
+      "Math": {
+        "type": "object",
+        "properties": {
+          "tex": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "inline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tex"
+        ],
+        "additionalProperties": false,
+        "description": "KaTeX equation; trusted commands are disabled."
+      },
+      "List": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "$ref": "#/$defs/ListItem"
+                }
+              ]
+            }
+          },
+          "marker": {
+            "type": "string",
+            "enum": [
+              "bullet",
+              "number",
+              "none"
+            ]
+          },
+          "timeline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "description": "List with optional numbering."
+      },
+      "ListItem": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "marker": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false,
+        "description": "List entry with optional description."
+      },
+      "Table": {
+        "type": "object",
+        "properties": {
+          "columns": {
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "rows": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {}
+            }
+          }
+        },
+        "required": [
+          "columns",
+          "rows"
+        ],
+        "additionalProperties": false,
+        "description": "Table. Cells may contain text, numbers or registered components."
+      },
+      "Button": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "action": {
+            "$ref": "#/$defs/ActionExpression"
+          },
+          "variant": {
+            "type": "string",
+            "enum": [
+              "solid",
+              "outline",
+              "soft",
+              "ghost"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "danger",
+              "success"
+            ]
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "sm",
+              "md",
+              "lg"
+            ]
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "block": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false,
+        "description": "User-clicked action. @ToAssistant prepares a draft for review; it never sends automatically."
+      },
+      "ActionExpression": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "open_url"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "continue_conversation"
+              },
+              "context": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Input": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 65536
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number"
+            ]
+          },
+          "placeholder": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false,
+        "description": "Text or number field. Bind value to a $variable."
+      },
+      "TextArea": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "placeholder": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "rows": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false,
+        "description": "Multiline field."
+      },
+      "Select": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "options": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 65536
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "label"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "placeholder": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "value",
+          "options"
+        ],
+        "additionalProperties": false,
+        "description": "Selection field."
+      },
+      "Checkbox": {
+        "type": "object",
+        "properties": {
+          "checked": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "lineThrough": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checked",
+          "label"
+        ],
+        "additionalProperties": false,
+        "description": "Checkbox."
+      },
+      "Slider": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "number"
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "value",
+          "min",
+          "max"
+        ],
+        "additionalProperties": false,
+        "description": "Range slider."
+      },
+      "Form": {
+        "type": "object",
+        "properties": {
+          "children": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {}
+          }
+        },
+        "required": [
+          "children"
+        ],
+        "additionalProperties": false,
+        "description": "Groups fields. Submit buttons only prepare a draft."
+      },
+      "Chart": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "bar",
+              "line",
+              "area"
+            ]
+          },
+          "data": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          },
+          "x": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "series": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "number",
+              "currency",
+              "percent"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "stacked": {
+            "type": "boolean",
+            "const": false
+          },
+          "height": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "data"
+        ],
+        "additionalProperties": false,
+        "description": "Bar, line or area chart, at most 100 rows and 6 series. Values also available as a table. Stacking is unsupported."
+      }
+    }
+  },
+  "prompt": "Render hiring conversation content with HireFerry OpenUI library hireferry@1.\n\n## Syntax Rules\n\n1. Each statement is on its own line: `identifier = Expression`\n2. `root` is the entry point — every program must define `root = Col(...)`\n3. Expressions are: strings (\"...\"), numbers, booleans (true/false), null, arrays ([...]), objects ({...}), or component calls TypeName(arg1, arg2, ...)\n4. Use references for readability: define `name = ...` on one line, then use `name` later\n5. EVERY variable (except root) MUST be referenced by at least one other variable. Unreferenced variables are silently dropped and will NOT render. Always include defined variables in their parent's children/items array.\n6. Arguments are POSITIONAL (order matters, not names). Write `SomeComp([children], \"row\", \"l\")` NOT `SomeComp([children], direction: \"row\", gap: \"l\")` — colon syntax is NOT supported and silently breaks\n7. Optional arguments can be omitted from the end\n8. Declare mutable state with `$varName = defaultValue`. Components marked with `$binding` can read/write these. Undeclared $variables are auto-created with null default.\n9. String concatenation: `\"text\" + $var + \"more\"`\n10. Dot member access: `query.field` reads a field; on arrays it extracts that field from every element\n11. Index access: `arr[0]`, `data[index]`\n12. Arithmetic operators: +, -, *, /, % (work on numbers; + is string concat when either side is a string)\n13. Comparison: ==, !=, >, <, >=, <=\n14. Logical: &&, ||, ! (prefix)\n15. Ternary: `condition ? valueIfTrue : valueIfFalse`\n16. Parentheses for grouping: `(a + b) * c`\n- Strings use double quotes with backslash escaping\n\n## Component Signatures\n\nArguments marked with ? are optional. Sub-components can be inline or referenced; prefer references for better streaming.\nProps typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@ToAssistant, @OpenUrl, @Set, @Reset).\nProps marked `$binding<type>` accept a `$variable` reference for two-way binding.\n\nCol(children: Node[], gap?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\") — Vertical layout; gap counts 4px steps.\nRow(children: Node[], gap?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\", justify?: \"start\" | \"center\" | \"end\" | \"between\", wrap?: boolean) — Horizontal layout; use wrap for small screens.\nBox(children?: Node[], direction?: \"row\" | \"col\", gap?: number, padding?: number, background?: string, radius?: \"sm\" | \"md\" | \"lg\" | \"xl\" | \"full\" | $binding<number>, border?: boolean, width?: $binding<string> | $binding<number>, height?: $binding<string> | $binding<number>, flex?: number, align?: \"start\" | \"center\" | \"end\" | \"stretch\", justify?: \"start\" | \"center\" | \"end\" | \"between\", wrap?: boolean) — Bounded layout box; use semantic colors.\nGrid(children: Node[], columns?: number, minChildWidth?: number, gap?: number) — Responsive grid with up to 6 columns.\nCard(children: Node[], variant?: \"outline\" | \"soft\", padding?: number, gap?: number) — Panel with border or soft background.\nDivider() — Divider.\nSpacer() — Fills free row space.\nTitle(text: $binding<string>, size?: \"sm\" | \"md\" | \"lg\" | \"xl\" | \"2xl\" | \"3xl\", color?: string) — Heading.\nText(text: $binding<string> | Node[], size?: \"xs\" | \"sm\" | \"md\" | \"lg\", color?: string, weight?: \"normal\" | \"medium\" | \"semibold\", italic?: boolean, lineThrough?: boolean, tabularNums?: boolean, maxLines?: number) — Inline Markdown text; use Markdown for rich blocks.\nCaption(text: $binding<string>, color?: string) — Secondary text.\nLabel(text: $binding<string>) — Field label.\nBadge(text: $binding<string>, color?: \"neutral\" | \"info\" | \"success\" | \"warning\" | \"danger\" | \"purple\" | \"pink\", icon?: string) — Status tag; text always conveys the status.\nLink(text: $binding<string>, url: $binding<string>) — Safe http(s) or mailto link, opened only on click.\nMarkdown(text: $binding<string>) — Markdown with GFM tables, code and KaTeX math. Raw HTML is disabled.\nQuote(text: $binding<string>, cite?: string) — Quoted text.\nCode(code: $binding<string>, language?: string) — Code block with syntax highlighting for common languages.\nMath(tex: $binding<string>, inline?: boolean) — KaTeX equation; trusted commands are disabled.\nList(items: ($binding<string> | ListItem)[], marker?: \"bullet\" | \"number\" | \"none\", timeline?: boolean) — List with optional numbering.\nListItem(title: $binding<string>, description?: string, marker?: string, children?: Node[]) — List entry with optional description.\nTable(columns: $binding<string>[], rows: Node[][]) — Table. Cells may contain text, numbers or registered components.\nButton(label: $binding<string>, action?: ActionExpression, variant?: \"solid\" | \"outline\" | \"soft\" | \"ghost\", color?: \"primary\" | \"danger\" | \"success\", size?: \"sm\" | \"md\" | \"lg\", icon?: string, disabled?: boolean, block?: boolean) — User-clicked action. @ToAssistant prepares a draft for review; it never sends automatically.\nInput(value: $binding<$binding<string> | $binding<number>>, label?: string, type?: \"text\" | \"number\", placeholder?: string) — Text or number field. Bind value to a $variable.\nTextArea(value: $binding<string>, label?: string, placeholder?: string, rows?: number) — Multiline field.\nSelect(value: $binding<string>, options: ($binding<string> | {value: $binding<string>, label: $binding<string>})[], label?: string, placeholder?: string) — Selection field.\nCheckbox(checked: $binding<boolean>, label: $binding<string>, lineThrough?: boolean) — Checkbox.\nSlider(value: $binding<number>, min: $binding<number>, max: $binding<number>, step?: number, label?: string, unit?: string, marks?: {value: $binding<number>, label: $binding<string>}[]) — Range slider.\nForm(children: Node[]) — Groups fields. Submit buttons only prepare a draft.\nChart(type: \"bar\" | \"line\" | \"area\", data: Record<string, $binding<string> | $binding<number>>[], x?: string, series?: $binding<string>[], format?: \"number\" | \"currency\" | \"percent\", currency?: string, stacked?: false, height?: number) — Bar, line or area chart, at most 100 rows and 6 series. Values also available as a table. Stacking is unsupported.\n\n## Built-in Functions\n\nData functions prefixed with `@` to distinguish from components. These are the ONLY functions available — do NOT invent new ones.\nUse @-prefixed built-in functions (@Count, @Sum, @Avg, @Min, @Max, @Round) on data. Do NOT hardcode computed values.\n\n@Count(array: any[]) → number — Returns array length\n@First(array: any[]) → any — Returns first element of array\n@Last(array: any[]) → any — Returns last element of array\n@Sum(numbers: number[]) → number — Sum of numeric array\n@Avg(numbers: number[]) → number — Average of numeric array\n@Min(numbers: number[]) → number — Minimum value in array\n@Max(numbers: number[]) → number — Maximum value in array\n@Sort(array: any[], field: string, direction?: \"asc\" | \"desc\") → any[] — Sort array by field. Direction: \"asc\" (default) or \"desc\"\n@Filter(array: any[], field: string, operator: \"==\" | \"!=\" | \">\" | \"<\" | \">=\" | \"<=\" | \"contains\", value: any) → any[] — Filter array by field value\n@Round(number: number, decimals?: number) → number — Round to N decimal places (default 0)\n@Abs(number: number) → number — Absolute value\n@Floor(number: number) → number — Round down to nearest integer\n@Ceil(number: number) → number — Round up to nearest integer\n@Each(array: any[], varName: string, template: any) — Evaluate template for each element. varName is the loop variable — use it ONLY inside the template expression (inline). Do NOT create a separate statement for the template.\n\nBuiltins compose — output of one is input to the next:\n`@Count(@Filter(data.rows, \"field\", \"==\", \"val\"))` for KPIs/chart values, `@Round(@Avg(data.rows.score), 1)`, `@Each(data.rows, \"item\", Comp(item.field))` for per-item rendering.\nArray pluck: `data.rows.field` extracts a field from every row → use with @Sum, @Avg, charts, tables.\n\nIMPORTANT @Each rule: The loop variable (e.g. \"item\") is ONLY available inside the @Each template expression. Always inline the template — do NOT extract it to a separate statement.\nCORRECT: `list = @Each(rows, \"t\", Comp(t.name))`\nWRONG: `item = Comp(t.name)` then `list = @Each(rows, \"t\", item)`, because t is undefined in item.\n\n## Action — Button Behavior\n\nAn action wires a button click to operations. Pass one @-prefixed step bare, e.g. Button(\"Ask\", @ToAssistant(\"Tell me more\")). Put several steps in Action([...]), e.g. Button(\"Read\", Action([@OpenUrl(\"https://example.com\"), @ToAssistant(\"Summarize this page\")])). Steps execute in order.\nButtons without an action automatically send their label to the assistant (equivalent to @ToAssistant(label)).\n\nAvailable steps:\n- @ToAssistant(message: string, context?: any) — Send a message to the assistant (for conversational buttons like \"Tell me more\", \"Explain this\"). The optional context is any value (object, array, string, number) passed to the assistant as hidden data, e.g. @ToAssistant(\"Show details\", {orderId: 42})\n- @OpenUrl(url: string) — Navigate to a URL\n- @Set(variable: $variable, value: any) — Set a $variable to a specific value\n- @Reset(variable: $variable) — Reset $variables to their declared defaults; pass several to reset each (e.g. @Reset($title, $priority) restores $title=\"\" and $priority=\"medium\")\n\nExample — simple nav:\n```\nviewBtn = Button(\"View\", @OpenUrl(\"https://example.com\"))\n```\n\n- An action can be assigned to a variable or inlined: Button(\"Go\", onSubmit) and Button(\"Go\", Action([...])) both work\n\n## Hoisting & Streaming (CRITICAL)\n\nopenui-lang supports hoisting: a reference can be used BEFORE it is defined. The parser resolves all references after the full input is parsed.\n\nDuring streaming, the output is re-parsed on every chunk. Undefined references are temporarily unresolved and appear once their definitions stream in. This creates a progressive top-down reveal — structure first, then data fills in.\n\n**Recommended statement order for optimal streaming:**\n1. `root = Col(...)` — UI shell appears immediately\n2. $variable declarations — state ready for bindings\n3. Component definitions — fill in with data already available\n4. Data values — leaf content last\n\nAlways write the root = Col(...) statement first so the UI shell appears immediately, even before child data has streamed in.\n\n## Examples\n\nroot = Col([heading, body, table, button])\nheading = Title(\"面试安排\", \"lg\")\nbody = Markdown(\"请选择合适的时间。支持 **Markdown**、表格和公式。\")\ntable = Table([\"时间\", \"方式\"], [[\"周三 14:00\", \"视频面试\"], [\"周四 10:00\", \"视频面试\"]])\nbutton = Button(\"选择周三 14:00\", @ToAssistant(\"我想选择周三 14:00 面试\"))\n\n## Important Rules\n- Choose components that best represent the content (tables for comparisons, charts for trends, forms for input, etc.)\n\n## Final Verification\nBefore finishing, walk your output and verify:\n1. root = Col(...) is the FIRST line (for optimal streaming).\n2. Every referenced name is defined. Every defined name (other than root) is reachable from root.\n3. Every $binding appears in at least one component or expression.\n\n- Use only the registered components. This is a compatible subset of thesysdev/open-intelligent-ui, not its complete demo library.\n- No Query, Mutation, @Run, HtmlView, iframe, arbitrary JavaScript, external media or automatic network actions. Links open only after a user click.\n- @ToAssistant only prepares a draft; the user reviews and sends it. Use @Set and @Reset for local state.\n- Use Markdown for rich prose and formulas. Chart supports unstacked bar, line and area; use Table for other data.\n- The chat API accepts at most 10000 Unicode characters per message. At most 200 list/table rows, 100 chart points, 6 series. Use concise views."
+}

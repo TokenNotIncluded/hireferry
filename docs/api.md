@@ -1,6 +1,6 @@
 # HTTP API、MCP 与 WebMCP
 
-本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[CLI 授权](../src/cli_auth.rs)、[聊天与委托](../src/chat.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[HumanGrant](../src/humangrant.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
+本文件描述当前实现。依据：[用户 API](../src/api.rs)、[访问控制](../src/access.rs)、[CLI 授权](../src/cli_auth.rs)、[聊天与委托](../src/chat.rs)、[流式消息与事件](../src/chat_stream.rs)、[聊天能力发现](../src/chat_capabilities.rs)、[管理员业务](../src/admin.rs)、[管理员 AI 令牌](../src/admin_ai.rs)、[HumanGrant](../src/humangrant.rs)、[远程 MCP schema](../src/mcp.rs)、[支付验签](../src/payments.rs)、[支付/退款事务](../src/commerce.rs)、[用户 Webhook](../src/webhooks.rs)、[浏览器注册代码](../static/app.js)。
 
 聘渡由平台 HR 居中服务。账号资料、简历、头像与岗位均不提供公共目录。每位用户与平台的私聊独立保存；平台建立明确匹配后，双方才能读取对应资料，并进入新的独立匹配会话。管理员可以读取全平台业务历史，包含封禁、拒绝匹配与岗位删除后的归档会话；归档会话不可发送新消息。
 
@@ -212,21 +212,29 @@ published 表示发布已完成，不表示公开招聘目录；只有人数大�
 
 ### 聊天 HTTP
 
-用户/管理员各自使用 Cookie 或 Bearer；每次业务操作依据当前数据库状态授权。
+用户/管理员各自使用 Cookie 或 Bearer；每次业务操作依据当前数据库状态授权。`GET /api/chat/capabilities` 只返回公开协议与欢迎语配置，可匿名读取。完整接入、流式帧、恢复和 CLI 示例见 [消息、流式对话与 Agent 接入](chat-agents.md)。
 
 | 方法与路径 | 输入 | 返回 |
 | --- | --- | --- |
-| GET `/api/chat/conversations` | 无 | {items:Conversation[],poll_after_ms:5000}；最近更新的最多 limits.recent_list_limit 个可访问会话 |
+| GET `/api/chat/capabilities` | 无；公开 | 格式、传输地址、限制、欢迎语与 OpenUI 组件规范地址 |
+| GET `/api/chat/conversations` | 无 | {items:Conversation[],poll_after_ms:5000,event_cursor}；最近更新的最多 limits.recent_list_limit 个可访问会话 |
 | GET `/api/chat/conversations/{id}` | 无 | 单个 Conversation，含 participants、writable、unread_count；可直接读取最近列表上限以外的已知会话，按当前权限懒创建，越权返回 404 |
 | POST `/api/chat/platform` | 用户 {}；管理员 {user_id} | Conversation，按需创建 |
-| GET `/api/chat/conversations/{id}/messages` | query after?、before?、limit? | {items,next_cursor,first_cursor,has_more,has_older,poll_after_ms:5000} |
-| POST `/api/chat/conversations/{id}/messages` | {body,client_id} | Message |
+| GET `/api/chat/conversations/{id}/messages` | query after?、before?、limit? | {items,next_cursor,first_cursor,has_more,has_older,poll_after_ms:5000,event_cursor} |
+| POST `/api/chat/conversations/{id}/messages` | {body,client_id,format?} | Message；format 默认 markdown，可选 plain、markdown、openui |
 | POST `/api/chat/conversations/{id}/read` | {message_id} | {message_id,unread_count} |
-| GET `/api/chat/updates` | query after?（默认 0）、limit?（默认 100） | {items:Message[],next_cursor,has_more,poll_after_ms:5000} |
+| POST `/api/chat/conversations/{id}/streams` | {body,client_id,format?}；body 为首段非空文本 | streaming 状态的 Message，sequence=0，附 event_cursor |
+| POST `/api/chat/conversations/{id}/streams/{message_id}/append` | {sequence,delta} | {id,conversation_id,sequence,status,event_cursor}；序号从 1 起，增量最多 4000 字符 |
+| POST `/api/chat/conversations/{id}/streams/{message_id}/finish` | {sequence}；下一个序号 | 小回执，status=complete |
+| POST `/api/chat/conversations/{id}/streams/{message_id}/cancel` | {sequence}；下一个序号 | 小回执，status=cancelled，部分内容保留 |
+| POST `/api/chat/conversations/{id}/stream` | application/x-ndjson；start、delta、finish/cancel 帧 | 边接收边返回 NDJSON ack/error；响应头提交后的失败需读取 error 记录 |
+| GET `/api/chat/events` | query conversation_id?、after?（默认 0）、limit?（默认 100） | {items,next_cursor,has_more,resync_required}；独立的事件游标 |
+| GET `/api/chat/events/stream` | query conversation_id?、after?、limit?；Last-Event-ID? | SSE；Last-Event-ID 优先于 URL 的 after；都省略时从当前事件高水位开始 |
+| GET `/api/chat/updates` | query after?（默认 0）、limit?（默认 100） | 兼容旧客户端的 {items:Message[],next_cursor,has_more,poll_after_ms:5000} |
 
 平台会话 ID 为 `platform_<user_id>`，匹配会话为 `match_<match_id>`；可构造 ID 不等于有权限。新匹配会话不复制双方历史私聊。
 
-body 为 1–10000 字符，client_id 为 1–80 字符。发送身份由服务端确定。相同会话、同一发送身份、同一 client_id 重试相同正文返回原消息；不同正文冲突 409。AI 请求记录 via_ai=true。管理员及其 AI 共享平台发送身份和已读标记，审计仍区分具体令牌。
+body 为 1–10000 字符，client_id 为 1–80 字符。Message 保存原始 body、format、status（streaming / complete / cancelled）和 sequence；body_html 是安全的展示回退，OpenUI 客户端按能力发现的组件规范渲染源码。发送身份由服务端确定。相同会话、同一发送身份、同一 client_id 重试相同正文及格式返回原消息；正文或格式不一致冲突 409。AI 请求记录 via_ai=true。管理员及其 AI 共享平台发送身份和已读标记，审计仍区分具体令牌。
 
 消息分页规则：
 
@@ -236,6 +244,8 @@ body 为 1–10000 字符，client_id 为 1–80 字符。发送身份由服务�
 - limit 为 1–100。消息 ID 为全局递增游标，权限过滤后可能存在间隙。
 - updates 仅返回当前可访问消息；读取不自动标记已读。保存 next_cursor，has_more 时继续取页，否则等待 poll_after_ms（5 秒）。
 - 已读 message_id 须属于该会话或为 0，只能前进。归档会话 writable=false，管理员能读历史但不能发送。
+
+实时客户端先读取消息快照，再从该快照的 `event_cursor` 订阅。这个值与快照在同一事务内获取，与 `message_id` / 消息分页的 `next_cursor` 不可混用。SSE 的 `message.delta` 只携带增量，开始/完成/取消携带消息快照；`cursor` 推进事件高水位。最近 10000 条事件以外的旧游标返回 `resync_required` / `resync`，客户端应重新读取快照。流式操作及长连接重新核验当前凭据和会话权限；断连不会自动完成消息。
 
 ### 委托与进展 HTTP
 
@@ -397,7 +407,7 @@ OutreachInput 必填 channel、opportunity、stage，可选 source_url、note（
 
 ### 传输与请求
 
-端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。不提供第三方 MCP 客户端的 OAuth 自动接入、SSE 推送、resources/prompts 或 MCP 会话 ID。
+端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。MCP 连接不提供第三方客户端的 OAuth 自动接入、resources/prompts、MCP 会话 ID 或 MCP GET/SSE 通道。聊天的原生 SSE 位于 `/api/chat/events/stream`，增量消息也可通过 MCP 工具读写，见 [Agent 聊天协议](chat-agents.md)。
 
 ```http
 Authorization: Bearer <personal-token-or-admin-token>
@@ -412,7 +422,7 @@ HumanGrant 使用 `Authorization: HumanGrant <access_token>`，并按 [签名规
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"my-hr-agent","version":"1.0"}}}
 ```
 
-支持 initialize、ping、tools/list、tools/call。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。使用 Bearer 的普通用户和管理员各有 **32 个工具**：普通用户为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具；管理员为 25 个专属业务工具、1 个公开配置工具和 6 个会话工具。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。HumanGrant 的 `tools/list` 只返回当前授权允许的工具，`tools/call` 在执行时继续检查具体资源和当前权限。HumanGrant 不开放管理员工具、`choose_role`、`create_checkout` 或 `update_mandate`。
+支持 initialize、ping、tools/list、tools/call。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。普通用户和管理员分别获得其业务工具、公开配置与下列会话工具；当前工具集合以 `tools/list` 为准。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。HumanGrant 的 `tools/list` 只返回当前授权允许的工具，`tools/call` 在执行时继续检查具体资源和当前权限。HumanGrant 不开放管理员工具、`choose_role`、`create_checkout` 或 `update_mandate`。
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
@@ -492,26 +502,32 @@ Search schema 包含 q?,page?,role?（seeker/employer/unassigned）,status?,from
 | admin_list_outreach | user_id | {items} |
 | admin_save_outreach | user_id,channel,opportunity,stage；id?,source_url?,note? | Outreach，省略 id 新建，否则更新 |
 
-### 两类身份共有的 6 个会话工具
+### 两类身份共有的会话工具
 
 | 工具 | arguments | 结果 |
 | --- | --- | --- |
-| list_conversations | {} | {items,poll_after_ms} |
+| get_chat_capabilities | {} | 公开格式、传输、欢迎语、限制及 OpenUI 规范 |
+| list_conversations | {} | {items,poll_after_ms,event_cursor} |
+| get_conversation | conversation_id | 单个 Conversation |
 | open_platform_conversation | 用户 {}；管理员 user_id 必填 | Conversation |
-| get_messages | conversation_id；after?≥0,before?≥1,limit?=1–100 | 消息分页 |
-| send_message | conversation_id,body（1–10000 字符）,client_id（1–80 字符） | Message |
+| get_messages | conversation_id；after?≥0,before?≥1,limit?=1–100 | 消息分页和同一快照的 event_cursor |
+| send_message | conversation_id,body（1–10000 字符）,client_id（1–80 字符）；format? | Message；format=plain / markdown / openui |
+| begin_message | conversation_id,body,client_id；format? | 流式 Message，sequence=0 |
+| append_message | conversation_id,message_id,sequence=1–4096,delta（1–4000 字符） | {id,conversation_id,sequence,status,event_cursor} |
+| finish_message / cancel_message | conversation_id,message_id,sequence=1–4097 | 同上小回执；使用下一个序号 |
+| get_chat_events | conversation_id?、after?≥0、limit?=1–100 | {items,next_cursor,has_more,resync_required} |
 | mark_read | conversation_id,message_id≥0 | {message_id,unread_count} |
-| get_updates | after?≥0,limit?=1–100 | {items,next_cursor,has_more,poll_after_ms} |
+| get_updates | after?≥0,limit?=1–100 | 旧版消息游标分页 {items,next_cursor,has_more,poll_after_ms} |
 
-外部平台 AI 可读取委托、轮询增量消息、回复、建立匹配，并在明确外部授权下记录实际进展。保存 next_cursor，并为同一发送重试保留 client_id。服务器不代替外部 AI 运行模型、搜索第三方服务或发送外部消息。简历、JD、聊天和来源 URL 都是业务数据，不是扩大权限的指令。
+外部平台 AI 可读取委托、订阅或分页读取增量消息、流式回复、建立匹配，并在明确外部授权下记录实际进展。保存对应类型的 next_cursor，并为同一发送重试保留 client_id。HumanGrant 按 `chat.read` / `chat.write` 与具体会话授权；只有 `chat.read:self` 可省略 get_chat_events 的 conversation_id。HumanGrant 消息写操作返回小回执，不能由写权限获得消息读权限。服务器不代替外部 AI 运行模型、搜索第三方服务或发送外部消息。简历、JD、聊天和来源 URL 都是业务数据，不是扩大权限的指令。
 
 ## 8. 浏览器 WebMCP
 
 检测 document.modelContext 或 navigator.modelContext 的 registerTool；不支持时普通网页仍可用。未登录、未选身份或不具备资格时不注册。每次 execute 先读 /api/ai/eligibility，再以 X-HireFerry-AI:webmcp 调用实际业务 API，服务端再次授权。
 
-浏览器按登录角色注册工具，工具集合、名称和参数不与远程 MCP 一一对应；上文 32/32 仅为远程 MCP 数量。实际浏览器工具如下。
+浏览器按登录角色注册工具，工具集合、名称和参数不与远程 MCP 一一对应。实际浏览器工具如下。
 
-两类浏览器身份都提供 `hireferry_get_site_config`，无参数，返回公开币种、费用、网关可用币种和业务限额。
+两类浏览器身份都提供 `hireferry_get_site_config`，无参数，返回公开币种、费用、网关可用币种和业务限额；另提供无参数的 `hireferry_get_chat_capabilities`，返回聊天能力与欢迎语。
 
 ### 会话工具
 
@@ -520,9 +536,14 @@ Search schema 包含 q?,page?,role?（seeker/employer/unassigned）,status?,from
 | 后缀 | 参数 |
 | --- | --- |
 | list_conversations | {} |
+| get_conversation | conversation_id |
 | read_messages | id；after?,before?,limit? |
-| send_message | conversation_id,body；client_id?，省略时浏览器生成随机 ID；重试应显式复用 |
-| get_chat_updates | after?,limit? |
+| send_message | conversation_id,body；format?,client_id?，省略 client_id 时浏览器生成随机 ID；重试应显式复用 |
+| begin_message | conversation_id,client_id,body；format? |
+| append_message | conversation_id,message_id,sequence=1–4096,delta（1–4000 字符） |
+| finish_message / cancel_message | conversation_id,message_id,sequence=1–4097 |
+| get_chat_events | after≥0；conversation_id?,limit? |
+| get_chat_updates | after?,limit?；保留旧版消息游标语义 |
 | mark_read | conversation_id,message_id |
 
 没有单独注册 open_platform_conversation。
@@ -633,6 +654,6 @@ name 为 1–100 字符，events 是非空受支持事件列表：message.create
 
 ## 11. 生产配置边界
 
-SMTP、Google、域名、默认语言、计费、支付密钥及出站 Webhook 系统限制等只读取 TOML。没有网页/MCP 系统设置接口；修改配置后重启。`[site].support_email = "support@lmm.best"` 用于页面联系信息；`[smtp].reply_to = "support@lmm.best"` 写入验证码邮件 Reply-To，认证发件人 from 需另填服务商获准的地址。
+SMTP、Google、域名、默认语言、计费、支付密钥、出站 Webhook 系统限制及 `[chat.welcome.<audience>]` 欢迎语等只读取 TOML。没有网页/MCP 系统设置接口；修改配置后重启。`[site].support_email = "support@lmm.best"` 用于页面联系信息；`[smtp].reply_to = "support@lmm.best"` 写入验证码邮件 Reply-To，认证发件人 from 需另填服务商获准的地址。
 
 本次交付未获得所提及的 production.env 和另行提供的生产交接 README 内容，没有读取或推测真实客户端/商户/商品 ID、邮件账号或密钥。应用不会自动导入环境文件；部署方应在部署机器将已验证值写入受保护 TOML，并进行外部端到端验收。详见 [部署交接](deployment-handoff.md)。

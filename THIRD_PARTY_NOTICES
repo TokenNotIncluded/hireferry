@@ -49,3 +49,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+HireFerry rich-message rendering
+
+The optional chat renderer bundles React, OpenUI (@openuidev/react-lang and
+@openuidev/lang-core), react-markdown and its GFM/math plugins, KaTeX, highlight.js,
+Zod and their dependencies. Exact versions are pinned in package-lock.json.
+Full copyright and license texts for all bundled packages are generated in
+static/chat-renderer-NOTICES.txt. Additional original source banners are preserved
+in static/chat-renderer.js.LEGAL.txt. KaTeX WOFF2 fonts are served locally.
+
+The hireferry@1 component signatures are compatible with a documented subset of
+the MIT-licensed Open Intelligent UI demo by Thesys:
+https://github.com/thesysdev/open-intelligent-ui
+Its application, analytics, external media services and arbitrary HTML execution
+are not included. HireFerry's component renderers and styling are implemented
+locally; the actual OpenUI language parser and React runtime are bundled from npm.

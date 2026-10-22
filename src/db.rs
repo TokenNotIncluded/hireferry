@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 13 {
+    if version > 14 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -164,6 +164,14 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         let tx = db.unchecked_transaction()?;
         crate::team::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 13)?;
+        tx.commit()?;
+    }
+    // Schema 14: typed messages and a durable stream event journal. Older
+    // binaries must not ignore active streams or their idempotency records.
+    if version < 14 {
+        let tx = db.unchecked_transaction()?;
+        crate::chat_stream::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 14)?;
         tx.commit()?;
     }
     Ok(())
