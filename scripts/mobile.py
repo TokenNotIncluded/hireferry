@@ -342,6 +342,31 @@ def build(args):
 
 
 def smoke_android(args):
+    output = Path(args.output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    command = [str(android_tool("adb"))] + (["-s", args.serial] if args.serial else [])
+    try:
+        _smoke_android(args)
+    finally:
+        # Keep native crash/ANR evidence even when a UI assertion fails. The
+        # CI emulator is isolated and the fixture never has a real account.
+        for name, tail in [
+            ("android-logcat.txt", ["logcat", "-b", "all", "-d", "-v", "threadtime"]),
+            ("android-exit-info.txt", ["shell", "dumpsys", "activity", "exit-info", "best.lmm.hireferry.debug"]),
+        ]:
+            try:
+                result = subprocess.run(command + tail, capture_output=True, timeout=15)
+                (output / name).write_bytes(result.stdout + result.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                (output / name).write_text(str(error))
+        try:
+            shot = subprocess.run(command + ["exec-out", "screencap", "-p"], check=True, capture_output=True, timeout=15)
+            (output / "android-final.png").write_bytes(shot.stdout)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def _smoke_android(args):
     artifact = Path(args.artifact).resolve()
     metadata = verify_android(artifact)
     package = metadata["package_id"]

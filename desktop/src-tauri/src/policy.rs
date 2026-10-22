@@ -37,18 +37,6 @@ pub fn launcher_url(url: &Url) -> bool {
 }
 
 #[cfg(any(mobile, test))]
-pub fn settings_return(url: &Url) -> bool {
-    url.scheme() == "hireferry-settings"
-        && url.host_str() == Some("return")
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
-        && matches!(url.path(), "" | "/")
-        && url.query().is_none()
-        && url.fragment().is_none()
-}
-
-#[cfg(any(mobile, test))]
 pub fn login_return(url: &Url) -> bool {
     url.scheme() == "hireferry"
         && url.host_str() == Some("login-return")
@@ -60,9 +48,23 @@ pub fn login_return(url: &Url) -> bool {
         && url.fragment().is_none()
 }
 
-#[cfg(any(mobile, test))]
 pub fn service_navigation(origin: &Url, next: &Url) -> bool {
     web_url(next) && next.origin() == origin.origin()
+}
+
+pub fn login_landing(origin: &Url, next: &Url) -> Option<Url> {
+    if !service_navigation(origin, next) || next.path() != "/api/auth/google/start" {
+        return None;
+    }
+    let mut landing = origin.clone();
+    landing.set_path("/auth/app");
+    landing.set_query(None);
+    landing.set_fragment(None);
+    Some(landing)
+}
+
+pub fn login_authorization(origin: &Url, next: &Url) -> bool {
+    service_navigation(origin, next) && next.path() == "/auth/app/authorize"
 }
 
 #[cfg(test)]
@@ -124,26 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn mobile_return_is_a_constant_without_payload_or_login_credentials() {
-        for input in [
-            "hireferry-settings://return",
-            "hireferry-settings://return/",
-        ] {
-            assert!(settings_return(&Url::parse(input).unwrap()));
-        }
-        for input in [
-            "hireferry-settings://return?url=https://evil.example",
-            "hireferry-settings://return#session=secret",
-            "hireferry-settings://user@return",
-            "hireferry-settings://return/login",
-            "hireferry-settings://other",
-            "https://return/",
-        ] {
-            assert!(!settings_return(&Url::parse(input).unwrap()), "{input}");
-        }
-    }
-
-    #[test]
     fn mobile_service_navigation_keeps_the_exact_selected_origin() {
         let selected = server_origin("https://selfhost.example:8443").unwrap();
         assert!(service_navigation(
@@ -181,6 +163,43 @@ mod tests {
             "https://login-return",
         ] {
             assert!(!login_return(&Url::parse(input).unwrap()), "{input}");
+        }
+    }
+
+    #[test]
+    fn native_login_landing_cannot_import_a_redirect_or_external_origin() {
+        let selected = server_origin("https://selfhost.example:8443").unwrap();
+        let google = Url::parse("https://selfhost.example:8443/api/auth/google/start?redirect=https://evil.test&app_request=untrusted#token").unwrap();
+        assert_eq!(
+            login_landing(&selected, &google).unwrap().as_str(),
+            "https://selfhost.example:8443/auth/app"
+        );
+        for input in [
+            "https://selfhost.example/api/auth/google/start",
+            "https://selfhost.example.evil.test:8443/api/auth/google/start",
+            "https://user@selfhost.example:8443/api/auth/google/start",
+            "https://selfhost.example:8443/api/auth/google/start/extra",
+            "https://selfhost.example:8443/auth/app/authorize?request=opaque",
+        ] {
+            assert!(login_landing(&selected, &Url::parse(input).unwrap()).is_none());
+        }
+    }
+
+    #[test]
+    fn login_approval_is_the_exact_selected_service_browser_endpoint() {
+        let selected = server_origin("https://selfhost.example:8443").unwrap();
+        assert!(login_authorization(
+            &selected,
+            &Url::parse("https://selfhost.example:8443/auth/app/authorize?request=opaque").unwrap()
+        ));
+        for input in [
+            "https://selfhost.example/auth/app/authorize?request=opaque",
+            "https://selfhost.example.evil.test:8443/auth/app/authorize",
+            "https://user@selfhost.example:8443/auth/app/authorize",
+            "https://selfhost.example:8443/auth/app/authorize/extra",
+            "https://selfhost.example:8443/auth/app",
+        ] {
+            assert!(!login_authorization(&selected, &Url::parse(input).unwrap()));
         }
     }
 }

@@ -22,7 +22,7 @@ Google 登录需要支持 `/auth/app` 的新版服务器。应用把所选站点
 
 批准页的“返回应用”使用固定 `hireferry://login-return` 唤回应用。协议由移动端 deep-link 插件注册；Rust 只接受无账号、端口、路径、查询或片段的固定标记（也接受末尾斜杠），不会接受 server、redirect、code 或 session。暖启动保持原 WebView 和原站点，只提醒现有 `/auth/app` 页面立即再轮询一次；系统若已回收应用，冷启动仍打开本地连接页，需要重新连接并发起登录。唤回链接本身不证明登录成功，也不授予任何原生命令权限。见 [Tauri Deep Linking](https://v2.tauri.app/plugin/deep-linking/)。
 
-手机站点左下方的“连接”控件只会回到内置连接页。控件至少有 44px 点击高度，避开底部安全区和右侧反馈入口；聊天输入区展开时会自动上移。它使用固定的应用内部导航标记，不接收服务器地址、跳转目标、code 或 token；这个设置返回协议没有注册为外部系统 deep link；它与上面的登录唤回协议相互独立。这个 DOM 控件只是方便返回，所选网站可能改变自己的 DOM。若页面加载失败或控件消失，重新启动应用会重新打开本地连接页，不会自动连接历史站点。
+手机站点左下方的“连接”控件只会回到内置连接页。控件至少有 44px 点击高度，避开底部安全区和右侧反馈入口；聊天输入区展开时会自动上移。它直接导航到构建时固定的本地资源地址，不接收服务器地址、跳转目标、code 或 token，也不调用原生命令。这个本地导航与上面的系统登录唤回协议相互独立。这个 DOM 控件只是方便返回，所选网站可能改变自己的 DOM。若页面加载失败或控件消失，重新启动应用会重新打开本地连接页，不会自动连接历史站点。
 
 只有本地连接页拥有 `connect` 和 `open_browser` 两个命令权限，且 Rust 再检查窗口标签和本地 URL。远程站点即使复用同一个窗口，也不拥有 native capability；不允许从远程内容打开文件、执行 shell 或更改本地设置。工作页只允许所选精确 origin 内的 HTTPS 导航；其他 HTTPS 网页交给系统浏览器，危险协议和含账号密码的 URL 被拒绝。移动端不依赖 Tauri 桌面的 `on_new_window` 回调（该回调不支持 Android/iOS）。普通 `target="_blank"` 链接通过同一导航规则处理。参见 [Tauri Capabilities](https://v2.tauri.app/security/capabilities/)和 [Opener](https://v2.tauri.app/plugin/opener/)。
 
@@ -51,7 +51,7 @@ python3 scripts/mobile.py build android --variant debug --target aarch64 --forma
 python3 scripts/mobile.py smoke-android artifacts/mobile/hireferry-android-x86_64-debug.apk
 ```
 
-设备必须已经通过 `adb devices` 可见。冒烟检查会安装调试 APK、启动 Activity、操作实际 WebView 连接表单，通过 `adb reverse` 连接隔离的本机测试服务，尝试远程 `connect` 并确认拒绝，检查返回与反馈按钮不重叠且反馈可点击，再验证暖启动登录唤回保留页面、返回连接设置、冷启动唤回保持本地页面。它检查 AndroidRuntime 致命异常，并保存各阶段 UI XML、截图和记录。测试服务没有真实账号，也不访问生产或创建业务数据。该检查不能替代真实 Google 账号授权、真机键盘、文件选择、无障碍、断网恢复等测试。
+设备必须已经通过 `adb devices` 可见；请使用隔离的测试模拟器。冒烟检查会安装调试 APK、启动 Activity、操作实际 WebView 连接表单，通过 `adb reverse` 连接隔离的本机测试服务，尝试远程 `connect` 并确认拒绝，检查返回与反馈按钮不重叠且反馈可点击，再验证暖启动登录唤回保留页面、返回连接设置、冷启动唤回保持本地页面。它检查 AndroidRuntime 致命异常，并保存各阶段 UI XML、截图和记录；失败时也保留 logcat 与进程退出原因。测试服务没有真实账号，也不访问生产或创建业务数据。该检查不能替代真实 Google 账号授权、真机键盘、文件选择、无障碍、断网恢复等测试。
 
 Android 发布版使用可信 HTTPS。调试版额外允许明确的本机 loopback HTTP，供 `adb reverse tcp:3000 tcp:3000` 连接宿主开发服务；`http://192.168.*` 等明文 LAN 地址仍被 Rust 拒绝。生产版不放开全局 cleartext transport。
 
