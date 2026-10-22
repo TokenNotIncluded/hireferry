@@ -24,7 +24,7 @@
 <p align="center">
   <a href="https://hireferry.lmm.best">官网</a> ·
   <a href="docs/README.md">文档</a> ·
-  <a href="https://github.com/TokenNotIncluded/hireferry/releases/latest">下载 CLI</a> ·
+  <a href="docs/downloads.md">下载桌面版 / CLI</a> ·
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">问题反馈</a>
 </p>
 
@@ -32,7 +32,7 @@
 
 服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。求职者免费，招聘方费用按站点配置收取。
 
-**本页导航**：[功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
+**本页导航**：[桌面下载](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
 
 <a id="features"></a>
 
@@ -95,6 +95,16 @@ cargo run --locked -- --config config.toml serve
 打开 **http://localhost:3000**。开发配置仅监听本机，邮箱验证码显示在页面中。Google、SMTP 和支付网关按需配置。
 
 生产部署使用 [config.example.toml](config.example.toml)。systemd、Caddy、Docker、管理员初始化与备份见[自托管指南](docs/self-hosting.md)。
+
+<a id="desktop"></a>
+
+## 桌面版与 CLI 下载
+
+<img src="docs/assets/release-matrix.svg" alt="Windows、macOS、Linux 的 x64 与 ARM64 桌面版和用户 CLI 发布矩阵" width="100%">
+
+Tauri 2 桌面版复用系统 WebView，连接官方或自托管站点。Windows 提供 NSIS / MSI，macOS 提供 DMG，Linux 提供 deb、rpm、AppImage 和 Flatpak；`hfy` 用户 CLI 独立打包。文档由同一份发布目录自动生成，成功发布后展示实际包版本、大小与下载链接。
+
+**[下载矩阵 →](docs/downloads.md)** · [桌面安装与发行版兼容说明](docs/desktop.md) · [发布工作流](.github/workflows/desktop-release.yml)
 
 <a id="cli-and-ai"></a>
 

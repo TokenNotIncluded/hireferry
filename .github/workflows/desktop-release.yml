@@ -1,0 +1,261 @@
+name: Desktop and CLI packages
+
+on:
+  push:
+    tags: ['desktop-v*']
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'packaging/**'
+      - 'release/**'
+      - 'scripts/release.py'
+      - 'scripts/package-flatpak.sh'
+      - 'tests/release.test.py'
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/cli-release.yml'
+      - '.github/workflows/release-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  prepare:
+    name: Validate release catalog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      desktop: ${{ steps.targets.outputs.desktop }}
+      flatpak: ${{ steps.targets.outputs.flatpak }}
+      version: ${{ steps.targets.outputs.version }}
+      tag: ${{ steps.targets.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Verify catalog, generated docs and package boundaries
+        run: |
+          python3 tests/release.test.py
+          python3 scripts/release.py docs --check
+          bash -n scripts/package-flatpak.sh
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+      - id: targets
+        name: Read version and build matrices
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, tomllib
+          root = pathlib.Path('.')
+          version = json.loads((root/'desktop/src-tauri/tauri.conf.json').read_text())['version']
+          cargo = tomllib.loads((root/'desktop/src-tauri/Cargo.toml').read_text())['package']['version']
+          npm = json.loads((root/'desktop/package.json').read_text())['version']
+          assert version == cargo == npm, 'Desktop Cargo, npm and Tauri versions must agree'
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Use a stable desktop SemVer'
+          tag = f'desktop-v{version}'
+          if os.environ['REF_TYPE'] == 'tag':
+              assert os.environ['REF_NAME'] == tag, 'Tag does not match desktop package version'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'version={version}\ntag={tag}\n')
+          PY
+          echo "desktop=$(python3 scripts/release.py matrix desktop)" >> "$GITHUB_OUTPUT"
+          echo "flatpak=$(python3 scripts/release.py matrix flatpak)" >> "$GITHUB_OUTPUT"
+      - name: Require committed dependency lockfiles
+        run: |
+          test -s desktop/package-lock.json
+          test -s desktop/src-tauri/Cargo.lock
+
+  desktop:
+    name: Desktop ${{ matrix.target }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.desktop) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install Linux WebKit and bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libwebkit2gtk-4.1-dev libssl-dev \
+            libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf libfuse2 file rpm xdg-utils xvfb xauth dbus-x11
+      - name: Install Rust target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+      - name: Link the Windows C runtime statically
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+      - name: Cache desktop build dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+      - name: Install pinned Tauri CLI
+        working-directory: desktop
+        run: npm ci --ignore-scripts
+      - name: Test desktop URL and capability boundaries
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo test --locked --release --manifest-path desktop/src-tauri/Cargo.toml --target "$TARGET"
+      - name: Build platform installers
+        working-directory: desktop
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npm run tauri -- build --ci --target "$TARGET" --bundles "$BUNDLES" -- --locked
+      - name: Start the Linux desktop launcher under a real WebKit view
+        if: runner.os == 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          dbus-run-session -- xvfb-run -a \
+            "desktop/src-tauri/target/$TARGET/release/hireferry-desktop" --smoke-test
+      - name: Normalize packages and record checksums
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          python3 scripts/release.py stage-desktop --target "$TARGET" \
+            --bundle-dir "desktop/src-tauri/target/$TARGET/release/bundle" --out dist/desktop
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-release-${{ matrix.target }}
+          path: dist/desktop/
+          if-no-files-found: error
+          retention-days: 7
+
+  cli:
+    name: User CLI
+    # The reusable workflow contains a write-scoped publish job for cli-v tags.
+    # Its build jobs explicitly inherit contents: read; publish is skipped here.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/cli-release.yml
+
+  flatpak:
+    name: Flatpak ${{ matrix.arch }}
+    needs: [prepare, desktop]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.flatpak) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-release-${{ matrix.target }}
+          path: artifacts/native
+      - name: Install Flatpak toolchain and shared runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak librsvg2-common xvfb xauth dbus-x11
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.gnome.Platform//51 org.gnome.Sdk//51
+      - name: Package and smoke-test the isolated desktop
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          (cd artifacts/native && sha256sum -c SHA256SUMS)
+          bash scripts/package-flatpak.sh \
+            --deb "artifacts/native/hireferry-desktop-$VERSION-$TARGET.deb" \
+            --version "$VERSION" --arch "$ARCH" --out-dir dist/flatpak-build --smoke-test
+          python3 scripts/release.py stage-flatpak --target "$TARGET" \
+            --binary "$(find dist/flatpak-build -maxdepth 1 -name '*.flatpak' -type f)" --out dist/flatpak
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flatpak-release-${{ matrix.target }}
+          path: dist/flatpak/
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    name: Verify complete release and generate downloads
+    needs: [prepare, desktop, cli, flatpak]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: '*-release-*'
+          path: artifacts/release
+      - name: Validate every required package and generate Markdown, SVG and JSON
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          python3 scripts/release.py assemble artifacts/release dist/release \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: complete-desktop-release
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified GitHub Release
+    needs: [prepare, assemble]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: complete-desktop-release
+          path: dist/release
+      - name: Publish only after all packages and checksums are present
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          (cd dist/release && sha256sum -c SHA256SUMS)
+          state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || printf missing)
+          if [[ "$state" == false ]]; then
+            echo 'This release is already published; bump the desktop version.' >&2
+            exit 1
+          fi
+          if [[ "$state" == missing ]]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false \
+              --title "HireFerry Desktop ${RELEASE_TAG#desktop-v}" --notes-file dist/release/downloads.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/release/* --clobber
+          gh release edit "$RELEASE_TAG" --notes-file dist/release/downloads.md --draft=false --latest=false
+
+  update-docs:
+    needs: [prepare, publish]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-docs.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}

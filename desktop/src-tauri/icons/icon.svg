@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-labelledby="title">
+  <title id="title">HireFerry ferry</title>
+  <rect width="64" height="64" rx="18" fill="#252420"/>
+  <polygon points="12,35 52,35 42,48 23,48" fill="#f8f7f3"/>
+  <polygon points="30,12 30,31 13,31" fill="#f8f7f3"/>
+  <polygon points="35,16 50,31 35,31" fill="#f8f7f3"/>
+</svg>

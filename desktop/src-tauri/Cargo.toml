@@ -1,0 +1,28 @@
+[package]
+name = "hireferry-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "HireFerry desktop client"
+authors = ["HireFerry contributors"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/TokenNotIncluded/hireferry"
+
+# The desktop toolchain is deliberately independent of the server/CLI workspace.
+[workspace]
+resolver = "3"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.4", features = [] }
+tauri-plugin-opener = "=2.7.2"
+url = "2.5.8"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

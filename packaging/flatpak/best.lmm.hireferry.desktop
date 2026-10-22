@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=HireFerry
+Comment=Connect with people and opportunities
+Comment[zh_CN]=连接人才与机会
+Comment[zh_TW]=連結人才與機會
+Exec=hireferry-desktop
+Icon=best.lmm.hireferry
+Terminal=false
+Categories=Office;Network;
+StartupNotify=true
+StartupWMClass=hireferry-desktop
