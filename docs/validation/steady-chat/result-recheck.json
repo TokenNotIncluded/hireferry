@@ -1,0 +1,29 @@
+{
+  "fixture": "Real static frontend and synthetic APIs served by browser request interception; no listening socket, production backend, or external requests",
+  "checks": [
+    "mobile-empty-light"
+  ],
+  "metrics": [
+    {
+      "name": "mobile-empty-light",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    }
+  ],
+  "screenshots": [
+    "mobile-empty-light.png"
+  ],
+  "failures": [],
+  "pageErrors": [],
+  "unexpectedRequests": []
+}

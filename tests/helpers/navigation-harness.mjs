@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 // Executes the real route and service code. This DOM sink records published HTML;
 // it deliberately does not estimate layout, rendering, network transfer, or browser paint.
 const classes=()=>{const values=new Set();return {add:value=>values.add(value),remove:value=>values.delete(value),toggle(value,on){if(on??!values.has(value))values.add(value);else values.delete(value);},contains:value=>values.has(value)};};
-const node=()=>({dataset:{},innerHTML:'',classList:classes(),style:{},isConnected:true,querySelector:()=>null,querySelectorAll:()=>[],setAttribute(){},removeAttribute(){},replaceChildren(){this.innerHTML='';},focus(){}});
+const node=()=>({dataset:{},innerHTML:'',classList:classes(),style:{setProperty(name,value){this[name]=value;},removeProperty(name){delete this[name];}},isConnected:true,querySelector:()=>null,querySelectorAll:()=>[],setAttribute(){},removeAttribute(){},replaceChildren(){this.innerHTML='';},focus(){}});
 const moduleCache=new Map();
 const sourceCache=new Map();
 function sourceSnapshot(file){if(!sourceCache.has(file))sourceCache.set(file,readFile(file,'utf8'));return sourceCache.get(file);}

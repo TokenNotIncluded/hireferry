@@ -1,0 +1,213 @@
+{
+  "fixture": "Real static frontend and synthetic APIs served by browser request interception; no listening socket, production backend, or external requests",
+  "checks": [
+    "admin-archived",
+    "desktop-admin",
+    "employer-activation",
+    "mobile-empty-light",
+    "mobile-thread-dark",
+    "mobile-thread-light",
+    "mobile-visual-viewport-only",
+    "narrow-english-320",
+    "narrow-english-360",
+    "send-failure-keeps-draft"
+  ],
+  "metrics": [
+    {
+      "name": "mobile-thread-dark",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "mobile-short-viewport",
+      "viewportWidth": 390,
+      "viewportHeight": 500,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 379,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "mobile-thread-light",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "narrow-english-360",
+      "viewportWidth": 360,
+      "viewportHeight": 740,
+      "documentWidth": 360,
+      "bodyWidth": 360,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 619,
+      "navigation": 0,
+      "messageWidth": 350,
+      "messageScrollWidth": 350,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "narrow-english-320",
+      "viewportWidth": 320,
+      "viewportHeight": 740,
+      "documentWidth": 320,
+      "bodyWidth": 320,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 619,
+      "navigation": 0,
+      "messageWidth": 310,
+      "messageScrollWidth": 310,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "employer-activation",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "desktop-admin",
+      "viewportWidth": 1440,
+      "viewportHeight": 960,
+      "documentWidth": 1440,
+      "bodyWidth": 1440,
+      "siteHeader": 56,
+      "chatHeader": 60,
+      "composer": 67,
+      "messageViewport": 777,
+      "navigation": 904,
+      "messageWidth": 954,
+      "messageScrollWidth": 954,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "admin-archived",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "mobile-empty-light",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 723,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "mobile-visual-viewport-only",
+      "layoutHeight": 844,
+      "visualHeight": 500,
+      "visualScale": 1,
+      "heightVariable": "500px",
+      "rootHeight": 500,
+      "composerBottom": 500
+    },
+    {
+      "name": "mobile-visual-viewport-short",
+      "viewportWidth": 390,
+      "viewportHeight": 844,
+      "documentWidth": 390,
+      "bodyWidth": 390,
+      "siteHeader": 0,
+      "chatHeader": 56,
+      "composer": 65,
+      "messageViewport": 379,
+      "navigation": 0,
+      "messageWidth": 380,
+      "messageScrollWidth": 380,
+      "atBottomDistance": 0
+    },
+    {
+      "name": "mobile-visual-viewport-zoom",
+      "layoutHeight": 844,
+      "visualHeight": 420,
+      "visualScale": 2,
+      "heightVariable": "",
+      "rootHeight": 844,
+      "composerBottom": 844
+    }
+  ],
+  "screenshots": [
+    "desktop-admin.png",
+    "mobile-empty-light.png",
+    "mobile-english-320.png",
+    "mobile-thread-dark.png",
+    "mobile-thread-light.png"
+  ],
+  "failures": [],
+  "pageErrors": [],
+  "unexpectedRequests": [],
+  "verification_runs": [
+    {
+      "report": "result.json",
+      "passed": 8,
+      "fixture_issue": "The broad feedback selector matched both the list and thread entrypoints."
+    },
+    {
+      "report": "result-recheck.json",
+      "passed": 1,
+      "change": "Scoped the feedback selector to the thread menu, then verified feedback focus and Back navigation."
+    },
+    {
+      "report": "result-visual-viewport.json",
+      "passed": 1,
+      "note": "Targeted synthetic VisualViewport height/scale branch verification after fixture sender_id schema correction. Original nine cases were not rerun."
+    }
+  ],
+  "scope_note": "Nine existing browser scenarios and one targeted synthetic VisualViewport scenario verified. Shortened layout and independently mocked visual viewports simulate available display height; neither is a real mobile OS keyboard or pinch-zoom device test."
+}
