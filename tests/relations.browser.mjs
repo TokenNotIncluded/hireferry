@@ -11,7 +11,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const specifier = process.env.HFY_PLAYWRIGHT_MODULE || 'playwright';
 const { chromium } = await import(isAbsolute(specifier) ? pathToFileURL(specifier).href : specifier);
 let fixture, browser, page, stage = 'setup';
-const errors = [], graphRequests = [];
+const errors = [], graphRequests = [], webmcpWarnings = [];
+const relationToolNames = ['hf_view_open', 'hf_view_patch', 'hf_graph_query', 'hf_graph_read', 'hf_view_save', 'hf_view_list'].sort();
 const screenshots = process.env.HFY_BROWSER_SCREENSHOTS;
 const paint = () => page.evaluate(() => new Promise(resolve_ => requestAnimationFrame(() => requestAnimationFrame(resolve_))));
 async function step(name, run) { stage = name; await run(); process.stdout.write(`ok - ${name}\n`); }
@@ -25,10 +26,49 @@ async function capture(name) {
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: join(screenshots, `synthetic-relations-${name}.png`), fullPage: true, animations: 'disabled' });
 }
+async function nativeToolNames() {
+  return page.evaluate(async () => {
+    const context = document.modelContext || navigator.modelContext;
+    return (await context.getTools()).map(tool => tool.name).sort();
+  });
+}
+async function waitNativeTools(expected) {
+  let actual = [];
+  await until(async () => {
+    actual = await nativeToolNames();
+    assert.equal(new Set(actual).size, actual.length, 'Native WebMCP must not contain duplicate names');
+    return typeof expected === 'number' ? actual.length === expected : JSON.stringify(actual) === JSON.stringify(expected);
+  }, `Native WebMCP did not reach the expected catalog (${typeof expected === 'number' ? expected : expected.length} tools)`);
+  return actual;
+}
+async function navigateAdminTab(tab) {
+  const previous = await page.locator('#root').getAttribute('data-navigation-sequence');
+  await page.locator(`.sidebar-nav a[href="/admin?tab=${tab}"]`).first().click();
+  await page.waitForFunction(({ tab_, previous_ }) =>
+    location.pathname === '/admin' && new URLSearchParams(location.search).get('tab') === tab_ &&
+    Number(document.querySelector('#root')?.dataset.navigationSequence) > Number(previous_) &&
+    document.querySelector('#root')?.dataset.navigationState === 'ready', { tab_: tab, previous_: previous });
+  await paint();
+}
+async function executeNativeTool(name, args) {
+  const result = await page.evaluate(async ({ name_, args_ }) => {
+    const context = document.modelContext || navigator.modelContext;
+    const tool = (await context.getTools()).find(candidate => candidate.name === name_);
+    if (!tool) throw new Error(`Native tool is missing: ${name_}`);
+    // Chrome 151 takes JSON text; newer Chrome accepts the structured argument.
+    // Both paths execute the real native descriptor, never a retained callback.
+    const major = Number(navigator.userAgent.match(/(?:HeadlessChrome|Chrome)\/(\d+)/)?.[1]);
+    return context.executeTool(tool, major >= 155 ? args_ : JSON.stringify(args_));
+  }, { name_: name, args_: args });
+  assert.notEqual(result?.isError, true, `Native ${name} execution failed`);
+  const text = result?.content?.find(item => item.type === 'text')?.text;
+  assert.equal(typeof text, 'string', `Native ${name} should return a useful MCP result`);
+  return JSON.parse(text);
+}
 
 try {
   fixture = await startRelationsFixture(root);
-  browser = await chromium.launch({ headless: true, ...(process.env.HFY_BROWSER_EXECUTABLE ? { executablePath: process.env.HFY_BROWSER_EXECUTABLE } : {}) });
+  browser = await chromium.launch({ headless: true, args: ['--enable-blink-features=WebMCP'], ...(process.env.HFY_BROWSER_EXECUTABLE ? { executablePath: process.env.HFY_BROWSER_EXECUTABLE } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', locale: 'zh-CN' });
   await context.addCookies([{ name: 'hf_session', value: fixture.session, url: fixture.origin }]);
   await context.addInitScript(() => { localStorage.setItem('hireferry-language', 'zh'); if (!localStorage.getItem('hireferry-theme')) localStorage.setItem('hireferry-theme', 'dark'); localStorage.setItem('hireferry-palette', 'amber'); });
@@ -36,6 +76,9 @@ try {
   page = await context.newPage();
   page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => {
+    if (message.type() === 'warning' && /^(?:Relation )?WebMCP /.test(message.text())) webmcpWarnings.push(message.text());
+  });
   page.on('request', request => { if (request.url().endsWith('/api/admin/relations/query')) graphRequests.push(request.postDataJSON()); });
 
   await step('global overview counts the full graph without downloading individual edges', async () => {
@@ -153,12 +196,82 @@ try {
     }
   });
 
+  // Keep sign-out last: the fixture's administrator session is deliberately
+  // revoked by the final stage, after the existing real-server graph checks.
+  let baseToolNames, combinedToolNames;
+  await step('native Chrome WebMCP combines 31 business tools with exactly six relation tools', async () => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    assert.equal(await page.evaluate(() => typeof (document.modelContext || navigator.modelContext)?.getTools), 'function', 'This gate requires native Chrome WebMCP; the Blink feature must be enabled');
+    assert.equal(await page.evaluate(() => typeof (document.modelContext || navigator.modelContext)?.executeTool), 'function');
+    await navigateAdminTab('overview');
+    baseToolNames = await waitNativeTools(31);
+    assert.ok(baseToolNames.every(name => name.startsWith('hireferry_')));
+    assert.equal(baseToolNames.some(name => relationToolNames.includes(name)), false);
+    combinedToolNames = [...baseToolNames, ...relationToolNames].sort();
+    await navigateAdminTab('matches');
+    await page.locator('[data-pj-workbench]').waitFor();
+    await waitNativeTools(combinedToolNames);
+  });
+
+  await step('native executeTool reaches the real relation service and returns a bounded graph summary', async () => {
+    const response = page.waitForResponse(value => new URL(value.url()).pathname === '/api/admin/relations/tools/hf_graph_query' && value.request().method() === 'POST');
+    const result = await executeNativeTool('hf_graph_query', { query: { mode: 'overview' }, response: 'summary', max_bytes: 2048 });
+    const http = await response;
+    assert.equal(http.status(), 200);
+    assert.equal(http.request().headers()['x-hireferry-ai'], 'webmcp');
+    assert.equal(result.summary.users, 1000);
+    assert.equal(result.summary.jobs, 1000);
+    assert.equal(result.summary.edges, fixture.edges);
+    assert.equal(typeof result.result_id, 'string');
+    assert.ok(result.result_id.length > 0);
+    assert.equal(result.items, undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 2048);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|@example\.invalid/);
+    assert.deepEqual(await http.json(), result);
+    await waitNativeTools(combinedToolNames);
+  });
+
+  await step('native tool ownership survives languages, feedback and repeated SPA route changes', async () => {
+    await page.locator('#feedback-launch').click();
+    await page.locator('#feedback-panel').waitFor({ state: 'visible' });
+    await waitNativeTools(combinedToolNames);
+    for (const language of ['en', 'zh-CN', 'en', 'zh-CN']) {
+      await page.locator('[data-action="language"]').first().click();
+      await page.waitForFunction(value => document.documentElement.lang === value && document.querySelector('#root')?.dataset.navigationState === 'ready', language);
+      await paint();
+      assert.equal(await page.locator('#feedback-panel').isVisible(), true);
+      await waitNativeTools(combinedToolNames);
+    }
+    await page.locator('[data-feedback-close]').click();
+    await waitNativeTools(combinedToolNames);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await navigateAdminTab('overview');
+      assert.equal(await page.locator('[data-pj-workbench]').count(), 0);
+      await waitNativeTools(baseToolNames);
+      await navigateAdminTab('matches');
+      await page.locator('[data-pj-workbench]').waitFor();
+      await waitNativeTools(combinedToolNames);
+    }
+    assert.deepEqual(webmcpWarnings, [], 'Language and route changes must not cause rejected duplicate registrations');
+  });
+
+  await step('signing out removes both native business and relation tool owners', async () => {
+    const response = page.waitForResponse(value => new URL(value.url()).pathname === '/api/auth/logout' && value.request().method() === 'POST');
+    await page.locator('.sidebar-user [data-action="logout"]').click();
+    assert.equal((await response).status(), 200);
+    await page.waitForURL(value => value.pathname === '/');
+    await waitNativeTools([]);
+    await paint();
+    assert.deepEqual(await nativeToolNames(), [], 'A late discovery response must not restore tools after sign-out');
+  });
+
   assert.deepEqual(errors, []);
+  assert.deepEqual(webmcpWarnings, []);
   process.stdout.write(`Passed real-server relation acceptance: 1,000 users, 1,000 jobs, ${fixture.edges.toLocaleString()} matches.\n`);
 } catch (error) {
   if (page) {
     await capture('failure').catch(() => {});
-    process.stderr.write(JSON.stringify({ stage, errors, visible: (await page.locator('body').innerText().catch(() => '')).slice(-3500) }) + '\n');
+    process.stderr.write(JSON.stringify({ stage, errors, webmcpWarnings, nativeTools: await nativeToolNames().catch(() => []), visible: (await page.locator('body').innerText().catch(() => '')).slice(-3500) }) + '\n');
   }
   throw error;
 } finally {

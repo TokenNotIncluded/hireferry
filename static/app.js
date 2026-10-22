@@ -17,7 +17,8 @@ import { createTeamUI } from './team-ui.js';
 import { createControlsUI } from './controls.js';
 import { createFinanceUI } from './finance-ui.js';
 import { createPeopleJobsUI } from './people-jobs-ui.js';
-import { registerRelationTools } from './relation-webmcp.js';
+import { createRelationTools } from './relation-webmcp.js';
+import { createWebMCPOwner } from './webmcp-lifecycle.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
@@ -301,7 +302,7 @@ async function refreshPublicPage(version,{refreshConfig=true}={}) {
 const identityOf = value => `${value.super_admin?'owner':value.staff?`staff:${value.staff.id}`:(value.staffRole||value.staff_role)==='manager'?`manager:${value.user?.id||''}`:value.user?.id||'guest'}:${value.csrf||''}`;
 const authMutation = path => /^\/api\/(?:auth\/|role$|team\/invitations\/accept$|staff\/invitations\/[^/]+\/accept$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
 function invalidateIdentity() {
-  resetAdminViews();sessionKnown=false;sessionReader.invalidate();requests.invalidate({abort:true});configCache.invalidate();jobCache.clear();state.eligibility=null;
+  invalidateWebMCP();resetAdminViews();sessionKnown=false;sessionReader.invalidate();requests.invalidate({abort:true});configCache.invalidate();jobCache.clear();state.eligibility=null;
 }
 function announceIdentityChange() {try{localStorage.setItem('hireferry-session-change',`${Date.now()}:${Math.random()}`);}catch{}}
 async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
@@ -330,7 +331,7 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
         if(location.pathname.startsWith('/app'))void go('/login');
         else if(location.pathname==='/admin'&&administrator)void go('/admin');
         else void render();
-      }else{requests.invalidate();sessionReader.invalidate();state.eligibility=null;}
+      }else{requests.invalidate();sessionReader.invalidate();state.eligibility=null;invalidateWebMCP();}
     }
     if(error instanceof RequestTimeoutError)error.message=error.uncertain?t('请求超时，操作结果尚未确认。请刷新查看，再决定是否重试。','The request timed out and its result is unknown. Refresh to check before retrying.'):t('服务器响应超时。请检查网络后重试。','The server took too long to respond. Check your connection and try again.');
     throw error;
@@ -340,9 +341,9 @@ async function session(renderVersion) {
   const s=await sessionReader.read({force:renderVersion===undefined});
   if(renderVersion===undefined||renderVersion===state.render){
     const elevated={...s,admin:!!s.admin||s.staff_role==='manager',owner:s.super_admin===true,super_admin:s.super_admin===true,staffRole:s.staff_role||null,staff:s.staff||null};
-    if(identityOf(state)!==identityOf(elevated)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
+    if(webMCPIdentity(state)!==webMCPIdentity(elevated)){invalidateWebMCP();requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
     Object.assign(state,{user:s.user,admin:elevated.admin,owner:elevated.owner,super_admin:elevated.super_admin,staffRole:elevated.staffRole,staff:elevated.staff,bootstrap:s.bootstrap,csrf:s.csrf});
-    sessionKnown=true;
+    sessionKnown=true;registerWebMCP({refreshEligibility:true});
   }
   return s;
 }
@@ -766,10 +767,7 @@ async function render({navigation=false}={}) {
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&tab!=='promos'&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
-    // Browsers without WebMCP need no eligibility request. Discovery never holds navigation open.
-    if((document.modelContext||navigator.modelContext)?.registerTool&&state.user&&!state.admin&&!state.eligibility){
-      void api('/api/ai/eligibility').then(eligibility=>{if(version!==state.render)return;state.eligibility=eligibility;registerWebMCP();}).catch(()=>{});
-    }else registerWebMCP();
+    registerWebMCP();
   } catch(error) {if(version!==state.render)return;const message=`<section class="route-error"><h1>${t('内容暂时无法加载','Content could not be loaded')}</h1><p>${esc(error.message)}</p><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></section>`;const body=path==='/admin'&&state.admin?shell(message,tab||'overview',true):path.startsWith('/app')&&state.user?shell(message,tab||'messages'):`<main id="main" class="page-width">${message}</main>`;mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});recordPaint('error');}
 }
 
@@ -1010,7 +1008,7 @@ document.addEventListener('change',event=>{
 document.addEventListener('change',async event=>{if(event.target.id!=='avatar-upload')return;const file=event.target.files[0];if(!file)return;if(file.size>2*1024*1024){notify(t('图片不能超过 2 MB。','The image must be 2 MB or smaller.'),true);return;}const data=new FormData();data.append('file',file);try{state.user=await api('/api/profile/avatar',{method:'POST',body:data});document.querySelector('.avatar-editor .avatar').outerHTML=avatar(state.user,'large');notify(t('头像已更新。','Avatar updated.'));}catch(error){notify(error.message,true);}event.target.value='';});
 window.addEventListener('popstate',()=>{closeDialog();render();});
 window.addEventListener('hashchange',()=>{if(location.pathname==='/team/invite'){closeDialog();void render();}});
-window.addEventListener('pagehide',event=>{resetAdminViews();service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted){state.homeStory?.dispose();state.particleTitles?.dispose();state.sculpture?.dispose();state.brandMotion?.dispose();}});
+window.addEventListener('pagehide',event=>{invalidateWebMCP();resetAdminViews();service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted){state.homeStory?.dispose();state.particleTitles?.dispose();state.sculpture?.dispose();state.brandMotion?.dispose();}});
 function resetPrivateView() {
   disclosureUI.reset();
   invalidateIdentity();sessionKnown=true;Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
@@ -1028,41 +1026,66 @@ window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView(
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
 
-let registeredTools=[], webMcpGeneration=0;
-function registerWebMCP() {
-  const registration=++webMcpGeneration, identity=identityOf(state);
+const webMCPOwner=createWebMCPOwner();
+let webMCPEligibilityRead=null,webMCPEpoch=0,relationWebMCPOwner;
+const webMCPIdentity=(value=state)=>JSON.stringify([identityOf(value),!!value.admin,!!value.owner,value.staffRole||value.staff_role||null,value.user?.role||null,!!value.user?.banned]);
+function clearWebMCPCatalog() {webMCPEpoch++;void webMCPOwner.clear();void relationWebMCPOwner?.clear();}
+function invalidateWebMCP() {webMCPEligibilityRead=null;clearWebMCPCatalog();}
+function registerWebMCP({refreshEligibility=false}={}) {
   const context=document.modelContext||navigator.modelContext;
-  if(!context?.registerTool)return;
-  for(const name of registeredTools){try{context.unregisterTool(name);}catch{}}
-  registeredTools=[];
   // Human managers do not inherit the owner's browser-AI tool catalog.
-  if(state.staffRole&&!state.owner&&!state.staff)return;
-  if(!state.admin&&(!state.user||!state.eligibility?.eligible))return;
+  if(!context?.registerTool||(state.staffRole&&!state.owner&&!state.staff)||(!state.admin&&!state.user)){invalidateWebMCP();return;}
+  const scope=webMCPIdentity();
+  if(!state.admin&&(!state.eligibility||refreshEligibility)){
+    if(webMCPEligibilityRead?.scope!==scope){
+      const request={scope};webMCPEligibilityRead=request;
+      void api('/api/ai/eligibility',{fresh:true}).then(eligibility=>{
+        if(webMCPEligibilityRead!==request||webMCPIdentity()!==scope)return;
+        state.eligibility=eligibility;registerWebMCP();
+      }).catch(()=>{if(webMCPEligibilityRead===request&&webMCPIdentity()===scope)invalidateWebMCP();})
+        .finally(()=>{if(webMCPEligibilityRead===request)webMCPEligibilityRead=null;});
+    }
+  }
+  if(!state.admin&&!state.eligibility?.eligible){if(state.eligibility)clearWebMCPCatalog();else void webMCPOwner.clear();return;}
+  const epoch=webMCPEpoch;
+  const isCurrent=()=>webMCPEpoch===epoch&&webMCPIdentity()===scope&&(state.admin||state.eligibility?.eligible!==false);
+  void webMCPOwner.sync({scope,tools:webMCPTools(()=>isCurrent()&&webMCPOwner.isCurrent(scope)),isCurrent});
+  if(state.admin&&relationPageActive()&&root.querySelector('.people-jobs-workspace')){
+    relationWebMCPOwner ||= createRelationTools({api:(path,options={})=>api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}})});
+    void relationWebMCPOwner.sync({scope,isCurrent:()=>isCurrent()&&state.admin&&relationPageActive()});
+  }else void relationWebMCPOwner?.clear();
+}
+function relationPageActive() {
+  if(location.pathname!=='/admin')return false;
+  const query=qs(),tab=query.get('tab');
+  return ['users','jobs'].includes(tab)||(tab==='matches'&&!['search','followups'].includes(query.get('view'))&&!query.has('job')&&!query.has('candidate'));
+}
+function webMCPTools(isCurrent) {
+  const tools=[];
+  const requireCurrent=()=>{if(!isCurrent())throw new Error('Session changed. Reopen the current workspace.');};
   const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
   const str={type:'string'},integer={type:'integer'},bool={type:'boolean'};
   const idSchema=object({id:str},['id']);
   const versionedIdSchema=object({id:str,expected_version:{type:'integer',minimum:0}},['id','expected_version']);
   const headcountSchema={type:'integer',minimum:0,maximum:state.config?.limits?.max_job_headcount??1000000};
   const currencySchema={type:'string',enum:currencies().map(option=>option.currency)};
-  const aiApi=(path,options={})=>api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}});
+  const aiApi=(path,options={})=>{requireCurrent();return api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}});};
   const queryPath=(path,values={})=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(values))if(v!==undefined&&v!==null&&v!=='')p.set(k,String(v));return path+(p.size?'?'+p:'');};
   const tool=(name,description,inputSchema,execute,readOnly=false,destructive=false)=>{
-    try{
-      context.registerTool({
-        name,description,inputSchema,annotations:{readOnlyHint:readOnly,destructiveHint:destructive},
-        execute:async input=>{
-          try{
-            const eligibility=await api('/api/ai/eligibility');
-            if(!eligibility.eligible)throw new Error(t('当前暂不具备 AI 访问资格。招聘方需要发布权益有效、未关闭或删除，且符合发布时币种与薪资门槛的岗位；人数为 0 不影响资格。','AI access is not currently available. Employers need an entitled, published role that meets its recorded salary threshold in its currency and is neither closed nor deleted. A target of 0 does not remove eligibility.'));
-            const result=await execute(input||{});
-            return{content:[{type:'text',text:JSON.stringify(result)}]};
-          }catch(error){return{content:[{type:'text',text:error.message}],isError:true};}
-        },
-      });
-      registeredTools.push(name);
-    }catch{
-      // Unsupported browsers keep the full human-operated workspace.
-    }
+    tools.push({
+      name,description,inputSchema,annotations:{readOnlyHint:readOnly,destructiveHint:destructive,consequentialHint:destructive},
+      execute:async input=>{
+        try{
+          requireCurrent();
+          const eligibility=await api('/api/ai/eligibility',{fresh:true});
+          requireCurrent();
+          if(!eligibility.eligible){state.eligibility=eligibility;invalidateWebMCP();throw new Error(t('当前暂不具备 AI 访问资格。','AI access is not currently available.'));}
+          const result=await execute(input||{});
+          requireCurrent();
+          return{content:[{type:'text',text:JSON.stringify(result)}]};
+        }catch(error){return{content:[{type:'text',text:error.message}],isError:true};}
+      },
+    });
   };
   tool('hireferry_get_site_config','Read current site pricing, allowed currencies and their minor-unit precision, AI salary thresholds, and operational limits. Existing roles retain their original published terms.',object(),()=>api('/api/config'),true);
   const chatToolPrefix=state.admin?'hireferry_admin_':'hireferry_';
@@ -1072,7 +1095,6 @@ function registerWebMCP() {
   tool(chatToolPrefix+'get_chat_updates','Read new messages across permitted conversations with an incremental numeric cursor. Poll no faster than every 5 seconds.',object({after:integer,limit:{type:'integer',minimum:1,maximum:100}}),x=>aiApi(queryPath('/api/chat/updates',x)),true);
   tool(chatToolPrefix+'mark_read','Mark messages in a permitted conversation as read.',object({conversation_id:str,message_id:integer},['conversation_id','message_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/read`,{method:'POST',body:{message_id:x.message_id}}));
   if(state.admin){
-    if(root.querySelector('.people-jobs-workspace'))void registerRelationTools({context,api:aiApi,isCurrent:()=>registration===webMcpGeneration&&identity===identityOf(state)&&state.admin,onRegistered:name=>registeredTools.push(name)});
     const listSchema=object({q:str,role:{type:'string',enum:['seeker','employer','unassigned']},page:{type:'integer',minimum:1}});
     tool('hireferry_admin_list_users','List platform users for service operations. Never disclose private data to an unrelated party.',listSchema,x=>aiApi(queryPath('/api/admin/users',x)),true);
     tool('hireferry_admin_get_user','Read a user profile as the platform administrator.',idSchema,x=>aiApi(`/api/admin/users/${encodeURIComponent(x.id)}`),true);
@@ -1101,7 +1123,7 @@ function registerWebMCP() {
     tool('hireferry_admin_list_orders','Read orders, including test/live flags and payment status. This does not change payments.',object({from:str,to:str,status:str,page:{type:'integer',minimum:1}}),x=>aiApi(queryPath('/api/admin/orders',x)),true);
     tool('hireferry_admin_overview','Read revenue statistics for one currency and separate currency_totals. Never add or compare amounts across currencies. Dates are UTC; explicitly distinguish live revenue from test transactions.',object({from:str,to:str,currency:{type:'string',pattern:'^[A-Z]{3}$'},mode:{type:'string',enum:['live','test']}}),x=>aiApi(queryPath('/api/admin/overview',x)),true);
     tool('hireferry_admin_audit','Read the platform business audit log.',object(),()=>aiApi('/api/admin/audit'),true);
-    return;
+    return tools;
   }
   tool('hireferry_get_profile','Read your own private profile.',object(),()=>aiApi('/api/profile'),true);
   tool('hireferry_update_profile','Update your own profile and contact email. Profiles are shared only with HireFerry and active introduced parties. Sign-in email is private.',object({name:str,public_email:str,resume_md:str},['name','public_email','resume_md']),x=>aiApi('/api/profile',{method:'PUT',body:{...x,visible:false}}));
@@ -1128,5 +1150,6 @@ function registerWebMCP() {
     tool('hireferry_edit_job','Request a description update. The title, currency, and salary are locked. Read the job’s frozen terms for edit_mode, edit_fixed_minor, edit_bps, and max_edits. Free mode applies immediately; a paid update keeps the existing description until payment is confirmed. Provider is required only for a paid operation.',object({id:str,jd_md:str,provider:{type:'string',enum:['stripe','waffo','']}},['id','jd_md']),x=>aiApi(`/api/jobs/${encodeURIComponent(x.id)}/edit`,{method:'POST',body:{jd_md:x.jd_md,provider:x.provider||''}}));
     tool('hireferry_close_job','Permanently close your own role to new introductions, only with human authorization. To pause temporarily use set_job_headcount with zero instead. Closed roles cannot be reopened by increasing headcount. Closing the last qualifying role also ends employer AI eligibility.',idSchema,x=>aiApi(`/api/jobs/${encodeURIComponent(x.id)}/close`,{method:'POST',body:{}}),false,true);
   }
+  return tools;
 }
 render();
