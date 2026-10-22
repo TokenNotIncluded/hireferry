@@ -76,9 +76,14 @@ impl AuthService {
 
     /// Only the passkey-authenticated owner may request this mail via staff routes.
     pub(crate) async fn send_staff_invitation(
-        &self, config: &Config, email: &str, link: &str,
+        &self,
+        config: &Config,
+        email: &str,
+        link: &str,
     ) -> AppResult<()> {
-        let mailer = self.mailer.as_ref()
+        let mailer = self
+            .mailer
+            .as_ref()
             .ok_or_else(|| AppError::unavailable("SMTP is not configured"))?;
         let mut builder = Message::builder()
             .from(config.smtp.from.parse().map_err(AppError::internal)?)
@@ -91,7 +96,9 @@ impl AuthService {
         let message = builder.body(format!(
             "你收到了一份聘渡团队经理邀请。请使用收件邮箱登录并在 7 天内接受：\n{link}\n\n             You are invited to join the HireFerry team as a manager. Sign in with this email and accept within 7 days:\n{link}\n\n             如果你不认识邀请人，请忽略此邮件。不要转发邀请链接。\n             If unexpected, ignore this email. Do not forward the invitation link."
         )).map_err(AppError::internal)?;
-        mailer.send(message).await
+        mailer
+            .send(message)
+            .await
             .map_err(|_| AppError::unavailable("Could not deliver the staff invitation email"))?;
         Ok(())
     }
@@ -456,21 +463,24 @@ fn session_response(
 
 async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Response> {
     let Some(s) = session(&state, &headers)? else {
-        return Ok(
-            Json(json!({"user":null,"admin":false,"bootstrap":false,"staff_role":null,"csrf":null})).into_response(),
-        );
+        return Ok(Json(
+            json!({"user":null,"admin":false,"bootstrap":false,"staff_role":null,"csrf":null}),
+        )
+        .into_response());
     };
     let (user, staff_role) = if let Some(id) = &s.user_id {
         let db = state.conn()?;
-        (serde_json::to_value(crate::models::load_user(&db, id)?)?,
-         crate::staff::active_role(&db, id)?)
+        (
+            serde_json::to_value(crate::models::load_user(&db, id)?)?,
+            crate::staff::active_role(&db, id)?,
+        )
     } else {
         (Value::Null, None)
     };
     Ok(
         Json(json!({"user":user,"admin":s.admin,"bootstrap":s.bootstrap,
                     "staff_role":staff_role,"csrf":s.csrf}))
-            .into_response(),
+        .into_response(),
     )
 }
 
