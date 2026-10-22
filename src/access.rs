@@ -107,7 +107,7 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
         // Staff access is deliberately limited to a human browser session.
         // A member's ordinary CLI bearer / WebMCP never gains manager authority.
         let manager =
-            !webmcp && crate::staff::active_role(&s.conn()?, &uid)?.as_deref() == Some("manager");
+            !webmcp && crate::staff::active_role(&*s.conn()?, &uid)?.as_deref() == Some("manager");
         Ok(Principal {
             actor: if manager {
                 format!("staff:{uid}")
