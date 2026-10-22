@@ -592,6 +592,7 @@ async fn person(
 }
 pub fn user_orders(s: &AppState, id: &str) -> AppResult<Vec<models::Order>> {
     let db = s.conn()?;
+    commerce::expire_onboarding_orders(&db, id)?;
     let mut orders = db
         .prepare("SELECT * FROM orders WHERE user_id=?1 ORDER BY created_at DESC,id LIMIT ?2")?
         .query_map(
@@ -625,6 +626,9 @@ pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order>
     let mut order = models::load_order(&db, id)?;
     if order.user_id != uid {
         return Err(AppError::not_found("Order not found"));
+    }
+    if commerce::expire_onboarding_orders(&db, uid)? > 0 {
+        order = models::load_order(&db, id)?;
     }
     hide_unavailable_checkout(s, &db, &mut order)?;
     Ok(order)

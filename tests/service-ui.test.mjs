@@ -7,6 +7,10 @@ const moneySource = await readFile(new URL('../static/money.js', import.meta.url
 const moneyHelpers = await import('data:text/javascript;base64,' + Buffer.from(moneySource).toString('base64'));
 const requestSource = await readFile(new URL('../static/requests.js', import.meta.url), 'utf8');
 const requestHelpers = await import('data:text/javascript;base64,' + Buffer.from(requestSource).toString('base64'));
+const billingSource = await readFile(new URL('../static/billing-ui.js', import.meta.url), 'utf8');
+const billingHelpers = await import('data:text/javascript;base64,' + Buffer.from(billingSource).toString('base64'));
+// Page markup tests use a DOM sink; disclosure events have their own real controller tests.
+const createDisclosureUI = () => ({ sync() {}, reset() {}, dispose() {} });
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
 
 const serviceSource = await readFile(new URL('../static/service-ui.js', import.meta.url), 'utf8');
@@ -131,6 +135,8 @@ test('selected role queries candidates with server filters without fetching prof
   assert.match(html, /1 on this page · 100000 total/);
   assert.match(html, /Not introduced/);
   assert.doesNotMatch(html, /Sanitized résumé/);
+  assert.match(html, /<details[^>]*data-disclosure="candidate-filters:[^"]*" open>/);
+  assert.match(html, /Advanced filters[\s\S]*Industry: Software · Role: Engineer · Location: Remote/);
 });
 
 test('candidate details are loaded on demand and reopened introductions reuse the existing match', async () => {
@@ -148,6 +154,8 @@ test('candidate details are loaded on demand and reopened introductions reuse th
   assert.match(html, /&lt;script&gt;candidate&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>candidate/);
   assert.match(html, /<h2>Sanitized résumé<\/h2>/);
+  assert.match(html, /<details[^>]*data-disclosure="candidate-resume:person-one" open>/);
+  assert.match(html, /<\/details><section class="wb-introduction">/, 'introducing remains available when the résumé is folded');
   assert.match(html, /Reintroducing restores profile access and the existing shared room/);
   assert.match(html, /conversation=platform_person-one/);
   const data = new FormData(); data.set('note', 'Ready to reconnect.'); data.set('job_id', 'tampered-role');
@@ -277,9 +285,10 @@ test('workbench labels and candidate confirmation are available in Chinese witho
 function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', order = null, responses = {}, serviceUIFactory = () => ({}), legalRenderer = (content,lang) => `<main data-legal-language="${lang}">${content.html}</main>` } = {}) {
   const registered = new Map();
   const requests = [];
+  const listeners = new Map();
   const modelContext = { registerTool: tool => registered.set(tool.name, tool), unregisterTool: name => registered.delete(name) };
-  const node = { innerHTML: '', replaceChildren() {} };
-  const document = { querySelector: () => node, addEventListener() {}, removeEventListener() {}, body: { style: {} }, documentElement: {}, modelContext };
+  const node = { innerHTML: '', replaceChildren() { this.innerHTML = ''; } };
+  const document = { querySelector: () => node, addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); }, removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }, body: { style: {} }, documentElement: {}, modelContext };
   const fetch = async (path, options) => {
     requests.push({ path, options });
     const result = Object.hasOwn(responses, path) ? responses[path] : path === '/api/ai/eligibility' ? { eligible } : path.startsWith('/api/orders/') ? order : { ok: true };
@@ -289,12 +298,12 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment};')(
-    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
-  return { app, registered, requests, location: browserLocation, setEligible(value) { eligible = value; } };
+  return { app, registered, requests, document, dialogNode: node, listeners, location: browserLocation, setEligible(value) { eligible = value; } };
 }
 
 test('an ineligible employer receives no WebMCP tools', () => {
@@ -346,7 +355,8 @@ test('webhook pages load only the user’s endpoints and latest delivery without
   assert.match(html, /do not contain résumés, contact emails, or message bodies/);
   assert.match(html, /deduplicate using your receiver ID plus body\.id from the verified payload/);
   const guide = html.slice(html.indexOf('<section class="panel webhook-guide">'));
-  assert.match(guide, /<\/p><\/div><\/div><div class="webhook-principles">/, 'the explanation grid must be outside the flex header');
+  assert.match(guide, /<\/p><\/div><\/div><details[^>]*data-disclosure="webhook-guide:configured"\s*>/, 'privacy scope remains visible while the setup guide starts folded');
+  assert.match(guide, /class="disclosure-content"><div class="webhook-principles">/, 'the explanation grid stays outside the flex header');
   assert.ok(requests.every(request => request.options === undefined));
   assert.equal(requests.length, 2);
 });
@@ -358,6 +368,7 @@ test('webhook subscriptions show role-appropriate events and work in Chinese', a
     const html = await service.webhooksPage();
     service.webhookDialog();
     assert.match(html, /我的接收端点/);
+    assert.match(html, /<details[^>]*data-disclosure="webhook-guide:new" open>/, 'the first receiver setup keeps its instructions available');
     assert.match(dialog, /订阅事件/);
     assert.match(dialog, /只通知你本人有权访问的对象/);
     for (const event of ['message.created', 'match.updated', 'job.updated', 'order.updated']) assert.ok(dialog.includes(`value="${event}"`));
@@ -406,6 +417,8 @@ test('delivery history localizes failures and only failed deliveries have retry 
   assert.doesNotMatch(dialog, />timeout</);
   assert.equal((dialog.match(/data-action="webhook-retry"/g) || []).length, 1);
   assert.match(dialog, /data-delivery="delivery-3"/);
+  assert.match(dialog, /<details[^>]*data-disclosure="webhook-delivery:endpoint-one:delivery-3">/);
+  assert.match(dialog, /<\/details><p class="webhook-warning">接收服务响应超时/, 'the failure is visible without opening technical metadata');
   assert.match(dialog, /已送达/);
   assert.match(dialog, /已取消/);
 });
@@ -420,6 +433,102 @@ test('disabled delivery retains history and deletion while disabling create, tes
   assert.doesNotMatch(html.match(/<button[^>]*data-action="webhook-toggle"[^>]*>/)[0], /disabled/);
   await service.webhookDeliveries(endpoint.id);
   assert.match(dialog, /data-action="webhook-retry"[^>]*disabled/);
+});
+
+test('dialog Tab order reaches delivery summaries with disabled actions and excludes unfocusable elements', () => {
+  const { app, document, dialogNode, listeners } = webmcp();
+  const control = (tag, extra = {}) => ({
+    tag, tabIndex: 0, disabled: false, offsetParent: {},
+    matches(selector) { return selector === ':disabled' && (this.disabled || this.disabledByFieldset); },
+    closest() { return this.hiddenAncestor || this.inertAncestor ? {} : null; },
+    getClientRects() { return this.rendered === false ? [] : [{}]; },
+    focus() { document.activeElement = this; },
+    ...extra,
+  });
+  const close = control('button'), refresh = control('button'), summary = control('summary');
+  const controls = [close, refresh, summary, control('button', { disabled: true })];
+  dialogNode.querySelector = () => dialogNode.innerHTML ? {} : null;
+  dialogNode.querySelectorAll = selector => controls.filter(node => selector.split(',').some(part => part === node.tag || (part === '[tabindex]' && node.explicitTabIndex)));
+  app.openDialog('<h2 id="dialog-title">Delivery history</h2>');
+  assert.equal(document.activeElement, close);
+  const tab = (active, shiftKey = false) => {
+    document.activeElement = active;
+    let prevented = false;
+    for (const handler of listeners.get('keydown')) handler({ key: 'Tab', shiftKey, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(tab(refresh), false, 'Tab from Refresh must proceed to the native summary, not wrap to Close');
+  assert.equal(tab(summary), true);
+  assert.equal(document.activeElement, close);
+  assert.equal(tab(close, true), true);
+  assert.equal(document.activeElement, summary);
+
+  const custom = control('div', { explicitTabIndex: true, offsetParent: null });
+  controls.push(custom,
+    control('button', { tabIndex: -1, explicitTabIndex: true }),
+    control('button', { hiddenAncestor: true }),
+    control('button', { inertAncestor: true }),
+    control('button', { visibility: 'hidden' }),
+    control('button', { rendered: false }),
+    control('button', { disabledByFieldset: true }));
+  assert.equal(tab(summary), false, 'a visible custom tabindex=0 control remains reachable');
+  assert.equal(tab(custom), true, 'hidden, inert, disabled and negative-tabindex controls are outside the cycle');
+  assert.equal(document.activeElement, close);
+  assert.equal(tab(close, true), true);
+  assert.equal(document.activeElement, custom);
+  app.closeDialog();
+  assert.equal(listeners.get('keydown').size, 0);
+});
+
+const expiredActivation = { id: 'activation-old', kind: 'onboarding', status: 'expired', provider: 'waffo', amount_cents: 10000, refunded_cents: 0, currency: 'CNY', created_at: 1, checkout_expires_at: 2, checkout_url: 'https://checkout.example/expired' };
+
+test('inactive employers can restart an expired activation from Orders without expanding history', async () => {
+  const { app, requests } = webmcp({ eligible: false, role: 'employer', responses: { '/api/orders': { items: [expiredActivation] } } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const html = await app.ordersPage();
+  const overview = html.match(/<section class="activation-overview">[\s\S]*?<\/section>/)?.[0];
+  assert.ok(overview);
+  assert.match(overview, /Order expired/);
+  assert.match(overview, /data-action="role-employer"/);
+  assert.match(overview, /Restart activation/);
+  assert.doesNotMatch(overview, /<details/);
+  assert.doesNotMatch(html, /data-action="pay-order"/);
+  assert.match(html, /data-disclosure="order-activation-old"/);
+  assert.deepEqual(requests.map(request => [request.path, request.options?.method || 'GET']), [['/api/orders', 'GET']]);
+});
+
+test('activation stays reachable when there are no orders and when posting is blocked by an inactive account', async () => {
+  const { app } = webmcp({ eligible: false, role: 'employer', responses: { '/api/orders': { items: [] } } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const orders = await app.ordersPage();
+  assert.match(orders, /Activate employer account/);
+  assert.match(orders, /No orders yet/);
+  assert.match(orders, /<button[^>]*data-action="role-employer"/);
+  const editor = await app.jobEditor();
+  assert.match(editor, /Your employer account is not active/);
+  assert.match(editor, /<button[^>]*data-action="role-employer"/);
+});
+
+test('an expired payment return offers recovery using only the account-authorized order read', async () => {
+  const { app, requests } = webmcp({ eligible: false, role: 'employer', search: '?order_id=activation-old&status=paid', order: { ...expiredActivation, status: 'pending' } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const html = await app.paymentReturn();
+  assert.match(html, /This order has expired/);
+  assert.match(html, /data-action="role-employer"/);
+  assert.match(html, /Restart activation/);
+  assert.doesNotMatch(html, /data-action="pay-order"|Payment confirmed\./);
+  assert.deepEqual(requests.map(request => [request.path, request.options?.method || 'GET']), [['/api/orders/activation-old', 'GET']]);
+});
+
+test('active employers are not offered payment or reactivation for leftover activation orders', async () => {
+  const leftover = { ...expiredActivation, id: 'activation-pending', status: 'pending', checkout_expires_at: Math.floor(Date.now() / 1000) + 3600 };
+  const { app } = webmcp({ role: 'employer', search: '?order_id=activation-old', order: expiredActivation, responses: { '/api/orders': { items: [leftover, expiredActivation] } } });
+  app.state.lang = 'en';
+  const orders = await app.ordersPage();
+  assert.match(orders, /Your employer account is active/);
+  assert.match(orders, /Manage roles/);
+  assert.doesNotMatch(orders, /data-action="pay-order"|data-action="role-employer"/);
+  assert.doesNotMatch(await app.paymentReturn(), /data-action="pay-order"|data-action="role-employer"/);
 });
 
 test('net-receipt chart retains refund-only negative values below an explicit zero baseline', () => {
@@ -1329,7 +1438,10 @@ test('post-mount currency synchronization uses retained live selections without 
     assert.match(select.labels.max.textContent,/（JPY）$/);
   }
   assert.equal(requests.length,0);
-  assert.match(appSource,/mountPage\(root,header\(\)\+body\+footer\(\),pageKey\);syncCurrencyFields\(\)/);
+  const mounted=appSource.indexOf('mountPage(root,header()+body+footer(),pageKey);');
+  const synchronized=appSource.indexOf('syncCurrencyFields()',mounted);
+  const ready=appSource.indexOf("recordPaint('ready')",mounted);
+  assert.ok(mounted>=0&&synchronized>mounted&&ready>synchronized,'currency fields synchronize after mounting and before reporting the page ready');
 });
 
 function chatDom() {
