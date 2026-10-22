@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "repository": "TokenNotIncluded/hireferry",
+  "catalog": {
+    "schema_version": 1,
+    "repository": "TokenNotIncluded/hireferry",
+    "desktop": [],
+    "flatpak": [],
+    "cli": [],
+    "server": [
+      {
+        "platform": "Linux",
+        "architecture": "x86_64",
+        "target": "x86_64-unknown-linux-gnu",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-22.04"
+      },
+      {
+        "platform": "Linux",
+        "architecture": "aarch64",
+        "target": "aarch64-unknown-linux-gnu",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-22.04-arm"
+      }
+    ]
+  },
+  "source_commit": "d3c12144ffe6041057557cd5df11448e2c804407",
+  "source_commits": {
+    "server": "d3c12144ffe6041057557cd5df11448e2c804407"
+  },
+  "versions": {
+    "server": "0.1.0"
+  },
+  "releases": {
+    "server": "server-v0.1.0"
+  },
+  "assets": [
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-gnu",
+      "product": "server",
+      "version": "0.1.0",
+      "format": "tar.gz",
+      "name": "hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz",
+      "size": 6765947,
+      "sha256": "78768b3ba19c335caeb43f01fdb064395d20bf624b660e597ffbeaa213337038",
+      "tag": "server-v0.1.0",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "product": "server",
+      "version": "0.1.0",
+      "format": "tar.gz",
+      "name": "hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 7119499,
+      "sha256": "562012f7801f26637289e27913870486893cf5b46f0c73495d9ec2f31a94774c",
+      "tag": "server-v0.1.0",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz"
+    }
+  ]
+}

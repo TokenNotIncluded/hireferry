@@ -5,27 +5,16 @@
 
 [安装与发布说明](desktop.md) · [CLI 使用指南](cli.md) · [所有 Releases](https://github.com/TokenNotIncluded/hireferry/releases)
 
-**当前展示 CI 配置的构建目标，尚未记录一次完整桌面 Release。** 这些条目不是实机验证记录；完整构建、校验并发布后，工作流会替换为实际下载链接、版本和包大小。
+下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。
 
+**尚未收录已发布的桌面安装包。** 桌面构建目标见 `release/targets.json`。
+
+- **服务端 0.1.0**：[Release](https://github.com/TokenNotIncluded/hireferry/releases/tag/server-v0.1.0) · [校验文件](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/SHA256SUMS)
 
 | 组件 | 系统 | 架构 | 软件包 | 下载体积 |
 | --- | --- | --- | --- | --- |
-| 桌面版 | Linux | x64 | .deb、.rpm、.AppImage | 发布后生成 |
-| 桌面版 | Linux | ARM64 | .deb、.rpm、.AppImage | 发布后生成 |
-| 桌面版 | macOS | x64 | .dmg、.app.tar.gz | 发布后生成 |
-| 桌面版 | macOS | ARM64 | .dmg、.app.tar.gz | 发布后生成 |
-| 桌面版 | Windows | x64 | NSIS .exe、.msi | 发布后生成 |
-| 桌面版 | Windows | ARM64 | NSIS .exe | 发布后生成 |
-| 桌面版 | Linux | x64 | .flatpak | 发布后生成 |
-| 桌面版 | Linux | ARM64 | .flatpak | 发布后生成 |
-| hfy CLI | Linux | x64 | .tar.gz | 发布后生成 |
-| hfy CLI | Linux | ARM64 | .tar.gz | 发布后生成 |
-| hfy CLI | macOS | x64 | .tar.gz | 发布后生成 |
-| hfy CLI | macOS | ARM64 | .tar.gz | 发布后生成 |
-| hfy CLI | Windows | x64 | .zip | 发布后生成 |
-| hfy CLI | Windows | ARM64 | .zip | 发布后生成 |
-| 服务端 | Linux | x64 | .tar.gz | 发布后生成 |
-| 服务端 | Linux | ARM64 | .tar.gz | 发布后生成 |
+| 服务端 | Linux | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz) | 6.45 MiB |
+| 服务端 | Linux | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz) | 6.79 MiB |
 
 ## Arch Linux / AUR
 
