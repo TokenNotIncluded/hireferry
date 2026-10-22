@@ -63,6 +63,7 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
   let generation = 0, requestVersion = 0, changeVersion = 0, snapshot = null, cleanup = null, requestController = null, host = null;
   let view = emptyGraphView(), viewIdentity = '', groupOrder = {}, note = '', noteError = false, mountActions = null;
   let remote = null, remoteTimer = null, remoteController = null, syncing = false, pendingCommands = [], patchTimer = null;
+  let localVersion = 0, localPending = 0, renderedRemote = null, initialPublish = null;
   const clientId = globalThis.crypto?.randomUUID?.() || `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const cursors = { left: [null], right: [null], neighbors: [null] }, pageIndices = { left: 0, right: 0, neighbors: 0 };
   const owner = () => `${state.admin}:${state.owner}:${state.staff?.id || ''}:${state.user?.id || ''}:${state.csrf || ''}`;
@@ -77,7 +78,6 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
   const isCurrent = (version, identity) => version === generation && identity === owner();
   const resetCursors = () => { for (const key of Object.keys(cursors)) { cursors[key] = [null]; pageIndices[key] = 0; } };
   const query = (body, signal) => api('/api/admin/relations/query', { method: 'POST', body, signal, fresh: true });
-  const queryBody = (mode, extra = {}) => ({ mode, filters: view.filters, grouping: view.grouping, ...extra });
 
   function filters(kind) {
     const people = kind === 'people';
@@ -87,7 +87,7 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
   function groupName(side, id) { return snapshot?.overview?.groups?.[side]?.find(g => g.id === id)?.label || id; }
   function toolbar() {
     const groupScoped = (view.filters.left_group_ids?.length || view.filters.right_group_ids?.length || 0) > 0;
-    return `<header class="pj-board-bar"><div class="pj-modes" role="group" aria-label="${txt('查看方式', 'View mode')}">${[['overview', txt('分组总览', 'Overview')], ['focus', txt('局部关系', 'Focus')], ['matrix', txt('关系矩阵', 'Matrix')], ['list', txt('用户与岗位', 'Directory')]].map(([mode, label]) => `<button type="button" data-pj-mode="${mode}" aria-pressed="${view.mode === mode}">${label}</button>`).join('')}</div><div class="pj-board-actions">${action('sort', txt('自动整理', 'Arrange'))}${action('retry', txt('刷新', 'Refresh'))}${action('lines', txt(view.edge_display === 'hidden' ? '显示连线' : '隐藏连线', view.edge_display === 'hidden' ? 'Show lines' : 'Hide lines'), `aria-label="${txt('连线图层', 'Edge layer')}" aria-pressed="${view.edge_display !== 'hidden'}"`)}${action('restore', txt('恢复隐藏', 'Restore hidden') + (hiddenCount() ? ` (${hiddenCount()})` : ''), hiddenCount() ? '' : 'disabled')}${action('fullscreen', txt('全屏', 'Fullscreen'))}${view.presentation === 'immersive' ? action('exit-immersive', txt('退出展开', 'Exit expanded view')) : ''}</div></header><div class="pj-data-bar"><span class="pj-totals">${txt('用户', 'People')} <strong>${n(snapshot.overview.summary.users)}</strong><span>×</span>${txt('岗位', 'Roles')} <strong>${n(snapshot.overview.summary.jobs)}</strong><span>·</span><strong>${n(snapshot.overview.summary.edges)}</strong> ${txt('条关系', 'relations')}</span><div class="pj-statuses" role="group" aria-label="${txt('匹配阶段筛选', 'Match stage filter')}">${action('stage', txt('全部', 'All'), `data-stage="" aria-pressed="${!view.filters.match_status}"`)}${STAGES.map(s => action('stage', `<i class="pj-swatch ${s}" aria-hidden="true"></i>${esc(matchText(s))}`, `data-stage="${s}" aria-pressed="${view.filters.match_status === s}"`)).join('')}</div></div><div class="pj-filter-row">${filters('people')}${filters('jobs')}</div><div class="pj-grouping"><label>${txt('用户分组', 'People groups')} <select class="input" data-pj-grouping="left">${[['role', txt('身份', 'Role')], ['industry', txt('目标行业', 'Target industry')], ['roles', txt('意向岗位', 'Target roles')]].map(([v, label]) => option(v, label, view.grouping.left)).join('')}</select></label><label>${txt('岗位分组', 'Role groups')} <select class="input" data-pj-grouping="right">${[['status', txt('状态', 'Status')], ['owner', txt('招聘方', 'Employer')]].map(([v, label]) => option(v, label, view.grouping.right)).join('')}</select></label><label>${view.mode === 'overview' || view.mode === 'matrix' ? txt('分组排序', 'Group order') : txt('本页排序', 'Page order')} <select class="input" data-pj-ordering>${[['stable', txt('保持顺序', 'Stable')], ['name', txt('名称', 'Name')], ['degree', txt('关系数量', 'Relation count')]].map(([v, label]) => option(v, label, view.ordering)).join('')}</select></label>${groupScoped ? `<span class="pj-scope-chip">${esc([...(view.filters.left_group_ids || []).map(id => groupName('left', id)), ...(view.filters.right_group_ids || []).map(id => groupName('right', id))].join(' × '))}</span>${action('clear-groups', txt('清除分组', 'Clear group scope'))}` : ''}</div>`;
+    return `<header class="pj-board-bar"><div class="pj-modes" role="group" aria-label="${txt('查看方式', 'View mode')}">${[['overview', txt('分组总览', 'Overview')], ['focus', txt('局部关系', 'Focus')], ['matrix', txt('关系矩阵', 'Matrix')], ['list', txt('用户与岗位', 'Directory')]].map(([mode, label]) => `<button type="button" data-pj-mode="${mode}" aria-pressed="${view.mode === mode}">${label}</button>`).join('')}</div><div class="pj-board-actions">${action('sort', txt('自动整理', 'Arrange'))}${action('retry', txt('刷新', 'Refresh'))}${action('lines', txt(view.edge_display === 'hidden' ? '显示连线' : '隐藏连线', view.edge_display === 'hidden' ? 'Show lines' : 'Hide lines'), `aria-label="${txt('连线图层', 'Edge layer')}" aria-pressed="${view.edge_display !== 'hidden'}"`)}${action('restore', txt('恢复隐藏', 'Restore hidden') + (hiddenCount() ? ` (${hiddenCount()})` : ''), hiddenCount() ? '' : 'disabled')}${action('fullscreen', host && globalThis.document?.fullscreenElement === host ? txt('退出全屏', 'Exit fullscreen') : txt('全屏', 'Fullscreen'), `aria-pressed="${!!host && globalThis.document?.fullscreenElement === host}"`)}${view.presentation === 'immersive' ? action('exit-immersive', txt('退出展开', 'Exit expanded view')) : ''}</div></header><div class="pj-data-bar"><span class="pj-totals">${txt('用户', 'People')} <strong>${n(snapshot.overview.summary.users)}</strong><span>×</span>${txt('岗位', 'Roles')} <strong>${n(snapshot.overview.summary.jobs)}</strong><span>·</span><strong>${n(snapshot.overview.summary.edges)}</strong> ${txt('条关系', 'relations')}</span><div class="pj-statuses" role="group" aria-label="${txt('匹配阶段筛选', 'Match stage filter')}">${action('stage', txt('全部', 'All'), `data-stage="" aria-pressed="${!view.filters.match_status}"`)}${STAGES.map(s => action('stage', `<i class="pj-swatch ${s}" aria-hidden="true"></i>${esc(matchText(s))}`, `data-stage="${s}" aria-pressed="${view.filters.match_status === s}"`)).join('')}</div></div><div class="pj-filter-row">${filters('people')}${filters('jobs')}</div><div class="pj-grouping"><label>${txt('用户分组', 'People groups')} <select class="input" data-pj-grouping="left">${[['role', txt('身份', 'Role')], ['industry', txt('目标行业', 'Target industry')], ['roles', txt('意向岗位', 'Target roles')]].map(([v, label]) => option(v, label, view.grouping.left)).join('')}</select></label><label>${txt('岗位分组', 'Role groups')} <select class="input" data-pj-grouping="right">${[['status', txt('状态', 'Status')], ['owner', txt('招聘方', 'Employer')]].map(([v, label]) => option(v, label, view.grouping.right)).join('')}</select></label><label>${view.mode === 'overview' || view.mode === 'matrix' ? txt('分组排序', 'Group order') : txt('本页排序', 'Page order')} <select class="input" data-pj-ordering>${[['stable', txt('保持顺序', 'Stable')], ['name', txt('名称', 'Name')], ['degree', txt('关系数量', 'Relation count')]].map(([v, label]) => option(v, label, view.ordering)).join('')}</select></label>${groupScoped ? `<span class="pj-scope-chip">${esc([...(view.filters.left_group_ids || []).map(id => groupName('left', id)), ...(view.filters.right_group_ids || []).map(id => groupName('right', id))].join(' × '))}</span>${action('clear-groups', txt('清除分组', 'Clear group scope'))}` : ''}</div>`;
   }
 
   function row(node, side, index, group = false) {
@@ -141,8 +141,9 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
     return shell(`<div class="people-jobs-workspace" data-graph-page="${version}" data-pj-workbench><header class="pj-page-header"><div><span class="pj-eyebrow">${txt('关系工作台', 'RELATION WORKSPACE')}</span><h1>${txt('用户与岗位', 'People & roles')}</h1><p>${txt('先看分布，再聚焦具体关系。', 'See the distribution, then focus on individual relations.')}</p></div><a class="button secondary small" href="${esc(viewUrl('search'))}" data-nav>${icon('plus')}${txt('建立匹配', 'Make introduction')}</a></header><nav class="wb-tabs pj-view-tabs" aria-label="${txt('匹配工作台视图', 'Matching workspace views')}"><a href="${esc(peopleJobsUrl(location.search))}" data-nav aria-current="page">${icon('link')}${txt('关系视图', 'Connections')}</a><a href="${esc(viewUrl('search'))}" data-nav>${icon('search')}${txt('筛选候选人', 'Find candidates')}</a><a href="${esc(viewUrl('followups'))}" data-nav>${icon('board')}${txt('匹配跟进', 'Follow-ups')}</a></nav><section class="pj-board" data-pj-board>${board()}</section><div class="pj-scope-note ${noteError ? 'pj-load-error' : ''}" data-pj-note role="status" aria-live="polite">${esc(note)}</div><div class="pj-ai-state" data-pj-ai-status role="status"></div></div>`, 'matches', true);
   }
 
-  async function fetchData({ full = true } = {}) {
-    const started = ++requestVersion, version = generation, identity = owner();
+  async function fetchData({ full = true, queryView = view } = {}) {
+    const started = ++requestVersion, version = generation, identity = owner(), changed = changeVersion;
+    const requested = structuredClone(queryView), queryBody = (mode, extra = {}) => ({ mode, filters: requested.filters, grouping: requested.grouping, ...extra });
     requestController?.abort();requestController = new AbortController();const signal = requestController.signal;
     if (host) host.setAttribute('aria-busy', 'true');
     try {
@@ -153,11 +154,11 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
         directories = { left, right };
       }
       let neighbors = null;
-      if (view.mode === 'focus' && view.focus) neighbors = await query(queryBody('neighbors', { focus: view.focus, limit: PAGE_LIMIT, data_rev: overview.data_rev, cursor: cursors.neighbors[pageIndices.neighbors] || undefined }), signal);
-      if (!isCurrent(version, identity) || started !== requestVersion) return false;
-      snapshot = { version, identity, overview, directories, neighbors };if (view.ordering === 'stable') groupOrder = graphGroupOrder(overview.groups, overview.bundles, groupOrder);noteError = false;note = '';return true;
+      if (requested.mode === 'focus' && requested.focus) neighbors = await query(queryBody('neighbors', { focus: requested.focus, limit: PAGE_LIMIT, data_rev: overview.data_rev, cursor: cursors.neighbors[pageIndices.neighbors] || undefined }), signal);
+      if (!isCurrent(version, identity) || started !== requestVersion || changed !== changeVersion) return false;
+      snapshot = { version, identity, overview, directories, neighbors, neighborFocus: neighbors ? requested.focus : null };if (requested.ordering === 'stable') groupOrder = graphGroupOrder(overview.groups, overview.bundles, groupOrder);noteError = false;note = '';return true;
     } catch (error) {
-      if (!isCurrent(version, identity) || started !== requestVersion || error.name === 'AbortError') return false;
+      if (!isCurrent(version, identity) || started !== requestVersion || changed !== changeVersion || error.name === 'AbortError') return false;
       if ([401, 403].includes(error.status)) throw error;
       noteError = true;note = error.status === 409 ? txt('数据已变化，请刷新关系集合；不会拼接不同版本的分页。', 'Data changed. Refresh the collection; pages from different revisions are not combined.') : txt('关系数据读取失败，请重试。', 'Could not load relation data. Try again.');return false;
     } finally { if (started === requestVersion) host?.removeAttribute('aria-busy'); }
@@ -185,13 +186,18 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
     host.querySelector('[data-pj-note]').classList.toggle('pj-load-error', noteError);mountActions?.observe();mountActions?.schedule();
   }
   async function change(commands, { publish = true } = {}) {
-    const changed = ++changeVersion, previous = view;view = applyGraphCommands(view, commands);
-    const full = commands.some(c => ['set_filters', 'set_grouping'].includes(c.op)), reload = full || commands.some(c => c.op === 'set_focus' || c.op === 'set_mode' && c.mode === 'focus');
-    if (full) { resetCursors();groupOrder = {}; }
-    if (commands.some(c => c.op === 'set_focus')) { cursors.neighbors = [null];pageIndices.neighbors = 0; }
-    if (reload) { const ok = await fetchData({ full });if (changed !== changeVersion) return false;if (!ok) { view = previous;paint();return false; } }
-    if (commands.some(c => c.op === 'set_ordering' && c.ordering === 'stable') && snapshot?.overview) groupOrder = graphGroupOrder(snapshot.overview.groups, snapshot.overview.bundles, groupOrder);
-    syncUrl();paint(full || commands.some(c => c.op === 'set_focus'));if (publish) queueRemote(commands);return true;
+    const changed = ++changeVersion, previous = view, version = generation, identity = owner();localVersion++;localPending++;renderedRemote = null;
+    try {
+      view = applyGraphCommands(view, commands);
+      const full = commands.some(c => ['set_filters', 'set_grouping'].includes(c.op)), reload = full || commands.some(c => c.op === 'set_focus' || c.op === 'set_mode' && c.mode === 'focus');
+      if (full) resetCursors();
+      if (commands.some(c => c.op === 'set_focus')) { cursors.neighbors = [null];pageIndices.neighbors = 0; }
+      if (reload) { const ok = await fetchData({ full });if (changed !== changeVersion || !isCurrent(version, identity)) return false;if (!ok) { view = previous;paint();return false; } }
+      if (commands.some(c => c.op === 'set_ordering' && c.ordering === 'stable') && snapshot?.overview) groupOrder = graphGroupOrder(snapshot.overview.groups, snapshot.overview.bundles, groupOrder);
+      syncUrl();paint(full || commands.some(c => c.op === 'set_focus'));if (publish) queueRemote(commands);return true;
+    } finally {
+      localPending--;if (!localPending && remote && (pendingCommands.length || initialPublish)) { clearTimeout(patchTimer);patchTimer = setTimeout(flushRemote, 180); }
+    }
   }
   async function advancePage(key, direction) {
     const result = key === 'neighbors' ? snapshot.neighbors : snapshot.directories[key], previous = pageIndices[key];
@@ -288,9 +294,14 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
       index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
       event.preventDefault();const scroll = host.querySelector(`[data-pj-scroll="${side}"]`);scroll.scrollTop = Math.max(0, index * ROW_HEIGHT - scroll.clientHeight / 2);windowRows(side);host.querySelector(`[data-pj-window="${side}"] [data-pj-row="${index}"] button`)?.focus();schedule();
     }
-    host.addEventListener('click', onClick);host.addEventListener('change', onChange);host.addEventListener('keydown', onKey);host.addEventListener('scroll', schedule, true);window.addEventListener('resize', schedule);document.addEventListener('fullscreenchange', schedule);observe();schedule();void connectRemote();
+    function onFullscreen() {
+      if (!stillHere()) return;const active = document.fullscreenElement === host, button = host.querySelector('[data-pj-action="fullscreen"]');
+      if (button) { button.textContent = active ? txt('退出全屏', 'Exit fullscreen') : txt('全屏', 'Fullscreen');button.setAttribute('aria-pressed', String(active)); }
+      schedule();void acknowledge();
+    }
+    host.addEventListener('click', onClick);host.addEventListener('change', onChange);host.addEventListener('keydown', onKey);host.addEventListener('scroll', schedule, true);window.addEventListener('resize', schedule);document.addEventListener('fullscreenchange', onFullscreen);observe();schedule();void connectRemote();
     cleanup = () => {
-      alive = false;requestController?.abort();remoteController?.abort();clearTimeout(remoteTimer);clearTimeout(patchTimer);if (frame !== null) cancelAnimationFrame(frame);observer?.disconnect();window.removeEventListener('resize', schedule);document.removeEventListener('fullscreenchange', schedule);
+      alive = false;requestController?.abort();remoteController?.abort();clearTimeout(remoteTimer);clearTimeout(patchTimer);if (frame !== null) cancelAnimationFrame(frame);observer?.disconnect();window.removeEventListener('resize', schedule);document.removeEventListener('fullscreenchange', onFullscreen);
       mountedHost.removeEventListener('click', onClick);mountedHost.removeEventListener('change', onChange);mountedHost.removeEventListener('keydown', onKey);mountedHost.removeEventListener('scroll', schedule, true);if (host === mountedHost) { host = null;mountActions = null; }
     };
   }
@@ -298,82 +309,106 @@ export function createPeopleJobsUI({ state, api, t, esc, icon, shell, matchText,
   function remoteState(payload) { return payload?.state || payload?.view?.state; }
   function remoteInfo(payload) { return payload?.view_id ? payload : payload?.view; }
   function setRemoteNotice(message) { if (host) host.querySelector('[data-pj-ai-status]').textContent = message; }
+  const canReceiveRemote = expected => !!host && expected === localVersion && !localPending && !pendingCommands.length && !initialPublish;
+  function stateCommands(desired, saved = emptyGraphView()) {
+    const commands = [{ op: 'set_filters', filters: desired.filters }, { op: 'set_grouping', grouping: desired.grouping }, { op: 'set_mode', mode: desired.mode }, { op: 'set_focus', focus: desired.focus }, { op: 'set_ordering', ordering: desired.ordering }, { op: 'set_edge_display', edge_display: desired.edge_display }, { op: 'set_presentation', presentation: desired.presentation }];
+    for (const side of ['left', 'right', 'edges']) for (const visible of [true, false]) {
+      const from = visible ? saved.hidden?.[side] || [] : desired.hidden[side], into = new Set(visible ? desired.hidden[side] : saved.hidden?.[side] || []), ids = from.filter(id => !into.has(id));
+      for (let i = 0; i < ids.length; i += 100) commands.push({ op: 'set_visibility', side, ids: ids.slice(i, i + 100), visible });
+    }
+    if (desired.fullscreen_requested) commands.push({ op: 'request_fullscreen' });return commands;
+  }
   async function acknowledge() {
-    if (!remote || !host || snapshot?.identity !== owner()) return;
-    const expectedHost = host, revision = remote.view_rev, viewId = remote.view_id;
+    if (!remote || !host || !renderedRemote || localPending || pendingCommands.length || initialPublish || snapshot?.identity !== owner()) return;
+    const expectedHost = host, revision = remote.view_rev, viewId = remote.view_id, local = localVersion, key = graphStateKey(view);
+    if (renderedRemote.view_id !== viewId || renderedRemote.view_rev !== revision || renderedRemote.key !== key) return;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    if (host !== expectedHost || remote?.view_rev !== revision || remote?.view_id !== viewId) return;
+    if (host !== expectedHost || remote?.view_rev !== revision || remote?.view_id !== viewId || local !== localVersion || graphStateKey(view) !== key || localPending || pendingCommands.length || initialPublish) return;
     const fullscreen = document.fullscreenElement === host ? 'active' : view.fullscreen_requested ? 'requires_user_gesture' : 'windowed';
     try { await api(`/api/admin/relations/views/${encodeURIComponent(viewId)}/ack`, { method: 'POST', body: { view_rev: revision, client_id: clientId, fullscreen }, signal: remoteController?.signal }); }
     catch (error) { if (![401, 403, 409].includes(error.status) && error.name !== 'AbortError') setRemoteNotice(txt('视图已更新，AI回执待重试', 'View updated; AI acknowledgement will retry')); }
   }
-  async function receiveRemote(payload) {
-    const info = remoteInfo(payload), next = remoteState(payload);if (!info || !next || !host) return;
-    const same = graphStateKey(view) === graphStateKey(next), previous = view;
+  async function receiveRemote(payload, expectedLocalVersion = localVersion) {
+    const info = remoteInfo(payload), next = remoteState(payload);if (!info || !next || !canReceiveRemote(expectedLocalVersion)) return false;
+    const same = graphStateKey(view) === graphStateKey(next);
     const full = graphStateKey(view.filters) !== graphStateKey(next.filters) || graphStateKey(view.grouping) !== graphStateKey(next.grouping) || info.data_rev !== snapshot?.overview?.data_rev;
-    const focusChanged = graphStateKey(view.focus) !== graphStateKey(next.focus), needsNeighbors = next.mode === 'focus' && next.focus && (focusChanged || !snapshot?.neighbors);
-    remote = info;view = { ...emptyGraphView(), ...next, hidden: { left: [], right: [], edges: [], ...next.hidden } };
+    const focusChanged = graphStateKey(view.focus) !== graphStateKey(next.focus), needsNeighbors = next.mode === 'focus' && next.focus && (graphStateKey(snapshot?.neighborFocus) !== graphStateKey(next.focus) || !snapshot?.neighbors);
+    const desired = { ...emptyGraphView(), ...next, hidden: { left: [], right: [], edges: [], ...next.hidden } };
+    remote = info;renderedRemote = null;
     if (full) resetCursors();else if (focusChanged) { cursors.neighbors = [null];pageIndices.neighbors = 0; }
-    if (full || needsNeighbors) { const changed = ++changeVersion, ok = await fetchData({ full });if (changed !== changeVersion) return;if (!ok) { view = previous;paint();return; } }
+    if (full || needsNeighbors) { const changed = ++changeVersion, ok = await fetchData({ full, queryView: desired });if (changed !== changeVersion || !canReceiveRemote(expectedLocalVersion)) return false;if (!ok) { paint();return false; } }
+    if (!canReceiveRemote(expectedLocalVersion)) return false;view = desired;
     if (view.ordering === 'stable' && snapshot?.overview) groupOrder = graphGroupOrder(snapshot.overview.groups, snapshot.overview.bundles, groupOrder);
     if (!same || full || needsNeighbors) { syncUrl();paint(full || focusChanged); }
+    renderedRemote = { view_id: info.view_id, view_rev: info.view_rev, key: graphStateKey(view) };
     setRemoteNotice(view.fullscreen_requested && document.fullscreenElement !== host ? txt('AI请求了全屏；点击“全屏”完成浏览器授权。', 'AI requested fullscreen. Click Fullscreen to grant the browser gesture.') : txt(`AI视图已连接 · 版本 ${info.view_rev}`, `AI view connected · revision ${info.view_rev}`));
-    await acknowledge();
+    await acknowledge();return true;
   }
   async function connectRemote() {
-    const identity = owner(), version = generation, localRevision = changeVersion;remoteController?.abort();remoteController = new AbortController();
+    const identity = owner(), version = generation, localRevision = localVersion;remoteController?.abort();remoteController = new AbortController();
     try {
       const payload = await api('/api/admin/relations/views', { method: 'POST', body: { mode: 'active', response: 'state' }, signal: remoteController.signal });
       if (!isCurrent(version, identity) || !host) return;
-      if (new URLSearchParams(location.search).size > 1 || localRevision !== changeVersion) {
+      if (new URLSearchParams(location.search).size > 1 || localRevision !== localVersion || localPending || pendingCommands.length) {
         remote = remoteInfo(payload);
         const desired = structuredClone(view), saved = remoteState(payload);
-        if (saved && localRevision === changeVersion) {
+        if (saved && localRevision === localVersion && !localPending && !pendingCommands.length) {
           view = { ...emptyGraphView(), ...saved, filters: desired.filters, grouping: desired.grouping, mode: desired.mode, focus: desired.focus };
           paint();
         }
-        pendingCommands.push({ op: 'set_filters', filters: view.filters }, { op: 'set_grouping', grouping: view.grouping }, { op: 'set_mode', mode: view.mode }, { op: 'set_focus', focus: view.focus });
-        if (localRevision !== changeVersion) pendingCommands.push({ op: 'set_ordering', ordering: view.ordering }, { op: 'set_edge_display', edge_display: view.edge_display }, { op: 'set_presentation', presentation: view.presentation });
+        initialPublish = saved || emptyGraphView();renderedRemote = null;
         await flushRemote();
-      } else await receiveRemote(payload);
+      } else await receiveRemote(payload, localRevision);
     } catch (error) { if (error.name !== 'AbortError' && ![401, 403].includes(error.status)) setRemoteNotice(txt('AI视图连接暂不可用；本地查看不受影响。', 'AI view connection unavailable; local browsing remains available.')); }
     finally { if (isCurrent(version, identity) && host) remoteTimer = setTimeout(pollRemote, document.hidden ? 15000 : 3000); }
   }
   async function pollRemote() {
     if (!remote || !host || remoteController?.signal.aborted) return;
     try {
-      if (!syncing && !pendingCommands.length) {
-        const payload = await api(`/api/admin/relations/views/active?view_id=${encodeURIComponent(remote.view_id)}&after_rev=${remote.view_rev}`, { fresh: true, signal: remoteController.signal });
-        if (!payload.unchanged) await receiveRemote(payload);
-        else if (payload.data_rev !== snapshot?.overview?.data_rev) { resetCursors();if (await fetchData()) { paint();await acknowledge(); } else paint(); }
+      if (!syncing && !pendingCommands.length && !localPending && !initialPublish) {
+        const local = localVersion, after = renderedRemote?.view_id === remote.view_id && renderedRemote?.view_rev === remote.view_rev ? `&after_rev=${remote.view_rev}` : '';
+        const payload = await api(`/api/admin/relations/views/active?view_id=${encodeURIComponent(remote.view_id)}${after}`, { fresh: true, signal: remoteController.signal });
+        if (canReceiveRemote(local)) {
+          if (!payload.unchanged) await receiveRemote(payload, local);
+          else if (payload.data_rev !== snapshot?.overview?.data_rev) { resetCursors();if (await fetchData()) { paint();await acknowledge(); } else paint(); }
+        }
       }
     } catch (error) { if ([401, 403].includes(error.status) || error.name === 'AbortError') return; }
     if (host) remoteTimer = setTimeout(pollRemote, document.hidden ? 15000 : 3000);
   }
   function queueRemote(commands) {
-    if (!remote || !commands.length) return;pendingCommands.push(...structuredClone(commands));clearTimeout(patchTimer);patchTimer = setTimeout(flushRemote, 180);
+    if (!host || !commands.length) return;pendingCommands.push(...structuredClone(commands));clearTimeout(patchTimer);if (remote) patchTimer = setTimeout(flushRemote, 180);
   }
   async function flushRemote() {
-    if (!remote || !host || syncing || !pendingCommands.length) return;
-    syncing = true;const commands = pendingCommands.splice(0, 20), id = globalThis.crypto?.randomUUID?.() || `${clientId}-${Date.now()}`;
+    if (!remote || !host || syncing || localPending) return;
+    if (initialPublish) { pendingCommands = stateCommands(view, initialPublish);initialPublish = null; }
+    if (!pendingCommands.length) return;
+    syncing = true;const commands = pendingCommands.splice(0, 20), id = globalThis.crypto?.randomUUID?.() || `${clientId}-${Date.now()}`, local = localVersion, version = generation, identity = owner();
     try {
       const payload = await api(`/api/admin/relations/views/${encodeURIComponent(remote.view_id)}`, { method: 'PATCH', body: { if_view_rev: remote.view_rev, operation_id: id, commands }, signal: remoteController.signal });
+      if (!isCurrent(version, identity) || !host) return;
       const info = remoteInfo(payload);if (info) remote = info;
-      if (!pendingCommands.length) {
+      if (canReceiveRemote(local)) {
         const canonical = await api(`/api/admin/relations/views/${encodeURIComponent(remote.view_id)}`, { fresh: true, signal: remoteController.signal });
-        await receiveRemote(canonical);
+        await receiveRemote(canonical, local);
       }
     } catch (error) {
-      if (error.status === 409) { pendingCommands = [];await receiveRemote(await api(`/api/admin/relations/views/${encodeURIComponent(remote.view_id)}`, { fresh: true, signal: remoteController.signal }));setRemoteNotice(txt('AI与本地同时更新了视图，已同步最新版本，请重试刚才的操作。', 'The view changed concurrently. Latest state restored; retry the last action.')); }
+      if (!isCurrent(version, identity) || !host) return;
+      if (error.status === 409) {
+        const canonical = await api(`/api/admin/relations/views/${encodeURIComponent(remote.view_id)}`, { fresh: true, signal: remoteController.signal });
+        if (canReceiveRemote(local)) { await receiveRemote(canonical, local);setRemoteNotice(txt('AI与本地同时更新了视图，已同步最新版本，请重试刚才的操作。', 'The view changed concurrently. Latest state restored; retry the last action.')); }
+        else { remote = remoteInfo(canonical) || remote;initialPublish = remoteState(canonical) || emptyGraphView(); }
+      }
       else if (error.name !== 'AbortError' && ![401, 403].includes(error.status)) setRemoteNotice(txt('AI同步失败；本地更改尚未同步。', 'AI sync failed; local changes have not been synchronized.'));
-    } finally { syncing = false;if (pendingCommands.length && host) patchTimer = setTimeout(flushRemote, 180); }
+    } finally { syncing = false;if ((pendingCommands.length || initialPublish) && host) patchTimer = setTimeout(flushRemote, 180); }
   }
   function submit(form, data) {
     const mapping = form.dataset.list === 'people' ? [['people_q', 'user_q'], ['people_role', 'role'], ['people_status', 'account_status']] : form.dataset.list === 'jobs' ? [['job_q', 'job_q'], ['job_status', 'job_status']] : [['graph_status', 'match_status']];
     const filters = { ...view.filters };for (const [name, key] of mapping) { const value = String(data.get(name) || '').trim();if (value) filters[key] = value;else delete filters[key]; }
+    if (form.dataset.list !== 'relations') { delete filters.left_group_ids;delete filters.right_group_ids; }
     if (host) return change([{ op: 'set_filters', filters }, ...(form.dataset.list === 'relations' ? [] : [{ op: 'set_focus', focus: null }])]);
-    const changes = Object.fromEntries(mapping.map(([name]) => [name, String(data.get(name) || '').trim()]));changes[form.dataset.list === 'people' ? 'people_page' : 'jobs_page'] = null;return go(peopleJobsUrl(location.search, changes));
+    const changes = Object.fromEntries(mapping.map(([name]) => [name, String(data.get(name) || '').trim()]));changes[form.dataset.list === 'people' ? 'people_page' : 'jobs_page'] = null;if (form.dataset.list !== 'relations') Object.assign(changes, { left_group: null, right_group: null, focus_side: null, focus_id: null });return go(peopleJobsUrl(location.search, changes));
   }
-  function destroy() { generation++;requestVersion++;cleanup?.();cleanup = null;requestController?.abort();remoteController?.abort();clearTimeout(remoteTimer);clearTimeout(patchTimer);pendingCommands = [];snapshot = null;host = null; }
+  function destroy() { generation++;requestVersion++;cleanup?.();cleanup = null;requestController?.abort();remoteController?.abort();clearTimeout(remoteTimer);clearTimeout(patchTimer);pendingCommands = [];initialPublish = null;renderedRemote = null;snapshot = null;host = null; }
   return { page, mount, destroy, submit, getViewState: () => structuredClone(view), applyViewCommands: commands => change(commands) };
 }
