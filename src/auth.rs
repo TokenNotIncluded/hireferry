@@ -26,6 +26,9 @@ use subtle::ConstantTimeEq;
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
+#[path = "app_login.rs"]
+pub mod app_login;
+
 const SESSION_COOKIE: &str = "hf_session";
 const EMAIL_COOKIE: &str = "hf_email_challenge";
 const GOOGLE_COOKIE: &str = "hf_google_challenge";
@@ -118,6 +121,7 @@ pub struct Session {
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .merge(app_login::routes())
         .route("/api/session", get(get_session))
         .route("/api/auth/email/start", post(email_start))
         .route("/api/auth/email/verify", post(email_verify))
@@ -201,6 +205,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             DELETE FROM auth_challenges WHERE NEW.banned=1 AND kind='email' AND subject=NEW.email COLLATE NOCASE;
         END;",
     )?;
+    app_login::migrate(db)?;
     Ok(())
 }
 
@@ -723,6 +728,8 @@ struct GooglePending {
     verifier: String,
     #[serde(default)]
     access_generation: i64,
+    #[serde(default)]
+    app_request: Option<String>,
 }
 
 fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> AppResult<()> {
@@ -739,7 +746,15 @@ fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> A
     Ok(())
 }
 
-async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
+#[derive(Default, Deserialize)]
+struct GoogleStart {
+    app_request: Option<String>,
+}
+
+async fn google_start(
+    State(state): State<AppState>,
+    Query(input): Query<GoogleStart>,
+) -> AppResult<Response> {
     if !state.cfg.google.enabled {
         return Err(AppError::unavailable("Google sign-in is not configured"));
     }
@@ -752,6 +767,9 @@ async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
             .lock()
             .map_err(|_| AppError::internal("Database lock failed"))?;
         cleanup(&db)?;
+        if let Some(request) = &input.app_request {
+            app_login::pending_request(&db, request)?;
+        }
         rate_limit(&db, "google-start", 300, 300)?;
         let access_generation: i64 = db.query_row(
             "SELECT generation FROM account_access_clock WHERE id=1",
@@ -759,7 +777,7 @@ async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
             |row| row.get(0),
         )?;
         db.execute("INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'google','',?2,?3)",
-            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation})?,now()+CHALLENGE_TTL])?;
+            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,app_request:input.app_request})?,now()+CHALLENGE_TTL])?;
     }
     let callback = format!(
         "{}/auth/google/callback",
@@ -829,14 +847,25 @@ async fn google_callback(
             .map_err(|_| AppError::internal("Database lock failed"))?;
         consume_challenge(&db, &id, "google", None)?
     };
+    let pending: GooglePending = serde_json::from_str(&pending)?;
     if input.error.is_some() {
-        return Ok(Redirect::to("/login?error=google_cancelled").into_response());
+        let destination = pending
+            .app_request
+            .as_ref()
+            .map(|request| app_login::authorize_path(request))
+            .unwrap_or_else(|| "/login?error=google_cancelled".into());
+        return with_cookie(
+            Redirect::to(&destination).into_response(),
+            &state.cfg,
+            GOOGLE_COOKIE,
+            "",
+            0,
+        );
     }
     let code = input
         .code
         .filter(|c| !c.is_empty() && c.len() < 4096)
         .ok_or_else(|| AppError::unauthorized("Google sign-in was not completed"))?;
-    let pending: GooglePending = serde_json::from_str(&pending)?;
     let callback = format!(
         "{}/auth/google/callback",
         state.cfg.public_url.trim_end_matches('/')
@@ -930,8 +959,13 @@ async fn google_callback(
         tx.commit()?;
         raw
     };
+    let destination = pending
+        .app_request
+        .as_ref()
+        .map(|request| app_login::authorize_path(request))
+        .unwrap_or_else(|| "/app".into());
     let response = with_cookie(
-        Redirect::to("/app").into_response(),
+        Redirect::to(&destination).into_response(),
         &state.cfg,
         SESSION_COOKIE,
         &raw,

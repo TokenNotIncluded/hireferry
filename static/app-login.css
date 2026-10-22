@@ -1,0 +1,21 @@
+.app-login-content {max-width:620px;}
+.app-login-eyebrow {font:600 11px/1.8 var(--mono);letter-spacing:.1em;color:var(--accent);margin:0 0 14px;}
+.app-login-content .card {border:1px solid var(--line);box-shadow:0 12px 45px #00000004;}
+.app-login-content .code-confirm {background:var(--accent-soft);color:var(--on-accent-soft);padding:22px 24px;}
+.app-login-content .code-confirm strong {font-size:30px;}
+.app-login-content .code-confirm span {color:inherit;}
+.app-login-content input[type=email] {font:16px/1.5 var(--sans, sans-serif);letter-spacing:0;}
+.app-login-content .app-login-confirm {display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.8;cursor:pointer;}
+.app-login-content .app-login-confirm input {width:20px;height:20px;flex:none;margin:2px 0 0;padding:0;accent-color:var(--accent);}
+.app-login-content .actions {gap:12px;}
+.app-login-content .actions button,.app-login-content .actions a {min-height:44px;}
+.app-login-content #approve:disabled {cursor:not-allowed;}
+.app-login-footnote {font-size:11px;line-height:1.9;color:var(--muted);margin:20px 16px;}
+@media(max-width:480px) {
+  .app-login-content {width:calc(100% - 32px);margin-top:34px;padding-bottom:env(safe-area-inset-bottom);}
+  .app-login-content .card {padding:24px 20px;}
+  .app-login-content .code-confirm {padding:18px;}
+  .app-login-content dl {grid-template-columns:70px minmax(0,1fr);}
+  .app-login-content .actions {align-items:stretch;}
+  .app-login-content .actions .primary {flex:1;}
+}
