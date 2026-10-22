@@ -174,6 +174,10 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 14)?;
         tx.commit()?;
     }
+    // Additive graph indexes/revision and presentation state, like the workbench
+    // indexes above, do not change the authoritative business record format.
+    crate::relations::migrate(db)?;
+    crate::relation_views::migrate(db)?;
     Ok(())
 }
 pub fn audit(
