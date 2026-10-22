@@ -16,6 +16,33 @@ export function chatSendShortcut(event) {
   return event.key === 'Enter' && !!(event.ctrlKey || event.metaKey) && !event.shiftKey && !event.isComposing && event.keyCode !== 229;
 }
 
+// Event IDs order transport delivery; sequences order edits to one message.
+export function applyChatEvent(messages, event) {
+  if (!event || !Number.isSafeInteger(event.message_id) || event.message_id < 1) return { resync: true };
+  const previous = messages.find(message => message.id === event.message_id);
+  if (event.type === 'message.delta') {
+    if (!previous || !Number.isSafeInteger(event.sequence)) return { resync: true };
+    if (event.sequence <= (previous.sequence || 0)) return {};
+    if (previous.status !== 'streaming' || event.sequence !== (previous.sequence || 0) + 1 || typeof event.delta !== 'string') return { resync: true };
+    const body = (previous.body || '') + event.delta;
+    if ([...body].length > 10000) return { resync: true };
+    return { message: { ...previous, body, body_html: '', sequence: event.sequence } };
+  }
+  if (!['message.created', 'message.started', 'message.completed', 'message.cancelled'].includes(event.type)) return {};
+  const message = event.message;
+  if (!message || message.id !== event.message_id || message.conversation_id !== event.conversation_id || typeof message.body !== 'string') return { resync: true };
+  if (previous && (message.sequence || 0) < (previous.sequence || 0)) return {};
+  return { message };
+}
+
+export function chatActionDraft(detail) {
+  if (detail?.type !== 'draft' || typeof detail.text !== 'string' || !detail.text.trim() || detail.text.length > 4096) return null;
+  const fields = detail.formState && typeof detail.formState === 'object' && !Array.isArray(detail.formState) ? Object.entries(detail.formState).slice(0, 32) : [];
+  const values = fields.filter(([key, value]) => key.length <= 80 && !['__proto__', 'constructor', 'prototype'].includes(key) && (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)))
+    .map(([key, value]) => `${key}: ${String(value).slice(0, 1024)}`);
+  return detail.text.trim() + (values.length ? `\n\n${values.join('\n')}` : '');
+}
+
 const atChatBottom = scroll => !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 8;
 
 function chatPosition(scroll) {
@@ -82,6 +109,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   let chat = null;
   let chatCleanup = null;
   let chatOwner = '';
+  let rendererModule;
   let conversationFilter = 'all';
   let conversationSearch = '';
   const chatDrafts = new Map();
@@ -128,6 +156,8 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     syncChatOwner();
     saveChatDraft();
     chat?.controller?.abort();
+    chat?.stream?.close();
+    disposeChatRenderers(chat);
     chatCleanup?.(); chatCleanup = null;
     generation += 1;
     workbenchGeneration += 1;
@@ -231,7 +261,45 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const staffLabels = { '超级管理员': t('超级管理员', 'Super administrator'), '平台AI': t('平台 AI', 'Platform AI'), '员工': t('员工', 'Staff') };
     const staffName = admin && m.staff_name ? (Object.hasOwn(staffLabels, m.staff_name) ? staffLabels[m.staff_name] : m.staff_name) : t('聘渡团队', 'HireFerry team');
     const author = m.sender_kind === 'platform' ? staffName : m.sender_name || t('参与者', 'Participant');
-    return `<article class="chat-message ${own ? 'own' : ''} ${m.sender_kind === 'platform' ? 'from-platform' : ''}" data-message-id="${Number(m.id)}"><div class="message-meta"><strong>${esc(author)}</strong>${m.via_ai ? `<span class="ai-label">${icon('bot')} ${t('AI 代发', 'via AI')}</span>` : ''}</div><div class="message-body markdown">${m.body_html || esc(m.body).replace(/\n/g, '<br>')}</div><time class="message-time" title="${esc(humanTime(m.created_at))}">${esc(compactTime(m.created_at))}${own ? `<span class="message-delivery">${t('已发送', 'Sent')}</span>` : ''}</time></article>`;
+    return `<article class="chat-message ${own ? 'own' : ''} ${m.sender_kind === 'platform' ? 'from-platform' : ''}" data-message-id="${Number(m.id)}" data-message-status="${esc(m.status || 'complete')}" data-message-format="${esc(m.format || 'markdown')}"><div class="message-meta"><strong>${esc(author)}</strong>${m.via_ai ? `<span class="ai-label">${icon('bot')} ${t('AI 代发', 'via AI')}</span>` : ''}</div><div class="message-body markdown">${messageBody(m)}</div><time class="message-time" title="${esc(humanTime(m.created_at))}">${esc(compactTime(m.created_at))}<span class="message-delivery">${messageStatus(m, own)}</span></time></article>`;
+  }
+
+  function messageBody(message) {
+    if (message.format === 'openui') return `<pre class="openui-source">${esc(message.body)}</pre>`;
+    if (message.format === 'plain') return esc(message.body).replace(/\n/g, '<br>');
+    return message.body_html || esc(message.body).replace(/\n/g, '<br>');
+  }
+
+  function messageStatus(message, own) {
+    return message.status === 'streaming' ? t('正在输入…', 'Streaming…') : message.status === 'cancelled' ? t('已停止', 'Stopped') : own ? t('已发送', 'Sent') : '';
+  }
+
+  function disposeChatRenderers(current) {
+    for (const renderer of current?.renderers?.values() || []) renderer.handle.unmount();
+    current?.renderers?.clear();
+  }
+
+  function hydrateChatMessages(current, messages = current.messages) {
+    // Sanitized server Markdown remains usable while the optional bundle loads.
+    if (!globalThis.document?.defaultView || !messages?.length) return;
+    rendererModule ||= import('./chat-renderer.js').catch(() => { rendererModule = null; return null; });
+    void rendererModule.then(renderer => {
+      if (!renderer || chat !== current || current.owner !== ownerKey() || current.denied) return;
+      current.renderers ||= new Map();
+      for (const initial of messages) {
+        const message = current.messages.find(item => item.id === initial.id);
+        if (!message || message.format === 'plain') continue;
+        const node = document.querySelector(`[data-message-id="${Number(message.id)}"] .message-body`);
+        if (!node?.isConnected) continue;
+        const previous = current.renderers.get(message.id);
+        const props = { body: message.body, format: message.format || 'markdown', status: message.status || 'complete' };
+        if (previous?.node === node) previous.handle.update(props);
+        else {
+          previous?.handle.unmount();
+          current.renderers.set(message.id, { node, handle: renderer.mount(node, props) });
+        }
+      }
+    });
   }
 
   function messagesHtml(items, admin, previousDate = '') {
@@ -246,10 +314,17 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function chatPrompts(current, admin) {
+    const configured = chatWelcomeConfig(current, admin)?.prompts;
+    if (Array.isArray(configured)) return configured.map(prompt => [state.lang === 'en' ? prompt.label_en ?? prompt.label : prompt.label, state.lang === 'en' ? prompt.body_en ?? prompt.body : prompt.body, 'message']);
     if (admin) return [[t('确认需求', 'Clarify the brief'), t('你好，我想进一步了解你的需求。你目前最看重哪些条件？', 'Hello! I’d like to understand your brief. What matters most to you?'), 'target'], [t('跟进进展', 'Share an update'), t('你好，关于这次寻找，我想和你同步一下进展：', 'Hello! Here is an update on your search: '), 'message']];
     if (current.kind === 'matched' && state.user?.role === 'employer') return [[t('介绍岗位', 'Introduce the role'), t('你好，我想先介绍一下团队、岗位的工作内容和招聘安排：', 'Hello! Here is some context about our team, the role, and the hiring process: '), 'briefcase'], [t('了解相关经历', 'Ask about experience'), t('你好，想了解一下你与这个岗位相关的经历，以及你对下一份工作的期待。', 'Hello! Could you share your relevant experience and what you are looking for in your next role?'), 'person']];
     if (current.kind === 'matched') return [[t('打个招呼', 'Say hello'), t('你好，很高兴认识你！想和你进一步聊聊这个岗位。', 'Hello, nice to meet you! I’d love to discuss this role.'), 'message'], [t('了解岗位', 'Ask about the role'), t('想请教一下，这个岗位日常主要负责哪些工作？', 'Could you tell me more about the day-to-day work for this role?'), 'briefcase']];
     return state.user?.role === 'employer' ? [[t('说明招聘需求', 'Describe a role'), t('你好，我们正在招聘。想和你聊聊岗位要求、团队情况和招聘计划。', 'Hello! We’re hiring and would like to discuss the role, team, and hiring plans.'), 'briefcase'], [t('询问招聘进展', 'Check progress'), t('你好，想了解一下目前的招聘进展。', 'Hello! Could you share an update on our hiring search?'), 'target']] : [[t('聊聊求职方向', 'Talk about my search'), t('你好，我想找一份新工作。希望和你聊聊我的经历以及下一份工作的期待。', 'Hello! I’m looking for a new role and would like to discuss my experience and what I’m looking for next.'), 'target'], [t('请帮我看看简历', 'Discuss my résumé'), t('你好，想请你帮我看看简历，并聊聊哪些方向比较适合。', 'Hello! I’d appreciate your thoughts on my résumé and which directions might be a good fit.'), 'file']];
+  }
+
+  function chatWelcomeConfig(current, admin) {
+    const audience = admin ? 'staff' : current.kind === 'matched' ? 'matched' : state.user?.role === 'employer' ? 'platform_employer' : 'platform_seeker';
+    return state.config?.chat?.welcome?.[audience];
   }
 
   function chatWelcome(current, admin) {
@@ -257,7 +332,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const employer = state.user?.role === 'employer';
     const title = current.writable === false ? t('这里保留会话记录', 'Your conversation history') : admin ? t('确认需求，明确下一步', 'Confirm the next step') : introduced ? t('在这里沟通岗位', 'Discuss the role') : employer ? t('一起理清招聘需求', 'Let’s clarify your hiring needs') : t('先说说你的情况', 'Start with what matters to you');
     const description = current.writable === false ? t('此会话已归档，可以查看已有消息。', 'This conversation is archived. You can read its existing messages.') : admin ? t('核对当前沟通对象，确认需要跟进的事项。', 'Check who you are speaking with and agree on what needs to happen next.') : introduced ? t('工作内容、彼此期待和后续安排，都可以在这里确认。', 'Use this space to clarify the work, expectations, and next steps.') : employer ? t('岗位、要求和时间安排，可以逐步补充。', 'Start with the role, requirements, or timing. You can add details as you go.') : t('想找什么工作，或眼前有什么疑问，都可以慢慢说。', 'Share the work you are looking for, or a question on your mind. Take it at your own pace.');
-    return `<div id="chat-empty" class="chat-welcome"><h3>${title}</h3><p>${description}</p>${current.writable === false ? '' : `<div class="chat-prompts">${chatPrompts(current, admin).map(([label, body, glyph]) => `<button type="button" data-chat-prompt="${esc(body)}">${icon(glyph)}<span>${label}</span>${icon('arrow')}</button>`).join('')}</div><span class="chat-prompt-note">${t('点选后可编辑，由你决定发送', 'Edit a suggestion before you choose to send it')}</span>`}</div>`;
+    const configured = current.writable === false ? null : chatWelcomeConfig(current, admin);
+    const configuredTitle = state.lang === 'en' ? configured?.title_en ?? configured?.title : configured?.title;
+    const configuredBody = state.lang === 'en' ? configured?.body_html_en ?? configured?.body_html : configured?.body_html;
+    return `<div id="chat-empty" class="chat-welcome"><h3>${esc(configuredTitle ?? title)}</h3><div class="chat-welcome-body markdown">${configuredBody ?? `<p>${esc(description)}</p>`}</div>${current.writable === false ? '' : `<div class="chat-prompts">${chatPrompts(current, admin).map(([label, body, glyph]) => `<button type="button" data-chat-prompt="${esc(body)}">${icon(glyph)}<span>${esc(label)}</span>${icon('arrow')}</button>`).join('')}</div><span class="chat-prompt-note">${t('点选后可编辑，由你决定发送', 'Edit a suggestion before you choose to send it')}</span>`}</div>`;
   }
 
   function chatAccountNote(admin) {
@@ -392,7 +470,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (requestGeneration !== generation || owner !== ownerKey()) return '';
     const result = prepared?.result;
     const messages = result?.items || [];
-    chat = { id: selected, admin, items, current: room, owner, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation, hasMore: !!result?.has_more, language: state.lang, location: (admin ? '/admin' : '/app') + location.search, rowCache: new Map(), controller: new AbortController() };
+    chat = { id: selected, admin, items, current: room, owner, eventCursor: result?.event_cursor, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation, hasMore: !!result?.has_more, language: state.lang, location: (admin ? '/admin' : '/app') + location.search, rowCache: new Map(), controller: new AbortController() };
     confirmPendingMessage(chat, messages);
     chat.listSnapshot = conversationView(items, selected, admin, chat.rowCache);
     const unread = items.reduce((count, item) => count + Number(item.unread_count || 0), 0);
@@ -502,15 +580,31 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     confirmPendingMessage(current, messages);
     const position = scroll.clientHeight ? chatPosition(scroll) : current.readingPosition || { top: 0, atBottom: true };
     const fresh = (messages || []).filter(m => !current.seen.has(m.id));
-    if (!fresh.length) return;
+    const changed = (messages || []).filter(message => {
+      const previous = current.messages?.find(item => item.id === message.id);
+      return previous && (message.sequence || 0) >= (previous.sequence || 0) && (previous.body !== message.body || previous.status !== message.status || previous.format !== message.format);
+    });
+    if (!fresh.length && !changed.length) return;
     document.querySelector('#chat-empty')?.remove();
     fresh.forEach(m => current.seen.add(m.id));
-    const reordered = (current.messages?.at(-1)?.id || 0) > fresh[0].id;
-    current.messages = [...(current.messages || []), ...fresh].sort((a, b) => a.id - b.id);
-    if (reordered) container.innerHTML = messagesHtml(current.messages, current.admin);
-    else container.insertAdjacentHTML('beforeend', messagesHtml(fresh, current.admin, current.lastDate));
+    const reordered = fresh.length && (current.messages?.at(-1)?.id || 0) > fresh[0].id;
+    const replacements = new Map(changed.map(message => [message.id, message]));
+    current.messages = [...(current.messages || []).map(message => replacements.get(message.id) || message), ...fresh].sort((a, b) => a.id - b.id);
+    if (reordered) { disposeChatRenderers(current); container.innerHTML = messagesHtml(current.messages, current.admin); }
+    else {
+      if (fresh.length) container.insertAdjacentHTML('beforeend', messagesHtml(fresh, current.admin, current.lastDate));
+      for (const message of changed) {
+        const article = document.querySelector(`[data-message-id="${Number(message.id)}"]`);
+        const body = article?.querySelector?.('.message-body');
+        if (body && current.renderers?.get(message.id)?.node !== body) body.innerHTML = messageBody(message);
+        if (article) article.dataset.messageStatus = message.status || 'complete';
+        const label = article?.querySelector?.('.message-delivery');
+        if (label) label.textContent = messageStatus(message, current.admin ? message.is_own === true : message.sender_id === state.user?.id);
+      }
+    }
     current.lastDate = messageDateKey(current.messages.at(-1).created_at);
-    current.first ||= fresh[0].id;
+    current.first ||= fresh[0]?.id || 0;
+    hydrateChatMessages(current, reordered ? current.messages : [...fresh, ...changed]);
     if (position.atBottom || forceScroll) scrollLatest();
     else { if (scroll.clientHeight) restoreChatPosition(scroll, position); const button = document.querySelector('[data-action="chat-latest"]'); if (button) button.hidden = false; }
     current.readingPosition = scroll.clientHeight ? chatPosition(scroll) : { ...position, atBottom: position.atBottom || forceScroll };
@@ -530,12 +624,92 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (badge) { const unread = current.items.reduce((count, item) => count + Number(item.unread_count || 0), 0); badge.textContent = unread > 99 ? '99+' : String(unread); badge.hidden = !unread; }
   }
 
+  async function resyncChat(current) {
+    if (current.resyncing || chat !== current || current.denied) return;
+    current.stream?.close(); current.stream = null;
+    current.resyncing = true;
+    try {
+      const result = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+      if (chat !== current || current.owner !== ownerKey() || current.denied) return;
+      const scroll = document.querySelector('#chat-scroll');
+      const position = scroll?.clientHeight ? chatPosition(scroll) : current.readingPosition;
+      disposeChatRenderers(current);
+      current.messages = result.items || []; current.seen = new Set(current.messages.map(message => message.id));
+      current.cursor = result.next_cursor || 0; current.eventCursor = result.event_cursor;
+      current.first = result.first_cursor || current.messages[0]?.id || 0; current.hasOlder = !!result.has_older;
+      current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
+      const container = document.querySelector('#chat-messages');
+      if (container) container.innerHTML = current.messages.length ? messagesHtml(current.messages, current.admin) : chatWelcome(current.current, current.admin);
+      const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
+      if (position?.atBottom) scrollLatest(); else if (scroll && position) restoreChatPosition(scroll, position);
+      hydrateChatMessages(current);
+      current.error = null;
+      startChatStream(current);
+    } catch (error) {
+      if (chat === current && !current.controller.signal.aborted) setChatAccess(current, error);
+    } finally { current.resyncing = false; }
+  }
+
+  function startChatStream(current) {
+    if (!globalThis.EventSource || current.stream || !Number.isSafeInteger(current.eventCursor) || current.denied || document.hidden) return false;
+    const source = new EventSource(`/api/chat/events/stream?conversation_id=${encodeURIComponent(current.id)}&after=${current.eventCursor}`);
+    current.stream = source;
+    const valid = () => chat === current && current.page === generation && current.owner === ownerKey() && !current.denied && current.stream === source;
+    source.onopen = () => { if (valid()) { current.error = null; updateChatStatus(current); } };
+    const receive = event => {
+      if (!valid()) return;
+      try {
+        const value = JSON.parse(event.data);
+        if (value.conversation_id !== current.id) return;
+        const result = applyChatEvent(current.messages, value);
+        if (result.resync) { void resyncChat(current); return; }
+        if (result.message) {
+          appendMessages(current, [result.message]);
+          current.cursor = Math.max(current.cursor, result.message.id);
+          if (current.current && result.message.id >= (current.current.last_message_id || 0)) {
+            current.current.last_message_id = result.message.id;
+            current.current.last_message_preview = result.message.body.slice(0, 180);
+            current.current.last_message_at = result.message.created_at;
+            refreshConversationList(current);
+          }
+          void markRead(current).catch(() => {});
+        }
+        current.eventCursor = Number(event.lastEventId) || value.id || current.eventCursor;
+        current.error = null; updateChatStatus(current);
+      } catch { void resyncChat(current); }
+    };
+    for (const kind of ['message.created', 'message.started', 'message.delta', 'message.completed', 'message.cancelled']) source.addEventListener(kind, receive);
+    source.addEventListener('cursor', event => {
+      if (!valid()) return;
+      try { const cursor = JSON.parse(event.data).next_cursor; if (Number.isSafeInteger(cursor)) current.eventCursor = cursor; }
+      catch { void resyncChat(current); }
+    });
+    source.addEventListener('resync', () => { if (valid()) void resyncChat(current); });
+    source.addEventListener('error', event => {
+      if (!valid()) return;
+      if (event.data) {
+        try {
+          const failure = JSON.parse(event.data);
+          source.close(); current.stream = null;
+          setChatAccess(current, Object.assign(new Error(failure.error || 'Stream ended'), { status: failure.status }));
+          return;
+        } catch { /* Native reconnect resumes from the last acknowledged ID. */ }
+      }
+      current.error = new Error('Connection interrupted');
+      if (source.readyState === 2) { source.close(); current.stream = null; }
+      updateChatStatus(current);
+    });
+    return true;
+  }
+
   function setChatAccess(current, error) {
     if (chat !== current || current.page !== generation || current.owner !== ownerKey()) return;
     current.loading = false;
     const denied = [401, 403, 404].includes(error.status);
     if (denied) {
       current.denied = true; current.controller?.abort();
+      current.stream?.close(); current.stream = null;
+      disposeChatRenderers(current);
       current.messages = []; current.seen.clear(); current.sentMessages = [];
       chatDrafts.delete(current.id); pendingMessages.delete(current.id);
       if (current.current) current.current.writable = false;
@@ -628,10 +802,31 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       const menu = workspace.querySelector?.('.chat-tools[open]');
       if (menu && !menu.contains(event.target)) menu.open = false;
     };
+    const action = event => {
+      if (chat !== current || current.denied || current.current?.writable === false) return;
+      const draft = chatActionDraft(event.detail);
+      if (draft === null) return;
+      const article = event.target.closest?.('[data-message-id]');
+      const message = current.messages.find(item => item.id === Number(article?.dataset.messageId));
+      if (!message || message.format !== 'openui' || message.status !== 'complete') return;
+      const field = document.querySelector('#chat-body');
+      if (!field || field.disabled) return;
+      const addition = (field.value ? '\n\n' : '') + draft;
+      field.value += addition.slice(0, Math.max(0, 10000 - field.value.length)).replace(/[\uD800-\uDBFF]$/u, '');
+      field.focus({ preventScroll: true }); input({ target: field });
+    };
+    const visibility = () => {
+      if (document.hidden) { current.stream?.close(); current.stream = null; }
+      else if (chat === current && !current.denied) { startChatStream(current); void markRead(current).catch(() => {}); }
+    };
     workspace.addEventListener('input', input); workspace.addEventListener('click', click); workspace.addEventListener('keydown', keydown);
+    workspace.addEventListener('hireferry:chat-action', action);
+    document.addEventListener?.('visibilitychange', visibility);
     document.addEventListener?.('pointerdown', closeMenu);
     chatCleanup = () => {
       workspace.removeEventListener('input', input); workspace.removeEventListener('click', click); workspace.removeEventListener('keydown', keydown);
+      workspace.removeEventListener('hireferry:chat-action', action);
+      document.removeEventListener?.('visibilitychange', visibility);
       document.removeEventListener?.('pointerdown', closeMenu); scroll?.removeEventListener?.('scroll', rememberPosition); observer?.disconnect();
       viewport?.removeEventListener('resize', syncViewport); root?.style?.removeProperty('--chat-viewport-height');
     };
@@ -661,12 +856,13 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
             if (valid() && [401, 403, 404].includes(error.status)) setChatAccess(current, error);
             return error;
           });
-          for (let page = 0; page < 4 && valid() && !document.hidden; page++) {
+          for (let page = 0; page < 4 && valid() && !document.hidden && !current.stream; page++) {
             const initial = !current.historyReady, cursor = current.cursor;
             const messages = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?${initial ? '' : `after=${cursor}&`}limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
             if (!valid()) return;
             if (current.error) { current.error = null; const container = document.querySelector('#chat-messages'); if (container && !current.seen.size) container.innerHTML = chatWelcome(current.current, current.admin); }
             if (initial) {
+              current.eventCursor = messages.event_cursor;
               current.first = messages.first_cursor || messages.items?.[0]?.id || 0;
               current.hasOlder = !!messages.has_older;
               const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
@@ -688,9 +884,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
           updateChatStatus(current);
           document.querySelectorAll('.chat-composer textarea,.chat-composer [type="submit"]').forEach(element => { element.disabled = current.current?.writable === false || element.getAttribute('aria-busy') === 'true'; });
           await markRead(current);
+          startChatStream(current);
         }
       } catch (error) { catchingUp = false; if (valid()) { current.error = error; setChatAccess(current, error); } }
-      finally { if (valid()) polling = setTimeout(poll, catchingUp ? 250 : 5000); }
+      finally { if (valid()) polling = setTimeout(poll, catchingUp ? 250 : current.stream ? 15000 : 5000); }
     };
     const start = async () => {
       if (current.loading) {
@@ -703,7 +900,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
           current.messages = [...new Map([...(result.items || []), ...(current.sentMessages || [])].map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
           current.sentMessages = [];
           current.seen = new Set(current.messages.map(message => message.id));
-          current.cursor = result.next_cursor || 0; current.first = result.first_cursor || current.messages[0]?.id || 0;
+          current.eventCursor = result.event_cursor; current.cursor = result.next_cursor || 0; current.first = result.first_cursor || current.messages[0]?.id || 0;
           current.hasOlder = !!result.has_older; current.hasMore = !!result.has_more; current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
           const container = document.querySelector('#chat-messages');
           if (container) container.innerHTML = current.messages.length ? messagesHtml(current.messages, current.admin) : chatWelcome(current.current, current.admin);
@@ -716,10 +913,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
         }
       }
       if (!valid() || current.denied) return;
+      hydrateChatMessages(current);
+      startChatStream(current);
       const scroll = document.querySelector('#chat-scroll');
       if (scroll?.clientHeight) { resizeChatComposer(current); restorePosition(); current.readingPosition = chatPosition(scroll); }
       else { const saved = chatDrafts.get(current.id); current.readingPosition = { top: saved?.top || 0, atBottom: saved?.atBottom ?? true }; }
-      updateChatStatus(current); markRead(current).catch(() => {}); polling = setTimeout(poll, 5000);
+      updateChatStatus(current); markRead(current).catch(() => {}); polling = setTimeout(poll, current.stream ? 15000 : 5000);
     };
     return start();
   }
@@ -790,6 +989,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       const firstDate = container.querySelector?.('.chat-date');
       if (fresh.length && firstDate?.dataset.date === messageDateKey(fresh.at(-1).created_at)) firstDate.remove();
       container.insertAdjacentHTML('afterbegin', messagesHtml(fresh, current.admin));
+      hydrateChatMessages(current, fresh);
       current.first = result.first_cursor || current.first; current.hasOlder = !!result.has_older;
       const button = document.querySelector('[data-action="chat-older"]'); if (button) button.hidden = !current.hasOlder;
       if (scroll.clientHeight) {

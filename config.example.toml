@@ -208,3 +208,26 @@ max_pending_grants = 1000
 [cli_distribution]
 release_repository = "TokenNotIncluded/hireferry"
 release_tag_prefix = "cli-v"
+
+# Optional empty-chat welcome overrides. Omit fields to keep built-in copy.
+# Audiences: platform_seeker, platform_employer, matched, staff.
+# English fields fall back to the base field; prompts=[] hides suggestion buttons.
+# Markdown is sanitized before display; clicking a suggestion only fills a draft.
+# Restart after changes. See docs/chat-agents.md for limits and complete behavior.
+# [chat.welcome.platform_seeker]
+# title = "先聊聊你的下一份工作"
+# title_en = "Tell us about your next role"
+# body_md = "可以先介绍你的**经历、方向和期待**。"
+# body_md_en = "Start with your **experience, direction, and expectations**."
+# prompts = [
+#   { label = "介绍我的方向", body = "我想寻找的新机会是：", label_en = "Describe my search", body_en = "For my next role, I am looking for: " }
+# ]
+# [chat.welcome.platform_employer]
+# title = "一起梳理招聘需求"
+# body_md = "可以先说明岗位职责、团队情况和招聘安排。"
+# [chat.welcome.matched]
+# body_md = "在这里确认岗位内容、双方期待和下一步安排。"
+# prompts = []
+# [chat.welcome.staff]
+# title = "核对需求，确认下一步"
+# body_md = "先确认当前沟通对象和需要跟进的事项。"

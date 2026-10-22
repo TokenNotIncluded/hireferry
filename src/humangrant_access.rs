@@ -114,8 +114,11 @@ fn requirement(tool: &str) -> Option<(&'static str, Option<&'static str>)> {
         "list_matches" => ("matches.read", None),
         "get_mandate" | "list_outreach" => ("mandate.read", None),
         "list_conversations" | "get_updates" | "open_platform_conversation" => ("chat.read", None),
-        "get_messages" => ("chat.read", Some("conversation_id")),
-        "send_message" | "mark_read" => ("chat.write", Some("conversation_id")),
+        "get_messages" | "get_conversation" | "get_chat_events" => {
+            ("chat.read", Some("conversation_id"))
+        }
+        "send_message" | "mark_read" | "begin_message" | "append_message" | "finish_message"
+        | "cancel_message" => ("chat.write", Some("conversation_id")),
         // Account role, new outreach consent, checkout and administrator powers
         // require their existing human flows; HumanGrant cannot delegate them.
         _ => return None,
@@ -129,9 +132,19 @@ pub fn authorize_tool(
     arguments: &Value,
 ) -> AppResult<()> {
     let current = crate::humangrant::validate_grant(db, grant)?;
+    // Capability discovery contains only public site configuration. It cannot
+    // turn a per-room or write-only grant into a conversation read grant.
+    if tool == "get_chat_capabilities" {
+        return Ok(());
+    }
     let (action, argument) = requirement(tool)
         .ok_or_else(|| AppError::forbidden("This operation cannot be delegated with HumanGrant"))?;
     let resource = match argument {
+        Some("conversation_id")
+            if tool == "get_chat_events" && arguments.get("conversation_id").is_none() =>
+        {
+            "self"
+        }
         Some(key) => arguments[key]
             .as_str()
             .filter(|value| !value.is_empty())
@@ -164,6 +177,9 @@ pub fn tools(state: &AppState, grant: &GrantContext) -> Vec<Value> {
     crate::mcp::configured_tools(state, false)
         .into_iter()
         .filter_map(|mut tool| {
+            if tool["name"] == "get_chat_capabilities" {
+                return Some(tool);
+            }
             let (action, argument) = requirement(tool["name"].as_str()?)?;
             let resources: Vec<_> = grant
                 .permissions
@@ -179,6 +195,9 @@ pub fn tools(state: &AppState, grant: &GrantContext) -> Vec<Value> {
                 if !collection {
                     tool["inputSchema"]["properties"][argument]["enum"] =
                         serde_json::json!(resources);
+                    if tool["name"] == "get_chat_events" {
+                        tool["inputSchema"]["required"] = serde_json::json!(["conversation_id"]);
+                    }
                 }
             }
             Some(tool)

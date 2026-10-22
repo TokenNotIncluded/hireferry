@@ -75,6 +75,13 @@
 .chat-workspace .message-body p+p { margin-top:9px; }
 .chat-workspace .message-body :is(h1,h2,h3) { font-family:var(--font); font-size:16px; }
 .chat-workspace .message-body pre { border:0; font-size:12px; line-height:1.6; padding:10px; background:var(--paper); border-radius:6px; }
+.chat-workspace .chat-message[data-message-format="openui"] { width:min(100%,650px); max-width:100%; }
+.chat-workspace .message-body { min-width:0; overflow-wrap:anywhere; }
+.chat-workspace .message-body :is(pre,table,.katex-display) { max-width:100%; overflow-x:auto; }
+.chat-workspace .message-body pre { white-space:pre; overflow-wrap:normal; }
+.chat-workspace .message-body table { display:block; }
+.chat-workspace [data-message-status="streaming"] .message-delivery { color:var(--accent); }
+.chat-workspace [data-message-status="cancelled"] .message-delivery { color:var(--muted); }
 .chat-workspace .message-time { color:var(--muted); font:10px var(--font); margin:6px 3px 0; }
 .chat-workspace .ai-label { font-size:9px; border-color:var(--line); color:var(--muted); }
 .chat-workspace .chat-welcome { min-height:0; padding:24px 0 16px; align-items:flex-start; text-align:left; justify-content:flex-start; width:min(100%,480px); margin:0 auto; }
