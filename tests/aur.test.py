@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Exercise actual PKGBUILD package functions in an isolated filesystem."""
-import argparse
-import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
