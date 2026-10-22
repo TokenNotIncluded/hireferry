@@ -638,19 +638,19 @@ async fn revoking_during_smtp_does_not_block_or_return_a_superseded_link() {
 }
 
 #[test]
-fn schema_nine_upgrade_preserves_existing_identities_and_rolls_back_on_failure() {
+fn schema_thirteen_upgrade_preserves_existing_identities_and_rolls_back_on_failure() {
     let s = state();
     let _owner = Client::owner(&s);
     let db = s.conn().unwrap();
     let downgrade="DROP TRIGGER team_member_disabled; DROP TRIGGER team_account_suspended;
-        DROP TABLE team_ai_tokens; DROP TABLE team_invitations; DROP TABLE team_members; PRAGMA user_version=8;";
+        DROP TABLE team_ai_tokens; DROP TABLE team_invitations; DROP TABLE team_members; PRAGMA user_version=12;";
     db.execute_batch(downgrade).unwrap();
     hireferry::db::migrate(&db).unwrap();
     hireferry::db::migrate(&db).unwrap();
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        9
+        13
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM sessions WHERE admin=1", [], |r| r
@@ -658,14 +658,27 @@ fn schema_nine_upgrade_preserves_existing_identities_and_rolls_back_on_failure()
             .unwrap(),
         1
     );
+    let upstream_schema = || {
+        db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name IN (
+                'promo_codes','promo_applications','promo_redemptions',
+                'staff_members','staff_invitations','feedback','feedback_limits','feedback_dedup',
+                'staff_invitations_retention','orders_onboarding_expiry')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(upstream_schema(), 10);
     db.execute_batch(downgrade).unwrap();
     db.execute_batch("CREATE TABLE team_invitations(sentinel TEXT);")
         .unwrap();
     assert!(hireferry::db::migrate(&db).is_err());
+    assert_eq!(upstream_schema(), 10);
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        8
+        12
     );
     assert_eq!(
         db.query_row(
@@ -699,6 +712,44 @@ async fn customer_moderation_cannot_be_used_to_manage_other_employees() {
     let mut pending = Client::new(&s);
     let pending_user = pending.sign_in("invited@example.invalid").await;
     owner.invite("invited@example.invalid").await;
+    let mut manager = Client::new(&s);
+    let manager_user = manager.sign_in("manager@example.invalid").await;
+    let mut manager_pending = Client::new(&s);
+    let manager_pending_user = manager_pending
+        .sign_in("manager-pending@example.invalid")
+        .await;
+    for (email, accept) in [
+        ("manager@example.invalid", true),
+        ("manager-pending@example.invalid", false),
+    ] {
+        let (status, invite) = owner
+            .request(
+                "POST",
+                "/api/admin/staff/invitations",
+                json!({"email":email,"role":"manager","send_email":false}),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{invite}");
+        if accept {
+            let token = invite["invite_url"]
+                .as_str()
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap();
+            assert_eq!(
+                manager
+                    .request(
+                        "POST",
+                        &format!("/api/staff/invitations/{token}/accept"),
+                        json!({}),
+                    )
+                    .await
+                    .0,
+                StatusCode::OK
+            );
+        }
+    }
     let (_, ai) = owner
         .request("POST", "/api/admin/team/ai", json!({"name":"AI colleague"}))
         .await;
@@ -720,7 +771,12 @@ async fn customer_moderation_cannot_be_used_to_manage_other_employees() {
         format!("Bearer {}", legacy["token"].as_str().unwrap()),
     ));
     for client in [&mut colleague, &mut ai_client, &mut legacy_client] {
-        for user in [&target_user, &pending_user] {
+        for user in [
+            &target_user,
+            &pending_user,
+            &manager_user,
+            &manager_pending_user,
+        ] {
             let id = user["id"].as_str().unwrap();
             assert_eq!(
                 client

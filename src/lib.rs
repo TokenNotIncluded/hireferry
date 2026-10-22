@@ -10,13 +10,17 @@ pub mod commerce;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod feedback;
 pub mod humangrant;
 pub mod humangrant_access;
 pub mod legal;
+pub mod maintenance;
 pub mod mcp;
 pub mod models;
 pub mod payments;
+pub mod promos;
 pub mod safety;
+pub mod staff;
 pub mod team;
 pub mod webhooks;
 pub mod workbench;
@@ -117,12 +121,15 @@ pub fn app(state: AppState) -> Router {
         .merge(cli_auth::routes())
         .merge(cli_distribution::routes())
         .merge(api::routes())
+        .merge(feedback::routes())
         .merge(legal::routes())
         .merge(admin::routes())
+        .merge(staff::routes())
         .merge(admin_ai::routes())
         .merge(team::routes())
         .merge(chat::routes())
         .merge(payments::routes())
+        .merge(promos::routes())
         .merge(mcp::routes())
         .merge(webhooks::routes())
         .merge(workbench::routes())

@@ -130,10 +130,18 @@ pub fn principal(s: &AppState, h: &HeaderMap, write: bool) -> AppResult<Principa
         if webmcp {
             require_user_ai(&*s.conn()?, &uid)?;
         }
+        // Staff access is deliberately limited to a human browser session.
+        // A member's ordinary CLI bearer / WebMCP never gains manager authority.
+        let manager =
+            !webmcp && crate::staff::active_role(&*s.conn()?, &uid)?.as_deref() == Some("manager");
         Ok(Principal {
-            actor: uid.clone(),
+            actor: if manager {
+                format!("staff:{uid}")
+            } else {
+                uid.clone()
+            },
             user_id: Some(uid),
-            admin: false,
+            admin: manager,
             via_ai: webmcp,
         })
     }
@@ -196,9 +204,43 @@ pub fn ensure_admin(db: &Connection, p: &Principal) -> AppResult<()> {
     Ok(())
 }
 
+/// Promotion and feedback administration retain the platform administrator's
+/// authority; employee business access does not implicitly inherit these grants.
+pub fn ensure_platform_admin(db: &Connection, p: &Principal) -> AppResult<()> {
+    if p.actor.starts_with("staff:")
+        || p.actor.starts_with("staff_webmcp:")
+        || p.actor.starts_with("staff_ai:")
+    {
+        return Err(AppError::forbidden(
+            "Platform administrator access required",
+        ));
+    }
+    ensure_admin(db, p)
+}
+
+/// Restricted operational access also admits verified human team managers.
+/// Business mutations outside that scope must continue to call `ensure_admin`;
+/// membership and credential changes retain their root browser checks.
+pub fn ensure_operator(db: &Connection, p: &Principal) -> AppResult<()> {
+    if !p.admin {
+        return Err(AppError::forbidden("Team manager access required"));
+    }
+    if p.user_id.is_none() {
+        return ensure_admin(db, p);
+    }
+    let uid = p.user_id.as_deref().unwrap();
+    if p.via_ai || p.actor != format!("staff:{uid}") {
+        return Err(AppError::forbidden("Human team manager session required"));
+    }
+    if crate::staff::active_role(db, uid)?.as_deref() != Some("manager") {
+        return Err(AppError::forbidden("Team membership has been disabled"));
+    }
+    Ok(())
+}
+
 pub fn ensure_active(db: &Connection, p: &Principal) -> AppResult<()> {
     if p.admin {
-        return ensure_admin(db, p);
+        return ensure_operator(db, p);
     }
     let uid = p
         .user_id

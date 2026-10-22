@@ -14,6 +14,7 @@ test('cold signed-in entry keeps configuration and session reads parallel when t
   const cases=[
     {identity:{user:null,admin:true,super_admin:true,staff:null,csrf:'owner-csrf'},path:'/admin?tab=team',marker:'data-form="team-invite"'},
     {identity:{user:{id:'staff-user',role:'unassigned',email:'staff@example.test'},admin:true,super_admin:false,staff:{id:'staff-one',name:'QA staff',kind:'human',active:true},csrf:'staff-csrf'},path:'/admin?tab=users',marker:'QA staff'},
+    {identity:{user:{id:'manager-user',name:'QA manager',role:'unassigned'},admin:false,super_admin:false,staff_role:'manager',staff:null,csrf:'manager-csrf'},path:'/admin?tab=users',marker:'QA manager'},
     {identity:{user:{id:'fixture-user',role:'seeker'},admin:false,super_admin:false,staff:null,csrf:'member-csrf'},path:'/app?tab=profile',marker:'QA_PROFILE_READY'},
   ];
   for(const scenario of cases){
@@ -33,7 +34,7 @@ test('cold signed-in entry keeps configuration and session reads parallel when t
       assert.ok(configReads[0].began<sessionReads[0].finished,'configuration starts before session finishes');
       assert.ok(sessionReads[0].finished<configReads[0].finished,'the test releases configuration only after session completes');
       assert.equal(configReads[0].aborted,false);
-      assert.equal(harness.app.state.admin,scenario.identity.admin);
+      assert.equal(harness.app.state.admin,scenario.identity.admin||scenario.identity.staff_role==='manager');
       assert.equal(harness.app.state.super_admin,scenario.identity.super_admin);
     }finally{config.resolve();await navigation;harness.dispose();}
   }

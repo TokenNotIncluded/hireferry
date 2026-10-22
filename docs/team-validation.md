@@ -1,6 +1,20 @@
 # 团队成员功能验收
 
-更新：2026-10-22。本次团队分支整合主分支 `a92cc9eb06893aa1f46eaf438477f62b53da1feb`，保留并行更新的 CLI 分发、安装器、网站指南及会话性能优化。以下是本地实际执行结果；生产部署、真实 SMTP 收件和外部 Google 登录不计入通过项。
+更新：2026-10-22。团队分支现已整合主分支 `e5a369c48cc62f5189650e59766378cb789e7dfb`，保留原有经理邀请、优惠码、反馈与保留策略，以及最新界面和 CLI 更新。
+
+## 当前主分支兼容验证
+
+- **Rust：17 套集成测试，189 项通过，0 失败。** 覆盖 `team_access`、`team_invitations`、`staff_invites`、`chat_flows`、`privacy_mcp`、`workbench_access`、`workbench`、`cli_auth`、`currency_pricing`、`headcount_flows`、`humangrant_migration`、`promo_codes`、`feedback`、`maintenance`、`auth_flows`、`account_access`、`admin_ai`。工作台另有 1 项标记 ignored 的十万候选性能测试，本轮未运行。
+- **前端：19 个测试文件，234 项通过，0 失败。** 覆盖 root、经理与业务员工的冷启动、页面入口、业务写权限、身份变化时取消私有请求，以及两种邀请的接受流程。最终调整业务操作按钮后，14 项相关团队 UI 测试再次通过；重复运行不计入 234 项。
+- JavaScript 语法、Rust 格式和差异检查通过；实际编译出的服务端成功校验 `config.development.toml` 与 `config.example.toml`。
+- 数据库沿用主分支 schema 9–12，并以独立事务追加 schema 13。回归验证从 schema 12 升级、重复执行、失败回滚，以及优惠码、经理、反馈、维护索引和既有超级管理员会话保留。
+- 新增跨角色回归确认：经理与业务员工的聊天已读和幂等键独立；双角色账户撤销员工授权后仅保留经理权限；客户响应不暴露内部作者；员工不能通过客户封禁管理经理或待邀请账户，也不继承优惠码和反馈管理权限。
+
+本轮是源码合并与本地回归，没有重新执行下方历史记录中的真实浏览器验收，也没有部署生产服务或发送外部邀请邮件。完整 CI 和部署环境验收仍以对应运行结果为准。
+
+## 先前基线记录
+
+以下记录保留自团队分支整合 `a92cc9eb06893aa1f46eaf438477f62b53da1feb` 时，覆盖此前的 CLI 分发、安装器、网站指南和会话性能优化。旧 schema 9 在当时指团队分支的未合并迁移；当前团队迁移编号为 schema 13。
 
 ## Rust 与配置
 
@@ -58,4 +72,4 @@ cargo build --locked -p hireferry --bin hireferry
 ./target/debug/hireferry --config config.example.toml check-config
 ```
 
-部署时需备份原数据库，再启动包含 schema 9 的版本。真实邮件服务器接受、实际到达收件箱、Google OAuth 回跳和实体 Passkey 仍须在部署环境检查。SMTP 的 `sent` 表示服务器接受邮件，不表示已送达或员工已加入。操作方法与配置见 [团队成员](team.md)。
+部署时需备份原数据库；当前整合版本使用 schema 13，保留主分支已有的 schema 9–12。上面的 schema 9 测试记录对应合并前的团队分支。真实邮件服务器接受、实际到达收件箱、Google OAuth 回跳和实体 Passkey 仍须在部署环境检查。SMTP 的 `sent` 表示服务器接受邮件，不表示已送达或员工已加入。操作方法与配置见 [团队成员](team.md)。

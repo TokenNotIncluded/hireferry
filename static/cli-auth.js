@@ -1,40 +1,40 @@
 import { CLI_RETURN_KEY, rememberCliReturn } from './cli-auth-return.js';
+import { mountBrandMotion } from './brand-motion.js';
 
 const $ = id => document.getElementById(id);
 let language = 'zh';
 try { language = localStorage.getItem('hireferry-language') === 'en' ? 'en' : 'zh'; } catch { /* Optional preference. */ }
 const words = {
-  title: ['连接你的命令行', 'Connect your command line'],
-  intro: ['确认账户和权限后，回到终端继续。', 'Check the account and permissions, then return to your terminal.'],
-  requestTitle: ['授权 hfy', 'Authorize hfy'],
+  title: ['连接 hfy', 'Connect hfy'],
+  intro: ['确认账户与权限后继续。', 'Review access for this terminal.'],
+  requestTitle: ['授权详情', 'Access details'],
   codeLabel: ['输入终端显示的设备码', 'Enter the device code shown in your terminal'],
   continue: ['继续', 'Continue'],
-  signInHelp: ['先在聘渡网站登录。完成后会回到本页确认授权。', 'Sign in on HireFerry first. You will return here to confirm access.'],
-  memberLogin: ['使用 Google 或邮箱登录', 'Sign in with Google or email'],
+  signInHelp: ['登录后确认本次连接。', 'Sign in to approve this connection.'],
+  memberLogin: ['Google / 邮箱登录', 'Google / email sign-in'],
   adminLogin: ['管理员 Passkey 登录', 'Administrator passkey sign-in'],
-  siteLabel: ['网站', 'Website'], accountLabel: ['当前账户', 'Account'], clientLabel: ['客户端', 'Client'], scopeLabel: ['权限范围', 'Scopes'],
-  compareCode: ['请核对终端上的设备码', 'Check this code against your terminal'],
-  ownRequest: ['只有你刚在自己的设备上运行了 hfy auth login，才应批准。不要批准他人发来的设备码或链接。', 'Approve only if you just ran hfy auth login on your own device. Do not approve codes or links sent by other people.'],
-  revokeHelp: ['授权有有效期。运行 hfy auth logout 或在命令行连接页面撤销后，访问令牌和刷新令牌都会失效。', 'Access expires. Running hfy auth logout or revoking a command-line connection invalidates both its access and refresh tokens.'],
-  manageConnections: ['管理命令行连接', 'Manage command-line connections'],
+  siteLabel: ['网站', 'Website'], accountLabel: ['账户', 'Account'], clientLabel: ['客户端', 'Client'], scopeLabel: ['权限', 'Scopes'],
+  compareCode: ['请确认设备码与你的终端一致', 'Match this code with your terminal'],
+  ownRequest: ['请确认请求来自你正在登录的终端。', 'Confirm this request came from the terminal you are signing in to.'],
+  revokeHelp: ['运行 hfy auth logout 或撤销连接即可结束授权。', 'Run hfy auth logout or revoke the connection to end access.'],
+  manageConnections: ['管理连接', 'Manage connections'],
   approve: ['允许连接', 'Allow access'], deny: ['拒绝', 'Deny'], switchAccount: ['切换账户', 'Use another account'],
   retry: ['重新检查', 'Check again'], workspace: ['打开工作台', 'Open workspace'], reauth: ['重新验证 Passkey', 'Verify your passkey again'],
-  footer: ['登录操作在聘渡网站完成。终端不会索取你的 Google 密码、邮箱验证码或 Passkey。', 'Sign-in happens on HireFerry. The terminal does not ask for your Google password, email code, or passkey.'],
   checking: ['正在检查登录状态…', 'Checking your sign-in…'],
   signIn: ['请先登录。', 'Please sign in first.'],
-  checkDetails: ['请核对下面的账户和权限。', 'Check the account and permissions below.'],
-  approvalUnavailable: ['当前账户暂不能批准此权限。你仍可拒绝请求或切换账户。', 'This account cannot approve these permissions. You can still decline the request or switch accounts.'],
-  identityPermissions: ['仅允许客户端查看当前账户、AI 使用资格和已授权能力。基础登录不授予 AI 工具、MCP 或管理员业务操作权限。', 'Allow the client to check your account, AI eligibility, and granted capabilities. Basic sign-in does not grant AI tool, MCP, or administrator business access.'],
-  memberPermissions: ['除查看当前账户和资格外，允许客户端按你的现有 AI 权限访问你的资料、委托、岗位、订单、匹配及会话，并执行你已有权限的业务操作。服务端会持续检查 AI 使用资格，收费操作仍需完成支付。', 'In addition to account and eligibility checks, allow the client to use your existing AI access to profiles, search briefs, jobs, orders, introductions, and conversations. The server checks AI eligibility on every operation. Paid actions still require payment.'],
-  adminPermissions: ['这是管理员授权。客户端将获得平台 AI 业务权限，可读取和管理全平台业务资料、用户、匹配及会话。它不能管理 Passkey、签发其他凭据或读取服务器密钥。', 'This is administrator access. The client can read and manage platform business records, users, introductions, and conversations. It cannot manage passkeys, issue other credentials, or read server secrets.'],
+  checkDetails: ['', ''],
+  approvalUnavailable: ['当前账户无法批准此权限。请切换账户或拒绝请求。', 'This account cannot approve these permissions. Switch accounts or decline.'],
+  identityPermissions: ['查看账户、AI 资格和现有权限。不含 AI 工具或业务操作权限。', 'Read account, AI eligibility and granted permissions. No AI tools or business actions.'],
+  memberPermissions: ['允许按你现有的 AI 权限管理资料、委托、岗位、订单、匹配和会话。收费操作按订单结算。', 'Use your existing AI permissions to manage profiles, briefs, jobs, orders, introductions and conversations. Paid actions use the normal checkout.'],
+  adminPermissions: ['允许管理全平台业务资料、用户、匹配和会话。范围不含 Passkey、凭据签发与服务器密钥。', 'Manage platform records, users, introductions and conversations. Passkeys, credential issuance and server secrets are outside this scope.'],
   administrator: ['平台管理员', 'Platform administrator'],
   deciding: ['正在提交你的选择…', 'Saving your choice…'],
   approved: ['已批准。请回到终端继续。', 'Approved. Return to your terminal to continue.'],
-  denied: ['已拒绝。本次请求没有获得访问权限。', 'Denied. This request has no access.'],
-  failed: ['暂时无法继续。请重试或回到终端重新登录。', 'Unable to continue. Retry or start a new login in your terminal.'],
-  invalid: ['登录请求无效，请在终端重新运行 hfy auth login。', 'This request is invalid. Run hfy auth login again.'],
-  enterCode: ['在你的终端找到设备码，然后输入。', 'Find the device code in your terminal and enter it here.'],
-  storage: ['浏览器无法保存返回位置。登录后请重新打开终端显示的授权链接。', 'This browser cannot save the return page. After signing in, reopen the authorization link shown in your terminal.'],
+  denied: ['已拒绝。', 'Declined.'],
+  failed: ['连接失败。请重试或在终端重新登录。', 'Connection failed. Retry or sign in again from your terminal.'],
+  invalid: ['请求无效。请在终端重新运行 hfy auth login。', 'Invalid request. Run hfy auth login again.'],
+  enterCode: ['输入终端显示的设备码。', 'Enter the code shown in your terminal.'],
+  storage: ['返回位置未保存。登录后请重新打开终端中的授权链接。', 'Return page not saved. Reopen the terminal’s authorization link after signing in.'],
 };
 const text = key => words[key][language === 'en' ? 1 : 0];
 let identity = null;
@@ -222,3 +222,4 @@ $('switch-account').addEventListener('click', async () => {
 });
 translate();
 load();
+mountBrandMotion(document.querySelector('header'));

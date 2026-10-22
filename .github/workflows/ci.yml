@@ -46,7 +46,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Test server and command-line client
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
 
       - name: Verify matching queries with 100,000 synthetic candidates
         run: cargo test --locked --test workbench -- --ignored --nocapture

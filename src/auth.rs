@@ -69,6 +69,39 @@ impl AuthService {
         };
         Ok(Self { webauthn, mailer })
     }
+
+    pub(crate) fn smtp_enabled(&self) -> bool {
+        self.mailer.is_some()
+    }
+
+    /// Only the passkey-authenticated owner may request this mail via staff routes.
+    pub(crate) async fn send_staff_invitation(
+        &self,
+        config: &Config,
+        email: &str,
+        link: &str,
+    ) -> AppResult<()> {
+        let mailer = self
+            .mailer
+            .as_ref()
+            .ok_or_else(|| AppError::unavailable("SMTP is not configured"))?;
+        let mut builder = Message::builder()
+            .from(config.smtp.from.parse().map_err(AppError::internal)?)
+            .to(email.parse().map_err(AppError::internal)?)
+            .subject("聘渡 HireFerry · 团队经理邀请 / Manager invitation")
+            .header(ContentType::TEXT_PLAIN);
+        if !config.smtp.reply_to.is_empty() {
+            builder = builder.reply_to(config.smtp.reply_to.parse().map_err(AppError::internal)?);
+        }
+        let message = builder.body(format!(
+            "你收到了一份聘渡团队经理邀请。请使用收件邮箱登录并在 7 天内接受：\n{link}\n\n             You are invited to join the HireFerry team as a manager. Sign in with this email and accept within 7 days:\n{link}\n\n             如果你不认识邀请人，请忽略此邮件。不要转发邀请链接。\n             If unexpected, ignore this email. Do not forward the invitation link."
+        )).map_err(AppError::internal)?;
+        mailer
+            .send(message)
+            .await
+            .map_err(|_| AppError::unavailable("Could not deliver the staff invitation email"))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -339,8 +372,9 @@ fn require_active_session(db: &Connection, s: &Session) -> AppResult<()> {
 pub(crate) fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) -> AppResult<()> {
     let t = now();
     db.execute(
-        "DELETE FROM auth_limits WHERE window_start<?1",
-        [t - 86_400],
+        "DELETE FROM auth_limits WHERE rowid IN
+         (SELECT rowid FROM auth_limits WHERE window_start<?1 ORDER BY window_start LIMIT ?2)",
+        params![t - 86_400, crate::maintenance::DEFAULT_BATCH_SIZE],
     )?;
     db.execute(
         "INSERT INTO auth_limits(key,window_start,count) VALUES(?1,?2,1)
@@ -362,8 +396,15 @@ pub(crate) fn rate_limit(db: &Connection, key: &str, limit: i64, window: i64) ->
 }
 
 fn cleanup(db: &Connection) -> AppResult<()> {
-    db.execute("DELETE FROM sessions WHERE expires_at<=?1", [now()])?;
-    db.execute("DELETE FROM auth_challenges WHERE expires_at<=?1", [now()])?;
+    for table in ["sessions", "auth_challenges"] {
+        db.execute(
+            &format!(
+                "DELETE FROM {table} WHERE rowid IN
+                (SELECT rowid FROM {table} WHERE expires_at<=?1 ORDER BY expires_at LIMIT ?2)"
+            ),
+            params![now(), crate::maintenance::DEFAULT_BATCH_SIZE],
+        )?;
+    }
     Ok(())
 }
 
@@ -430,26 +471,27 @@ fn session_response(
 
 async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Response> {
     let Some(s) = session(&state, &headers)? else {
-        return Ok(
-            Json(json!({"user":null,"admin":false,"super_admin":false,"staff":null,"bootstrap":false,"csrf":null})).into_response(),
-        );
+        return Ok(Json(
+            json!({"user":null,"admin":false,"super_admin":false,"staff":null,
+                "bootstrap":false,"staff_role":null,"csrf":null}),
+        )
+        .into_response());
     };
-    let (user, staff) = if let Some(id) = &s.user_id {
-        let db = state
-            .db
-            .lock()
-            .map_err(|_| AppError::internal("Database lock failed"))?;
+    let (user, staff, staff_role) = if let Some(id) = &s.user_id {
+        let db = state.conn()?;
         (
             serde_json::to_value(crate::models::load_user(&db, id)?)?,
             crate::team::human_member(&db, id)?,
+            crate::staff::active_role(&db, id)?,
         )
     } else {
-        (Value::Null, None)
+        (Value::Null, None, None)
     };
-    Ok(
-        Json(json!({"user":user,"admin":s.admin||staff.is_some(),"super_admin":s.admin,"staff":staff,"bootstrap":s.bootstrap,"csrf":s.csrf}))
-            .into_response(),
+    Ok(Json(
+        json!({"user":user,"admin":s.admin||staff.is_some(),"super_admin":s.admin,
+                    "staff":staff,"bootstrap":s.bootstrap,"staff_role":staff_role,"csrf":s.csrf}),
     )
+    .into_response())
 }
 
 #[derive(Deserialize)]

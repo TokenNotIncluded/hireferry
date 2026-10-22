@@ -361,7 +361,7 @@ async fn update(
     let uid = ensure_browser(&tx, &session)?;
     owned(&tx, &uid, &id)?;
     tx.execute("UPDATE webhook_endpoints SET name=COALESCE(?2,name),events_json=COALESCE(?3,events_json),enabled=COALESCE(?4,enabled),updated_at=?5 WHERE id=?1",params![id,name,events,input.enabled,now()])?;
-    cancel_unavailable(&tx, Some(&id))?;
+    cancel_unavailable(&tx, Some(&id), s.cfg.webhooks.max_pending_per_endpoint)?;
     audit(&tx, &uid, "webhook_update", &id, "")?;
     let endpoint = owned(&tx, &uid, &id)?;
     tx.commit()?;
@@ -378,7 +378,7 @@ async fn revoke(
     let uid = ensure_browser(&tx, &session)?;
     owned(&tx, &uid, &id)?;
     tx.execute("UPDATE webhook_endpoints SET enabled=0,revoked=1,signing_secret='',updated_at=?2 WHERE id=?1",params![id,now()])?;
-    cancel_unavailable(&tx, Some(&id))?;
+    cancel_unavailable(&tx, Some(&id), s.cfg.webhooks.max_pending_per_endpoint)?;
     audit(&tx, &uid, "webhook_revoke", &id, "")?;
     tx.commit()?;
     Ok(Json(json!({"revoked":true})))
@@ -499,8 +499,8 @@ fn eligibility_sql() -> String {
 fn authorized(db: &Connection, id: &str) -> AppResult<bool> {
     Ok(db.query_row(&format!("SELECT EXISTS(SELECT 1 FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id=d.endpoint_id JOIN users u ON u.id=e.user_id JOIN webhook_events w ON w.id=d.event_id WHERE d.id=?1 AND {})",eligibility_sql()),[id],|r|r.get(0))?)
 }
-fn cancel_unavailable(db: &Connection, endpoint: Option<&str>) -> AppResult<()> {
-    db.execute(&format!("UPDATE webhook_deliveries SET status='cancelled',last_error='authorization_revoked',claim_token=NULL,lease_until=NULL WHERE id IN(SELECT d.id FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id=d.endpoint_id JOIN users u ON u.id=e.user_id JOIN webhook_events w ON w.id=d.event_id WHERE d.status IN ('pending','processing') AND (?1 IS NULL OR d.endpoint_id=?1) AND NOT({}))",eligibility_sql()),[endpoint])?;
+fn cancel_unavailable(db: &Connection, endpoint: Option<&str>, batch: i64) -> AppResult<()> {
+    db.execute(&format!("UPDATE webhook_deliveries SET status='cancelled',last_error='authorization_revoked',claim_token=NULL,lease_until=NULL WHERE id IN(SELECT d.id FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id=d.endpoint_id JOIN users u ON u.id=e.user_id JOIN webhook_events w ON w.id=d.event_id WHERE d.status IN ('pending','processing') AND (?1 IS NULL OR d.endpoint_id=?1) AND NOT({}) ORDER BY d.created_at LIMIT ?2)",eligibility_sql()),params![endpoint,batch])?;
     Ok(())
 }
 
@@ -805,18 +805,55 @@ struct Claim {
 }
 
 pub fn cleanup(db: &Connection, limits: &Webhooks, at: i64) -> AppResult<()> {
-    db.execute("UPDATE webhook_deliveries SET status='cancelled',last_error='worker_interrupted',claim_token=NULL,lease_until=NULL WHERE status IN ('pending','processing') AND created_at<?1",[at-limits.failed_retention_days*86400])?;
-    db.execute("DELETE FROM webhook_deliveries WHERE (status IN ('delivered','cancelled') AND created_at<?1) OR (status='failed' AND created_at<?2)",params![at-limits.delivered_retention_days*86400,at-limits.failed_retention_days*86400])?;
-    db.execute("DELETE FROM webhook_events WHERE NOT EXISTS(SELECT 1 FROM webhook_deliveries d WHERE d.event_id=webhook_events.id)",[])?;
-    db.execute("DELETE FROM webhook_endpoints WHERE revoked=1 AND updated_at<?1 AND NOT EXISTS(SELECT 1 FROM webhook_deliveries d WHERE d.endpoint_id=webhook_endpoints.id)",[at-limits.failed_retention_days*86400])?;
+    cleanup_batch(db, limits, at, crate::maintenance::DEFAULT_BATCH_SIZE)?;
     Ok(())
+}
+
+/// Delete at most `batch` rows per table, even with delivery disabled. Stale
+/// queued deliveries are already outside their retry lifetime and can retire
+/// directly; no full-table status update or cascading delete is needed.
+pub fn cleanup_batch(db: &Connection, limits: &Webhooks, at: i64, batch: i64) -> AppResult<usize> {
+    if !(1..=1000).contains(&batch) {
+        return Err(AppError::bad_request("Invalid webhook cleanup batch size"));
+    }
+    let delivered = at.saturating_sub(limits.delivered_retention_days * 86_400);
+    let failed = at.saturating_sub(limits.failed_retention_days * 86_400);
+    let mut removed = db.execute(
+        "DELETE FROM webhook_deliveries WHERE rowid IN
+         (SELECT rowid FROM webhook_deliveries
+          WHERE (status IN ('delivered','cancelled') AND created_at<?1)
+             OR (status IN ('failed','pending','processing') AND created_at<?2
+                 AND (status!='processing' OR lease_until IS NULL OR lease_until<=?3))
+          ORDER BY created_at LIMIT ?4)",
+        params![delivered, failed, at, batch],
+    )?;
+    removed += db.execute(
+        "DELETE FROM webhook_events WHERE rowid IN
+         (SELECT rowid FROM webhook_events WHERE NOT EXISTS
+          (SELECT 1 FROM webhook_deliveries d WHERE d.event_id=webhook_events.id) LIMIT ?1)",
+        [batch],
+    )?;
+    removed += db.execute(
+        "DELETE FROM webhook_endpoints WHERE rowid IN
+         (SELECT rowid FROM webhook_endpoints WHERE revoked=1 AND updated_at<?1 AND NOT EXISTS
+          (SELECT 1 FROM webhook_deliveries d WHERE d.endpoint_id=webhook_endpoints.id)
+          ORDER BY updated_at LIMIT ?2)",
+        params![failed, batch],
+    )?;
+    Ok(removed)
 }
 fn claim(s: &AppState, at: i64) -> AppResult<Option<Claim>> {
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    cancel_unavailable(&tx, None)?;
-    tx.execute("UPDATE webhook_deliveries SET status='failed',last_error='worker_interrupted',claim_token=NULL,lease_until=NULL WHERE status='processing' AND lease_until<=?1 AND attempts>=max_attempts",[at])?;
-    let id:Option<String>=tx.query_row("SELECT id FROM webhook_deliveries WHERE ((status='pending' AND next_attempt_at<=?1) OR (status='processing' AND lease_until<=?1)) AND attempts<max_attempts ORDER BY next_attempt_at,created_at,id LIMIT 1",[at],|r|r.get(0)).optional()?;
+    cancel_unavailable(&tx, None, s.cfg.maintenance.batch_size)?;
+    tx.execute("UPDATE webhook_deliveries SET status='failed',last_error='worker_interrupted',claim_token=NULL,lease_until=NULL
+        WHERE rowid IN (SELECT rowid FROM webhook_deliveries WHERE status='processing' AND lease_until<=?1 AND attempts>=max_attempts ORDER BY lease_until LIMIT ?2)",params![at,s.cfg.maintenance.batch_size])?;
+    let id:Option<String>=tx.query_row(&format!("SELECT d.id FROM webhook_deliveries d
+        JOIN webhook_endpoints e ON e.id=d.endpoint_id JOIN users u ON u.id=e.user_id
+        JOIN webhook_events w ON w.id=d.event_id
+        WHERE ((d.status='pending' AND d.next_attempt_at<=?1) OR (d.status='processing' AND d.lease_until<=?1))
+          AND d.attempts<d.max_attempts AND ({})
+        ORDER BY d.next_attempt_at,d.created_at,d.id LIMIT 1",eligibility_sql()),[at],|r|r.get(0)).optional()?;
     let Some(id) = id else {
         tx.commit()?;
         return Ok(None);
@@ -930,16 +967,8 @@ pub fn spawn_worker(s: AppState) -> tokio::task::JoinHandle<()> {
             return;
         }
         let transport = HttpsTransport;
-        let mut last_cleanup = 0;
         loop {
             let at = now();
-            if at - last_cleanup >= 60 {
-                let cleaned = s.conn().and_then(|db| cleanup(&db, &s.cfg.webhooks, at));
-                if cleaned.is_err() {
-                    tracing::warn!("Webhook queue maintenance failed");
-                }
-                last_cleanup = at;
-            }
             match run_once_with(&s, &transport, at).await {
                 Ok(true) => tokio::time::sleep(Duration::from_millis(100)).await,
                 Ok(false) => {

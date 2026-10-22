@@ -177,3 +177,67 @@ test('staff navigation shows their identity and blocks owner pages without fetch
     assert.equal(harness.network.some(call => ['/api/admin/team', '/api/admin/passkeys', '/api/admin/tokens'].includes(call.path)), false);
   } finally { harness.dispose(); }
 });
+
+test('manager and employee sessions retain different business access without becoming owners', async () => {
+  const user = { id: 'colleague', name: 'QA colleague', role: 'unassigned', email: 'colleague@example.test' };
+  for (const employee of [false, true]) {
+    const harness = await createNavigationHarness(fileURLToPath(new URL('../static', import.meta.url)));
+    try {
+      harness.overrides.set('/api/session', { user, admin: employee, super_admin: false, staff_role: employee ? null : 'manager', staff: employee ? { id: 'employee-one', name: 'QA colleague', kind: 'human' } : null, csrf: 'shared-session-csrf' });
+      await harness.prime();
+      assert.equal(harness.app.state.admin, true);
+      assert.equal(harness.app.state.owner, false);
+      assert.equal(harness.app.state.super_admin, false);
+      harness.overrides.set('/api/admin/users', { items: [{ id: 'customer', name: 'QA customer', role: 'seeker' }] });
+      harness.overrides.set('/api/admin/jobs', { items: [{ id: 'job', title: 'QA role', status: 'published', salary_cents: 10000, headcount: 1 }] });
+      await harness.route('/admin?tab=users', 'QA customer');
+      assert.equal(harness.root.innerHTML.includes('data-action="admin-user-access"'), employee);
+      await harness.route('/admin?tab=jobs', 'QA role');
+      assert.match(harness.root.innerHTML, new RegExp(`data-action="admin-edit-job"[^>]*>${employee ? 'Manage' : 'Details'}`));
+      const forbidden = ['team', 'staff', 'keys', 'agents', 'promos', ...(!employee ? ['overview', 'orders'] : [])];
+      for (const tab of forbidden) {
+        await harness.route(`/admin?tab=${tab}`, 'This page is managed by the super administrator');
+        for (const hidden of forbidden) assert.doesNotMatch(harness.root.innerHTML, new RegExp(`href="/admin\\?tab=${hidden}"`));
+      }
+      for (const tab of ['overview', 'orders']) assert.equal(harness.root.innerHTML.includes(`href="/admin?tab=${tab}"`), employee);
+      assert.equal(harness.network.some(call => /^\/api\/admin\/(team|staff|passkeys|tokens|promos|overview|orders)(\/|\?|$)/.test(call.path)), false);
+    } finally { harness.dispose(); }
+  }
+});
+
+test('root sessions can reach both manager invitations and employee and AI management', async () => {
+  const harness = await createNavigationHarness(fileURLToPath(new URL('../static', import.meta.url)));
+  try {
+    harness.overrides.set('/api/session', { user: null, admin: true, super_admin: true, csrf: 'root-csrf' });
+    await harness.prime();
+    await harness.route('/admin?tab=team', 'data-form="team-invite"');
+    await harness.route('/admin?tab=staff', 'data-form="staff-invite"');
+    assert.equal(harness.app.state.owner, true);
+    for (const tab of ['team', 'staff', 'keys', 'agents', 'promos']) assert.match(harness.root.innerHTML, new RegExp(`href="/admin\\?tab=${tab}"`));
+    assert.ok(harness.network.some(call => call.path === '/api/admin/team'));
+    assert.ok(harness.network.some(call => call.path === '/api/admin/staff'));
+  } finally { harness.dispose(); }
+});
+
+test('accepting either invitation cancels old private reads and reloads the cached session', async () => {
+  for (const employee of [false, true]) {
+    let release, started;
+    const blocked = new Promise(resolve => { release = resolve; });
+    const pendingRead = new Promise(resolve => { started = resolve; });
+    const harness = await createNavigationHarness(fileURLToPath(new URL('../static', import.meta.url)), { beforeResponse: path => { if (path === '/api/profile') { started(); return blocked; } } });
+    try {
+      await harness.prime();
+      const canceled = assert.rejects(harness.app.api('/api/profile'), { name: 'AbortError' });
+      await pendingRead;
+      await harness.app.api(employee ? '/api/team/invitations/accept' : `/api/staff/invitations/${token}/accept`, { method: 'POST', body: employee ? { token } : {} });
+      await canceled;
+      harness.overrides.set('/api/session', { user: { id: 'colleague', role: 'unassigned' }, admin: employee, super_admin: false, staff_role: employee ? null : 'manager', staff: employee ? { id: 'employee-one' } : null, csrf: 'new-csrf' });
+      await harness.app.session(harness.app.state.render);
+      assert.equal(harness.app.state.admin, true);
+      assert.equal(harness.app.state.owner, false);
+      assert.equal(harness.app.state.staffRole, employee ? null : 'manager');
+      assert.equal(harness.app.state.staff?.id || null, employee ? 'employee-one' : null);
+      assert.ok(harness.network.some(call => call.path === '/api/profile' && call.aborted));
+    } finally { release(); harness.dispose(); }
+  }
+});

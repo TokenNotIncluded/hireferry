@@ -181,6 +181,9 @@ async fn employee_enters_console_without_receiving_super_admin_credentials() {
             Some(json!({"name":"Unauthorized token"})),
         ),
         ("GET", "/api/admin/team", None),
+        ("GET", "/api/admin/staff", None),
+        ("GET", "/api/admin/promo-codes", None),
+        ("GET", "/api/admin/feedback", None),
         (
             "POST",
             "/api/admin/team/ai",
@@ -392,10 +395,43 @@ async fn ai_employee_uses_mcp_with_separate_revocable_identity() {
     assert_eq!(response.0, StatusCode::OK);
     assert_eq!(response.1["result"]["isError"], false);
     assert_eq!(response.1["result"]["structuredContent"]["via_ai"], true);
+    let catalog = request(
+        &f.app,
+        "POST",
+        "/mcp",
+        bearer(&token),
+        Some(json!({
+            "jsonrpc":"2.0","id":2,"method":"tools/list"
+        })),
+    )
+    .await;
+    let tools = catalog.1["result"]["tools"].as_array().unwrap();
+    assert!(tools.iter().any(|tool| tool["name"] == "admin_list_users"));
+    assert!(
+        tools
+            .iter()
+            .all(|tool| !tool["name"].as_str().unwrap().ends_with("feedback"))
+    );
+    let denied_tool = request(
+        &f.app,
+        "POST",
+        "/mcp",
+        bearer(&token),
+        Some(json!({
+            "jsonrpc":"2.0","id":3,"method":"tools/call", "params":{
+                "name":"admin_list_feedback","arguments":{}
+            }
+        })),
+    )
+    .await;
+    assert_eq!(denied_tool.1["error"]["code"], -32602);
     for path in [
         "/api/admin/passkeys",
         "/api/admin/tokens",
         "/api/admin/team",
+        "/api/admin/staff",
+        "/api/admin/promo-codes",
+        "/api/admin/feedback",
     ] {
         denied(&request(&f.app, "GET", path, bearer(&token), None).await);
     }
@@ -517,6 +553,122 @@ fn employees_keep_independent_chat_reads_and_message_idempotency() {
         .unwrap();
     assert_eq!(actors.len(), 3);
     assert!(actors.contains(&a.actor) && actors.contains(&b.actor) && actors.contains(&ai.actor));
+}
+
+#[tokio::test]
+async fn managers_and_employees_keep_distinct_permissions_and_chat_state() {
+    let f = Fixture::new();
+    let manager = f.employee();
+    let employee = f.employee();
+    let customer = f.employee();
+    {
+        let db = f.state.conn().unwrap();
+        db.execute(
+            "DELETE FROM team_members WHERE id IN (?1,?2)",
+            params![manager.id, customer.id],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO staff_members(user_id,role,joined_at,updated_at) VALUES(?1,'manager',?2,?2)",
+            params![manager.user_id, hireferry::now()],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE users SET name='Manager' WHERE id=?1",
+            [&manager.user_id],
+        )
+        .unwrap();
+    }
+    let manager_principal = access::principal(&f.state, &manager.headers(false), false).unwrap();
+    let employee_principal = access::principal(&f.state, &employee.headers(false), false).unwrap();
+    let customer_principal = access::principal(&f.state, &customer.headers(false), false).unwrap();
+    assert!(admin::list_orders(&f.state, &manager_principal, &Default::default()).is_err());
+    assert!(admin::list_orders(&f.state, &employee_principal, &Default::default()).is_ok());
+    denied(
+        &request(
+            &f.app,
+            "GET",
+            "/api/admin/users",
+            manager.headers(true),
+            None,
+        )
+        .await,
+    );
+
+    let thread = format!("platform_{}", customer.user_id);
+    let mut ids = Vec::new();
+    for (p, body) in [
+        (&manager_principal, "Manager reply"),
+        (&employee_principal, "Employee reply"),
+    ] {
+        let sent = chat::send_message(
+            &f.state,
+            p,
+            &thread,
+            chat::MessageInput {
+                body: body.into(),
+                client_id: "shared-client-id".into(),
+            },
+        )
+        .unwrap();
+        ids.push(sent["id"].as_i64().unwrap());
+    }
+    assert!(ids[0] < ids[1]);
+    assert_eq!(
+        chat::mark_read(&f.state, &manager_principal, &thread, ids[1]).unwrap()["unread_count"],
+        0
+    );
+    assert_eq!(
+        chat::get_conversation(&f.state, &employee_principal, &thread).unwrap()["unread_count"],
+        1
+    );
+    let inbox = chat::list_conversations(&f.state, &manager_principal).unwrap();
+    let room = inbox["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == thread)
+        .unwrap();
+    assert_eq!(room["unread_count"], 0);
+    let internal = chat::messages(&f.state, &employee_principal, &thread, 0, 100).unwrap();
+    assert_eq!(internal["items"][0]["staff_name"], "Manager");
+    assert_eq!(internal["items"][0]["is_own"], false);
+    let public = chat::messages(&f.state, &customer_principal, &thread, 0, 100).unwrap();
+    for message in public["items"].as_array().unwrap() {
+        assert_eq!(message["sender_name"], "HireFerry · 聘渡");
+        assert!(message.get("staff_name").is_none());
+        assert!(message.get("sender_actor").is_none());
+    }
+
+    // A separate, explicit team grant can coexist without upgrading the old
+    // manager principal or turning either membership into root ownership.
+    {
+        let db = f.state.conn().unwrap();
+        db.execute(
+            "INSERT INTO team_members(id,kind,user_id,name,created_by,created_at,updated_at)
+             VALUES(?1,'human',?2,'Manager','test',?3,?3)",
+            params![manager.id, manager.user_id, hireferry::now()],
+        )
+        .unwrap();
+    }
+    let session = request(&f.app, "GET", "/api/session", manager.headers(false), None).await;
+    assert_eq!(session.1["admin"], true);
+    assert_eq!(session.1["super_admin"], false);
+    assert_eq!(session.1["staff_role"], "manager");
+    assert_eq!(session.1["staff"]["id"], manager.id);
+    assert!(admin::list_orders(&f.state, &manager_principal, &Default::default()).is_err());
+    let team_principal = access::principal(&f.state, &manager.headers(false), false).unwrap();
+    assert!(admin::list_orders(&f.state, &team_principal, &Default::default()).is_ok());
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE staff_members SET active=0 WHERE user_id=?1",
+            [&manager.user_id],
+        )
+        .unwrap();
+    assert!(chat::list_conversations(&f.state, &manager_principal).is_err());
+    assert!(chat::list_conversations(&f.state, &team_principal).is_ok());
 }
 
 #[test]

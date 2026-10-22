@@ -65,6 +65,46 @@ pub enum Command {
     Whoami,
     /// Show current permissions and AI eligibility reported by the server.
     Capabilities,
+    /// Send a quick report or review the bounded administrator inbox.
+    Feedback {
+        #[command(subcommand)]
+        command: FeedbackCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum FeedbackCommand {
+    /// Send short plain-text feedback with your current CLI identity.
+    Send {
+        message: String,
+        #[arg(long, default_value = "bug", value_parser = ["bug", "idea", "other"])]
+        category: String,
+    },
+    /// List recent reports (requires --scope admin).
+    List {
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..=100))]
+        limit: Option<i64>,
+        #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
+        before_id: Option<i64>,
+        #[arg(long, value_parser = ["open", "resolved"])]
+        status: Option<String>,
+        #[arg(long, value_parser = ["bug", "idea", "other"])]
+        category: Option<String>,
+        #[arg(long, value_parser = ["web", "cli"])]
+        source: Option<String>,
+    },
+    /// Read one report (requires --scope admin).
+    Get {
+        #[arg(value_parser = clap::value_parser!(i64).range(1..))]
+        id: i64,
+    },
+    /// Mark a report resolved (or reopen it with --reopen); administrator only.
+    Resolve {
+        #[arg(value_parser = clap::value_parser!(i64).range(1..))]
+        id: i64,
+        #[arg(long)]
+        reopen: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -208,6 +248,68 @@ pub async fn run(cli: Cli) -> Result<Value> {
                     json!({"server":server.origin,"client_id":server.client_id,"identity":identity,"storage":store.info()?,"refreshed":refreshed}),
                 )
             }
+        }
+        Command::Feedback { command } => {
+            let _guard = store.lock().await?;
+            let mut credential = store.load()?.ok_or_else(Error::signed_out)?;
+            let (identity, _) = verified_identity(&server, &store, &mut credential, false).await?;
+            if !matches!(&command, FeedbackCommand::Send { .. })
+                && (!identity.admin || !identity.capabilities.admin)
+            {
+                return Err(Error::new(
+                    "admin_required",
+                    "Run hfy --scope admin auth login before reviewing feedback.",
+                ));
+            }
+            let data = match command {
+                FeedbackCommand::Send { message, category } => {
+                    if !(2..=2000).contains(&message.trim().chars().count())
+                        || message.len() > 8000
+                        || message
+                            .chars()
+                            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                    {
+                        return Err(Error::new(
+                            "invalid_feedback",
+                            "Use 2–2000 characters of plain text.",
+                        ));
+                    }
+                    server
+                        .submit_feedback(&credential.access_token, &category, &message)
+                        .await?
+                }
+                FeedbackCommand::List {
+                    limit,
+                    before_id,
+                    status,
+                    category,
+                    source,
+                } => {
+                    server
+                        .list_feedback(
+                            &credential.access_token,
+                            limit,
+                            before_id,
+                            status.as_deref(),
+                            category.as_deref(),
+                            source.as_deref(),
+                        )
+                        .await?
+                }
+                FeedbackCommand::Get { id } => {
+                    server.get_feedback(&credential.access_token, id).await?
+                }
+                FeedbackCommand::Resolve { id, reopen } => {
+                    server
+                        .update_feedback(
+                            &credential.access_token,
+                            id,
+                            if reopen { "open" } else { "resolved" },
+                        )
+                        .await?
+                }
+            };
+            Ok(json!({"server":server.origin,"feedback":data}))
         }
         Command::Auth {
             command: AuthCommand::Logout,

@@ -5,8 +5,8 @@
   const root = document.documentElement;
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const valid = value => ['system', 'light', 'dark'].includes(value);
-  const palettes = ['blue', 'violet', 'rose', 'amber', 'teal'];
-  let preference = 'light', palette = 'blue';
+  const palettes = ['neutral', 'blue', 'violet', 'rose', 'amber', 'teal'];
+  let preference = 'light', palette = 'neutral';
   try {
     const saved = localStorage.getItem(key), savedPalette = localStorage.getItem(paletteKey);
     if (valid(saved)) preference = saved;
@@ -28,7 +28,7 @@
     root.dataset.palette = palette;
     root.classList.toggle('dark', theme === 'dark');
     root.classList.toggle('light', theme === 'light');
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#131313' : '#f9f9f9');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#171715' : '#f8f7f3');
     syncControls();
   }
   function closeMenus(restoreFocus = false) {
@@ -58,8 +58,8 @@
   window.addEventListener('storage', event => {
     if (![key, paletteKey, null].includes(event.key)) return;
     if (event.key === key) preference = valid(event.newValue) ? event.newValue : 'light';
-    if (event.key === paletteKey) palette = palettes.includes(event.newValue) ? event.newValue : 'blue';
-    if (event.key === null) { preference = 'light'; palette = 'blue'; }
+    if (event.key === paletteKey) palette = palettes.includes(event.newValue) ? event.newValue : 'neutral';
+    if (event.key === null) { preference = 'light'; palette = 'neutral'; }
     apply();
   });
   new MutationObserver(syncControls).observe(root, {childList: true, subtree: true});

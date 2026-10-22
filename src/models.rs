@@ -109,6 +109,8 @@ pub struct Order {
     pub snapshot_json: String,
     pub provider_session: Option<String>,
     pub checkout_url: Option<String>,
+    #[serde(default)]
+    pub checkout_expires_at: Option<i64>,
     pub created_at: i64,
     pub paid_at: Option<i64>,
 }
@@ -129,6 +131,7 @@ pub fn order_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Order> {
         snapshot_json: r.get("snapshot_json")?,
         provider_session: r.get("provider_session")?,
         checkout_url: r.get("checkout_url")?,
+        checkout_expires_at: r.get("checkout_expires_at")?,
         created_at: r.get("created_at")?,
         paid_at: r.get("paid_at")?,
     })

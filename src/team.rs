@@ -122,7 +122,10 @@ pub fn ensure_account_access_change(
     let protected: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM team_members WHERE user_id=?1)
          OR EXISTS(SELECT 1 FROM team_invitations i JOIN users u ON i.email=u.email COLLATE NOCASE
-                   WHERE u.id=?1 AND i.status='pending' AND i.expires_at>?2)",
+                   WHERE u.id=?1 AND i.status='pending' AND i.expires_at>?2)
+         OR EXISTS(SELECT 1 FROM staff_members WHERE user_id=?1)
+         OR EXISTS(SELECT 1 FROM staff_invitations i JOIN users u ON i.email=u.email COLLATE NOCASE
+                   WHERE u.id=?1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>?2)",
         params![user_id, now()],
         |row| row.get(0),
     )?;

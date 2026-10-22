@@ -136,6 +136,26 @@ poll_interval_secs = 5
 delivered_retention_days = 30 # Includes cancelled deliveries.
 failed_retention_days = 90
 
+# Fast feedback is short-lived, bounded, and never a permanent support archive.
+# Guest submissions share a site-wide hourly budget (no client IP tracking).
+[feedback]
+enabled = true
+retention_days = 180 # Open feedback, from submission or the last actual reopening.
+resolved_retention_days = 30 # Measured from the last status change.
+max_records = 10000 # Reject new reports with HTTP 503 when full; no eviction.
+duplicate_window_seconds = 600
+max_per_account_per_hour = 5
+max_guest_per_hour = 30
+
+# Background cleanup runs on startup and periodically; finance, audit,
+# business chat and recruitment records are deliberately excluded.
+[maintenance]
+interval_minutes = 60
+batch_size = 200 # Per table and batch. Backlogs drain in short batches with the DB lock released between them.
+expired_credentials_grace_days = 30 # After absolute expiry; never evict live grants.
+human_grant_history_days = 90 # Expired/revoked grants, sessions and applications.
+staff_invitation_history_days = 30 # From acceptance, revocation or expiry; staff members and audit remain.
+
 # Public policy values. These are operating commitments, not automatic cleanup jobs.
 # Fees, website origin and support email are always taken from pricing/public_url/site.
 [legal.values]

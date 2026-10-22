@@ -31,13 +31,15 @@ const VISIBLE: &str = "(?1=1 OR (c.kind='platform' AND pu.banned=0 AND c.user_id
 // Resolve staff attribution alongside the message page. Disabled employees and
 // rotated credentials retain their historical attribution without extra queries.
 const MESSAGE_FIELDS: &str = "msg.*,COALESCE(sender.name,'') AS sender_name,
- staff_member.name AS staff_display_name";
+ COALESCE(staff_member.name,manager_user.name) AS staff_display_name";
 const MESSAGE_JOINS: &str = "LEFT JOIN users sender ON sender.id=msg.sender_id
  LEFT JOIN team_ai_tokens staff_token ON staff_token.id=
     CASE WHEN substr(msg.sender_key,1,9)='staff_ai:' THEN substr(msg.sender_key,10) END
  LEFT JOIN team_members staff_member ON staff_member.id=
     CASE WHEN substr(msg.sender_key,1,6)='staff:' THEN substr(msg.sender_key,7)
-         ELSE staff_token.member_id END";
+         ELSE staff_token.member_id END
+ LEFT JOIN users manager_user ON manager_user.id=
+    CASE WHEN substr(msg.sender_key,1,8)='manager:' THEN substr(msg.sender_key,9) END";
 
 pub fn migrate(db: &Connection) -> AppResult<()> {
     db.execute_batch(r#"
@@ -183,6 +185,11 @@ fn missing_thread() -> AppError {
 }
 fn user_key(p: &Principal) -> AppResult<String> {
     if p.admin {
+        // Managers keep their personal user identity; team employees use the
+        // independent membership identity below. Neither shares the root cursor.
+        if let Some(id) = &p.user_id {
+            return Ok(format!("manager:{id}"));
+        }
         // Each employee keeps their own read cursor and idempotency namespace.
         // A member's browser and WebMCP share it across that member's sessions.
         if let Some(identity) = p
@@ -482,7 +489,9 @@ fn raw_message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::
         value["is_own"] = json!(kind == "platform" && sender_key == viewer);
         value["staff_name"] = if kind == "platform" {
             let name: Option<String> = r.get("staff_display_name")?;
-            let fallback = if sender_key.starts_with("staff:") {
+            let fallback = if sender_key.starts_with("manager:") {
+                "经理"
+            } else if sender_key.starts_with("staff:") {
                 "员工"
             } else if via_ai {
                 "平台AI"

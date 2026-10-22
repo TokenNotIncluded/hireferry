@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 9 {
+    if version > 13 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -128,12 +128,42 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 8)?;
         tx.commit()?;
     }
-    // Team membership is independent of member accounts and the root Passkey.
-    // Commit tables and the version marker together, preserving both identities.
+    // Version 9 makes promotion reservations part of payment fulfillment.
+    // Older binaries must refuse this database rather than ignore their expiry.
     if version < 9 {
         let tx = db.unchecked_transaction()?;
-        crate::team::migrate(&tx)?;
+        crate::promos::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 9)?;
+        tx.commit()?;
+    }
+    // Version 10 adds short-lived reports without modifying finance tables.
+    if version < 10 {
+        let tx = db.unchecked_transaction()?;
+        crate::feedback::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 10)?;
+        tx.commit()?;
+    }
+    // Schema 11: isolated human staff roles and one-time invitation hashes.
+    if version < 11 {
+        let tx = db.unchecked_transaction()?;
+        crate::staff::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 11)?;
+        tx.commit()?;
+    }
+    // Schema 12: persistent abuse controls and indexed, bounded housekeeping.
+    if version < 12 {
+        let tx = db.unchecked_transaction()?;
+        crate::feedback::migrate(&tx)?;
+        crate::maintenance::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 12)?;
+        tx.commit()?;
+    }
+    // Schema 13 adds team employees independently of manager and root identities.
+    // Commit all team tables, revocation triggers and the version atomically.
+    if version < 13 {
+        let tx = db.unchecked_transaction()?;
+        crate::team::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 13)?;
         tx.commit()?;
     }
     Ok(())

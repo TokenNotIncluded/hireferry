@@ -13,10 +13,16 @@ const teamSource = await readFile(new URL('../static/team-ui.js', import.meta.ur
 const teamHelpers = await import('data:text/javascript;base64,' + Buffer.from(teamSource).toString('base64'));
 const cliGuideSource = await readFile(new URL('../static/cli-guide.js', import.meta.url), 'utf8');
 const cliGuideHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliGuideSource).toString('base64'));
+const billingSource = await readFile(new URL('../static/billing-ui.js', import.meta.url), 'utf8');
+const billingHelpers = await import('data:text/javascript;base64,' + Buffer.from(billingSource).toString('base64'));
+// Page markup tests use a DOM sink; disclosure events have their own real controller tests.
+const createDisclosureUI = () => ({ sync() {}, reset() {}, dispose() {} });
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
 
 const serviceSource = await readFile(new URL('../static/service-ui.js', import.meta.url), 'utf8');
 const { createServiceUI, createMessageId, filterConversations, chatSendShortcut, messageDateKey, createChatDateFormatter } = await import('data:text/javascript;base64,' + Buffer.from(serviceSource).toString('base64'));
+const promoSource = await readFile(new URL('../static/promo-ui.js', import.meta.url), 'utf8');
+const {createPromoUI} = await import('data:text/javascript;base64,' + Buffer.from(promoSource).toString('base64'));
 const appSource = (await readFile(new URL('../static/app.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace(/render\(\);\s*$/, '');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -172,6 +178,8 @@ test('selected role queries candidates with server filters without fetching prof
   assert.match(html, /1 on this page · 100000 total/);
   assert.match(html, /Not introduced/);
   assert.doesNotMatch(html, /Sanitized résumé/);
+  assert.match(html, /<details[^>]*data-disclosure="candidate-filters:[^"]*" open>/);
+  assert.match(html, /Advanced filters[\s\S]*Industry: Software · Role: Engineer · Location: Remote/);
 });
 
 test('candidate details are loaded on demand and reopened introductions reuse the existing match', async () => {
@@ -189,6 +197,8 @@ test('candidate details are loaded on demand and reopened introductions reuse th
   assert.match(html, /&lt;script&gt;candidate&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>candidate/);
   assert.match(html, /<h2>Sanitized résumé<\/h2>/);
+  assert.match(html, /<details[^>]*data-disclosure="candidate-resume:person-one" open>/);
+  assert.match(html, /<\/details><section class="wb-introduction">/, 'introducing remains available when the résumé is folded');
   assert.match(html, /Reintroducing restores profile access and the existing shared room/);
   assert.match(html, /conversation=platform_person-one/);
   const data = new FormData(); data.set('note', 'Ready to reconnect.'); data.set('job_id', 'tampered-role');
@@ -318,9 +328,10 @@ test('workbench labels and candidate confirmation are available in Chinese witho
 function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', order = null, responses = {}, serviceUIFactory = () => ({}), legalRenderer = (content,lang) => `<main data-legal-language="${lang}">${content.html}</main>` } = {}) {
   const registered = new Map();
   const requests = [];
+  const listeners = new Map();
   const modelContext = { registerTool: tool => registered.set(tool.name, tool), unregisterTool: name => registered.delete(name) };
-  const node = { innerHTML: '', replaceChildren() {} };
-  const document = { querySelector: () => node, addEventListener() {}, removeEventListener() {}, body: { style: {} }, documentElement: {}, modelContext };
+  const node = { innerHTML: '', replaceChildren() { this.innerHTML = ''; } };
+  const document = { querySelector: () => node, addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); }, removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }, body: { style: {} }, documentElement: {}, modelContext };
   const fetch = async (path, options) => {
     requests.push({ path, options });
     const result = Object.hasOwn(responses, path) ? responses[path] : path === '/api/ai/eligibility' ? { eligible } : path.startsWith('/api/orders/') ? order : { ok: true };
@@ -330,12 +341,12 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment};')(
-    document, { modelContext }, { addEventListener() {} }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, { getItem: () => null }, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
-  return { app, registered, requests, location: browserLocation, setEligible(value) { eligible = value; } };
+  return { app, registered, requests, document, dialogNode: node, listeners, location: browserLocation, setEligible(value) { eligible = value; } };
 }
 
 test('an ineligible employer receives no WebMCP tools', () => {
@@ -387,7 +398,8 @@ test('webhook pages load only the user’s endpoints and latest delivery without
   assert.match(html, /do not contain résumés, contact emails, or message bodies/);
   assert.match(html, /deduplicate using your receiver ID plus body\.id from the verified payload/);
   const guide = html.slice(html.indexOf('<section class="panel webhook-guide">'));
-  assert.match(guide, /<\/p><\/div><\/div><div class="webhook-principles">/, 'the explanation grid must be outside the flex header');
+  assert.match(guide, /<\/p><\/div><\/div><details[^>]*data-disclosure="webhook-guide:configured"\s*>/, 'privacy scope remains visible while the setup guide starts folded');
+  assert.match(guide, /class="disclosure-content"><div class="webhook-principles">/, 'the explanation grid stays outside the flex header');
   assert.ok(requests.every(request => request.options === undefined));
   assert.equal(requests.length, 2);
 });
@@ -399,6 +411,7 @@ test('webhook subscriptions show role-appropriate events and work in Chinese', a
     const html = await service.webhooksPage();
     service.webhookDialog();
     assert.match(html, /我的接收端点/);
+    assert.match(html, /<details[^>]*data-disclosure="webhook-guide:new" open>/, 'the first receiver setup keeps its instructions available');
     assert.match(dialog, /订阅事件/);
     assert.match(dialog, /只通知你本人有权访问的对象/);
     for (const event of ['message.created', 'match.updated', 'job.updated', 'order.updated']) assert.ok(dialog.includes(`value="${event}"`));
@@ -447,6 +460,8 @@ test('delivery history localizes failures and only failed deliveries have retry 
   assert.doesNotMatch(dialog, />timeout</);
   assert.equal((dialog.match(/data-action="webhook-retry"/g) || []).length, 1);
   assert.match(dialog, /data-delivery="delivery-3"/);
+  assert.match(dialog, /<details[^>]*data-disclosure="webhook-delivery:endpoint-one:delivery-3">/);
+  assert.match(dialog, /<\/details><p class="webhook-warning">接收服务响应超时/, 'the failure is visible without opening technical metadata');
   assert.match(dialog, /已送达/);
   assert.match(dialog, /已取消/);
 });
@@ -461,6 +476,102 @@ test('disabled delivery retains history and deletion while disabling create, tes
   assert.doesNotMatch(html.match(/<button[^>]*data-action="webhook-toggle"[^>]*>/)[0], /disabled/);
   await service.webhookDeliveries(endpoint.id);
   assert.match(dialog, /data-action="webhook-retry"[^>]*disabled/);
+});
+
+test('dialog Tab order reaches delivery summaries with disabled actions and excludes unfocusable elements', () => {
+  const { app, document, dialogNode, listeners } = webmcp();
+  const control = (tag, extra = {}) => ({
+    tag, tabIndex: 0, disabled: false, offsetParent: {},
+    matches(selector) { return selector === ':disabled' && (this.disabled || this.disabledByFieldset); },
+    closest() { return this.hiddenAncestor || this.inertAncestor ? {} : null; },
+    getClientRects() { return this.rendered === false ? [] : [{}]; },
+    focus() { document.activeElement = this; },
+    ...extra,
+  });
+  const close = control('button'), refresh = control('button'), summary = control('summary');
+  const controls = [close, refresh, summary, control('button', { disabled: true })];
+  dialogNode.querySelector = () => dialogNode.innerHTML ? {} : null;
+  dialogNode.querySelectorAll = selector => controls.filter(node => selector.split(',').some(part => part === node.tag || (part === '[tabindex]' && node.explicitTabIndex)));
+  app.openDialog('<h2 id="dialog-title">Delivery history</h2>');
+  assert.equal(document.activeElement, close);
+  const tab = (active, shiftKey = false) => {
+    document.activeElement = active;
+    let prevented = false;
+    for (const handler of listeners.get('keydown')) handler({ key: 'Tab', shiftKey, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(tab(refresh), false, 'Tab from Refresh must proceed to the native summary, not wrap to Close');
+  assert.equal(tab(summary), true);
+  assert.equal(document.activeElement, close);
+  assert.equal(tab(close, true), true);
+  assert.equal(document.activeElement, summary);
+
+  const custom = control('div', { explicitTabIndex: true, offsetParent: null });
+  controls.push(custom,
+    control('button', { tabIndex: -1, explicitTabIndex: true }),
+    control('button', { hiddenAncestor: true }),
+    control('button', { inertAncestor: true }),
+    control('button', { visibility: 'hidden' }),
+    control('button', { rendered: false }),
+    control('button', { disabledByFieldset: true }));
+  assert.equal(tab(summary), false, 'a visible custom tabindex=0 control remains reachable');
+  assert.equal(tab(custom), true, 'hidden, inert, disabled and negative-tabindex controls are outside the cycle');
+  assert.equal(document.activeElement, close);
+  assert.equal(tab(close, true), true);
+  assert.equal(document.activeElement, custom);
+  app.closeDialog();
+  assert.equal(listeners.get('keydown').size, 0);
+});
+
+const expiredActivation = { id: 'activation-old', kind: 'onboarding', status: 'expired', provider: 'waffo', amount_cents: 10000, refunded_cents: 0, currency: 'CNY', created_at: 1, checkout_expires_at: 2, checkout_url: 'https://checkout.example/expired' };
+
+test('inactive employers can restart an expired activation from Orders without expanding history', async () => {
+  const { app, requests } = webmcp({ eligible: false, role: 'employer', responses: { '/api/orders': { items: [expiredActivation] } } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const html = await app.ordersPage();
+  const overview = html.match(/<section class="activation-overview">[\s\S]*?<\/section>/)?.[0];
+  assert.ok(overview);
+  assert.match(overview, /Order expired/);
+  assert.match(overview, /data-action="role-employer"/);
+  assert.match(overview, /Restart activation/);
+  assert.doesNotMatch(overview, /<details/);
+  assert.doesNotMatch(html, /data-action="pay-order"/);
+  assert.match(html, /data-disclosure="order-activation-old"/);
+  assert.deepEqual(requests.map(request => [request.path, request.options?.method || 'GET']), [['/api/orders', 'GET']]);
+});
+
+test('activation stays reachable when there are no orders and when posting is blocked by an inactive account', async () => {
+  const { app } = webmcp({ eligible: false, role: 'employer', responses: { '/api/orders': { items: [] } } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const orders = await app.ordersPage();
+  assert.match(orders, /Activate employer account/);
+  assert.match(orders, /No orders yet/);
+  assert.match(orders, /<button[^>]*data-action="role-employer"/);
+  const editor = await app.jobEditor();
+  assert.match(editor, /Your employer account is not active/);
+  assert.match(editor, /<button[^>]*data-action="role-employer"/);
+});
+
+test('an expired payment return offers recovery using only the account-authorized order read', async () => {
+  const { app, requests } = webmcp({ eligible: false, role: 'employer', search: '?order_id=activation-old&status=paid', order: { ...expiredActivation, status: 'pending' } });
+  app.state.lang = 'en'; app.state.user.employer_paid = false;
+  const html = await app.paymentReturn();
+  assert.match(html, /This order has expired/);
+  assert.match(html, /data-action="role-employer"/);
+  assert.match(html, /Restart activation/);
+  assert.doesNotMatch(html, /data-action="pay-order"|Payment confirmed\./);
+  assert.deepEqual(requests.map(request => [request.path, request.options?.method || 'GET']), [['/api/orders/activation-old', 'GET']]);
+});
+
+test('active employers are not offered payment or reactivation for leftover activation orders', async () => {
+  const leftover = { ...expiredActivation, id: 'activation-pending', status: 'pending', checkout_expires_at: Math.floor(Date.now() / 1000) + 3600 };
+  const { app } = webmcp({ role: 'employer', search: '?order_id=activation-old', order: expiredActivation, responses: { '/api/orders': { items: [leftover, expiredActivation] } } });
+  app.state.lang = 'en';
+  const orders = await app.ordersPage();
+  assert.match(orders, /Your employer account is active/);
+  assert.match(orders, /Manage roles/);
+  assert.doesNotMatch(orders, /data-action="pay-order"|data-action="role-employer"/);
+  assert.doesNotMatch(await app.paymentReturn(), /data-action="pay-order"|data-action="role-employer"/);
 });
 
 test('net-receipt chart retains refund-only negative values below an explicit zero baseline', () => {
@@ -735,7 +846,8 @@ test('appearance control and workbench failures are bilingual and do not trap in
   const zh = app.header();
   assert.match(zh, /class="mode-options" role="group" aria-label="外观"/);
   assert.match(zh, /class="palette-options" role="group" aria-label="配色"/);
-  assert.equal((zh.match(/data-palette-choice=/g)||[]).length,5);
+  assert.equal((zh.match(/data-palette-choice=/g)||[]).length,6);
+  assert.match(zh, /data-palette-choice="neutral" aria-label="纸墨"/);
   for (const label of ['跟随系统', '浅色', '深色']) assert.ok(zh.includes(label));
   assert.match(app.requestErrorText('Invalid cursor or changed search filters; restart from the first page'), /第一页/);
   assert.match(app.requestErrorText('This job is no longer available for new matches; choose another job'), /新匹配/);
@@ -1370,7 +1482,10 @@ test('post-mount currency synchronization uses retained live selections without 
     assert.match(select.labels.max.textContent,/（JPY）$/);
   }
   assert.equal(requests.length,0);
-  assert.match(appSource,/mountPage\(root,header\(\)\+body\+footer\(\),pageKey\);syncCurrencyFields\(\)/);
+  const mounted=appSource.indexOf('mountPage(root,header()+body+footer(),pageKey);');
+  const synchronized=appSource.indexOf('syncCurrencyFields()',mounted);
+  const ready=appSource.indexOf("recordPaint('ready')",mounted);
+  assert.ok(mounted>=0&&synchronized>mounted&&ready>synchronized,'currency fields synchronize after mounting and before reporting the page ready');
 });
 
 function chatDom() {
@@ -2032,4 +2147,140 @@ test('staff chat navigation cannot bypass owner page guards or retain access aft
     assert.doesNotMatch(harness.root.innerHTML, /chat-workspace|QA_MESSAGE_READY/);
     assert.match(harness.root.innerHTML, /admin-auth/);
   } finally { harness.dispose(); dom.restore(); }
+});
+
+test('reviewing another search brief releases the previous private outreach records', async () => {
+  const dialogs = [];
+  const owner = { id: 'admin-session', role: 'seeker' };
+  const service = ui(async path => {
+    const id = path.split('/').at(-1);
+    if (path.includes('/mandates/')) return { mandate: { user_id: id, user_name: id, target_roles: 'Engineer', status: 'active', allow_external: true } };
+    return { items: [{ id: `record-${id}`, channel: 'Direct', opportunity: `private-${id}`, stage: 'contacted', note: `notes-${id}` }] };
+  }, { admin: true, state: { user: owner }, hooks: { openDialog: html => dialogs.push(html) } });
+  await service.adminMandate('first');
+  service.outreachDialog('first', 'record-first');
+  assert.match(dialogs.at(-1), /notes-first/);
+  await service.adminMandate('second');
+  assert.throws(() => service.outreachDialog('first', 'record-first'), /Refresh this brief/);
+  service.outreachDialog('second', 'record-second');
+  assert.match(dialogs.at(-1), /notes-second/);
+  owner.id = 'new-identity';
+  service.stopChat();
+  assert.throws(() => service.outreachDialog('second', 'record-second'), /Refresh this brief/);
+});
+
+test('a late search brief cannot refill private caches after the view changes', async () => {
+  let finish;
+  const delayed = new Promise(resolve => { finish = resolve; });
+  const dialogs = [];
+  const service = ui(async path => path.includes('/mandates/') ? delayed : { items: [{ id: 'old-record', note: 'old-private-data' }] },
+    { admin: true, hooks: { openDialog: html => dialogs.push(html) } });
+  const pending = service.adminMandate('old');
+  service.stopChat();
+  finish({ mandate: { user_id: 'old', user_name: 'Old', target_roles: 'Engineer', status: 'active', allow_external: true } });
+  await pending;
+  assert.equal(dialogs.length, 0);
+  assert.throws(() => service.outreachDialog('old', 'old-record'), /Refresh this brief/);
+});
+
+test('old search cursor caches expire without losing the first-page recovery control', async () => {
+  const service = ui(async () => ({ ...workbenchResult([workbenchRole], 'page-two'), total: 100 }),
+    { admin: true, search: '?tab=matches&job_q=original', hooks: { go: browserNavigate } });
+  await service.matchesPage(true);
+  await service.workbenchPage('jobs', 'next');
+  const second = await service.matchesPage(true);
+  assert.doesNotMatch(second.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  for (let i = 0; i < 51; i++) {
+    globalThis.location.search = `?tab=matches&job_q=query-${i}`;
+    await service.matchesPage(true);
+  }
+  globalThis.location.search = '?tab=matches&job_q=original&jobs_cursor=page-two';
+  const restored = await service.matchesPage(true);
+  assert.match(restored.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  assert.match(restored, /data-direction="first"/);
+  await service.workbenchPage('jobs', 'first');
+  assert.equal(new URLSearchParams(globalThis.location.search).has('jobs_cursor'), false);
+});
+
+test('long cursor browsing keeps a bounded back history and a path to the first page', async () => {
+  const service = ui(async path => {
+    const cursor = new URL(path, 'https://hireferry.test').searchParams.get('cursor');
+    return { ...workbenchResult([workbenchRole], String(Number(cursor || 0) + 1)), total: 10000 };
+  }, { admin: true, search: '?tab=matches', hooks: { go: browserNavigate } });
+  await service.matchesPage(true);
+  for (let i = 0; i < 105; i++) {
+    await service.workbenchPage('jobs', 'next');
+    await service.matchesPage(true);
+  }
+  let html;
+  for (let i = 0; i < 99; i++) {
+    await service.workbenchPage('jobs', 'previous');
+    html = await service.matchesPage(true);
+  }
+  assert.equal(new URLSearchParams(globalThis.location.search).get('jobs_cursor'), '6');
+  assert.match(html.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  assert.match(html, /data-direction="first"/);
+  await service.workbenchPage('jobs', 'first');
+  assert.equal(new URLSearchParams(globalThis.location.search).has('jobs_cursor'), false);
+});
+
+test('pending message capacity preserves earlier idempotency keys and rejects new sends safely', async () => {
+  const attempts = [];
+  const rooms = Array.from({ length: 51 }, (_, i) => chatRoom(`match_pending_${i}`));
+  const service = ui(async (path, options) => {
+    if (path === '/api/chat/conversations') return { items: rooms };
+    if (options?.method === 'POST' && path.endsWith('/messages')) {
+      attempts.push({ path, ...options.body });
+      throw new Error('Network uncertain');
+    }
+    if (path.includes('/messages?')) return historyPage([]);
+    return {};
+  });
+  const dom = chatDom();
+  try {
+    const data = new FormData(); data.set('body', 'Preserve this retry');
+    const form = { querySelector: () => dom.nodes['#chat-body'] };
+    for (let i = 0; i < 50; i++) {
+      service.stopChat();
+      globalThis.location.search = `?tab=messages&conversation=match_pending_${i}`;
+      await service.messagesPage(); await service.mountChat();
+      await assert.rejects(service.sendMessage(form, data), /Network uncertain/);
+    }
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_pending_50';
+    await service.messagesPage(); await service.mountChat();
+    await assert.rejects(service.sendMessage(form, data), /Retry an existing pending message/);
+    assert.equal(attempts.length, 50, 'capacity failure must not start another network send');
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_pending_0';
+    await service.messagesPage(); await service.mountChat();
+    await assert.rejects(service.sendMessage(form, data), /Network uncertain/);
+    assert.equal(attempts.at(-1).client_id, attempts[0].client_id, 'the oldest uncertain send must keep its original idempotency key');
+    service.stopChat();
+  } finally { dom.restore(); }
+});
+
+test('manager-only sessions have no browser AI tools while an explicit employee grant remains usable', () => {
+  const { app, registered } = webmcp({ admin: true });
+  Object.assign(app.state, { owner: false, super_admin: false, staffRole: 'manager', user: { id: 'colleague' }, staff: null });
+  app.registerWebMCP();
+  assert.equal(registered.size, 0);
+  app.state.staff = { id: 'employee-one' };
+  app.registerWebMCP();
+  assert.ok(registered.has('hireferry_admin_get_user'));
+  app.state.staff = null;
+  app.registerWebMCP();
+  assert.equal(registered.size, 0);
+});
+
+test('losing employee access clears private workbench caches even when the manager session remains', async () => {
+  const identity = { admin: true, super_admin: false, user: { id: 'colleague' }, staff: { id: 'employee-one' }, staffRole: 'manager', csrf: 'same-csrf' };
+  const service = ui(async path => path.includes('/mandates/')
+    ? { mandate: { user_id: 'first', target_roles: 'Engineer', status: 'active' } }
+    : { items: [{ id: 'record-first', note: 'Employee-only retained draft' }] }, { hooks: { state: identity } });
+  await service.adminMandate('first');
+  service.outreachDialog('first', 'record-first');
+  identity.staff = null;
+  service.stopChat();
+  assert.throws(() => service.outreachDialog('first', 'record-first'), /Refresh this brief/);
 });

@@ -2,7 +2,7 @@
 
 包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.2`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
 
-服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
+服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希；schema 9 新增优惠码，schema 10 新增有限期快速反馈记录，schema 11 新增团队成员邀请，schema 12 增加反馈配额、重复保护与有界清理。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
 
 ## 安装、升级与卸载
 
@@ -149,6 +149,24 @@ hfy capabilities --json
 hfy auth status --json
 hfy auth logout
 ```
+
+### 快速反馈与管理员收件箱
+
+`hfy feedback send` 使用已授权的 identity 身份即可向平台提交反馈，不需要额外申请 MCP 业务权限；支持 `--category bug|idea|other`，输入 2–2000 字符。提交成功返回反馈编号，不会保存反馈到本机。已登录用户和匿名访客也可使用网站右下角的快速反馈入口。
+
+```sh
+hfy feedback send "连接页没有跟随我的主题色" --category bug
+
+# 审阅和处理只向明确授权的管理员开放
+hfy --scope admin auth login
+hfy --scope admin feedback list --limit 25 --status open --json
+hfy --scope admin feedback list --category bug --source cli --json
+hfy --scope admin feedback list --before-id 123 --json
+hfy --scope admin feedback get 123 --json
+hfy --scope admin feedback resolve 123
+```
+
+详细 API、管理员 MCP 工具及自动过期策略见[反馈与增长控制](feedback-and-retention.md)。
 
 登录成功不等于有 AI 或管理员业务权限。默认的 `identity` 权限用于识别账户、查看登录状态、AI 资格和当前能力。需要业务权限时必须明确申请，并由用户在网页上确认：
 

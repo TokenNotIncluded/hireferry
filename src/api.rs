@@ -254,6 +254,7 @@ pub struct RoleInput {
     pub role: String,
     pub provider: Option<String>,
     pub currency: Option<String>,
+    pub promo_code: Option<String>,
 }
 async fn role(
     State(s): State<AppState>,
@@ -261,12 +262,13 @@ async fn role(
     Json(i): Json<RoleInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (user, order) = commerce::choose_role_with_currency(
+    let (user, order) = commerce::choose_role_with_promo(
         &s,
         &uid,
         &i.role,
         i.provider.as_deref(),
         i.currency.as_deref(),
+        i.promo_code.as_deref(),
     )?;
     Ok(Json(json!({"user":user,"order":order})))
 }
@@ -402,6 +404,9 @@ pub struct JobInput {
     pub currency: Option<String>,
     #[serde(default = "default_headcount")]
     pub headcount: i64,
+    pub promo_code: Option<String>,
+    pub request_key: Option<String>,
+    pub expected_amount_cents: Option<i64>,
 }
 fn default_headcount() -> i64 {
     1
@@ -412,7 +417,7 @@ async fn create_job(
     Json(i): Json<JobInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (job, order) = commerce::new_job_with_currency(
+    let (job, order) = commerce::new_job_with_promo(
         &s,
         &uid,
         &i.title,
@@ -421,6 +426,9 @@ async fn create_job(
         &i.provider,
         i.headcount,
         i.currency.as_deref(),
+        i.promo_code.as_deref(),
+        i.request_key.as_deref(),
+        i.expected_amount_cents,
     )?;
     Ok(Json(json!({"job":job,"order":order})))
 }
@@ -591,7 +599,11 @@ async fn person(
     Ok(Json(person_detail(&s, &id, viewer.as_deref())?))
 }
 pub fn user_orders(s: &AppState, id: &str) -> AppResult<Vec<models::Order>> {
-    let db = s.conn()?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    crate::promos::expire_reservations(&tx)?;
+    commerce::expire_onboarding_orders(&tx, id)?;
+    tx.commit()?;
     let mut orders = db
         .prepare("SELECT * FROM orders WHERE user_id=?1 ORDER BY created_at DESC,id LIMIT ?2")?
         .query_map(
@@ -621,7 +633,11 @@ fn hide_unavailable_checkout(
     Ok(())
 }
 pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order> {
-    let db = s.conn()?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    crate::promos::expire_order_reservation(&tx, id)?;
+    commerce::expire_onboarding_orders(&tx, uid)?;
+    tx.commit()?;
     let mut order = models::load_order(&db, id)?;
     if order.user_id != uid {
         return Err(AppError::not_found("Order not found"));
@@ -762,7 +778,7 @@ async fn matches(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Valu
 
 async fn ai_eligibility(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, false)?;
-    if p.admin {
+    if p.admin && p.user_id.is_none() {
         return Ok(Json(
             json!({"eligible":true,"reason":"platform_admin","role":"admin","min_salary_cents":s.cfg.pricing.employer_ai_min_salary_minor,"currency":s.cfg.pricing.currency,"currency_decimals":crate::config::currency_decimals(&s.cfg.pricing.currency)}),
         ));
