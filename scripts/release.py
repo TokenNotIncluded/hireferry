@@ -212,12 +212,17 @@ def make_manifest(data, wanted, files, tag, repo, commit=''):
     published_catalog = json.loads(json.dumps(data))
     published_catalog['repository'] = repository(repo)
     validate_catalog(published_catalog)
+    products = {item['product'] for item in wanted.values()}
+    for group in ('desktop', 'flatpak', 'cli'):
+        if ('cli' if group == 'cli' else 'desktop') not in products:
+            published_catalog[group] = []
     assets = []
     for name, item in sorted(wanted.items()):
         assets.append(dict(item, name=name, size=files[name].stat().st_size,
                            sha256=digest(files[name]), tag=tag,
                            url=f'https://github.com/{repo}/releases/download/{tag}/{name}'))
     return {'schema_version':1, 'repository':repo, 'catalog':published_catalog, 'source_commit':commit,
+            'source_commits':{product:commit for product in sorted(products)},
             'versions':{a['product']:a['version'] for a in assets},
             'releases':{a['product']:tag for a in assets}, 'assets':assets}
 
@@ -236,6 +241,13 @@ def validate_manifest(manifest):
         raise ValueError('Unknown manifest products')
     if set(manifest['releases']) != products:
         raise ValueError('Release products differ from version products')
+    represented = {('cli' if group == 'cli' else 'desktop') for group in ('desktop', 'flatpak', 'cli') if data[group]}
+    if represented != products:
+        raise ValueError('Catalog products differ from published products')
+    commits = manifest.get('source_commits', {product:manifest.get('source_commit', '') for product in products})
+    if (not isinstance(commits, dict) or set(commits) != products or
+            any(not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{0,64}', commit) for commit in commits.values())):
+        raise ValueError('Invalid per-product source commits')
     for value in manifest['versions'].values():
         version(value)
     wanted = expected(data, manifest['versions'], products)
@@ -253,8 +265,8 @@ def validate_manifest(manifest):
         version(tag.split('-v', 1)[1])
         if tag != manifest['releases'][asset['product']]:
             raise ValueError('Release tag differs from product metadata')
-        expected_tag_version = manifest['versions']['desktop' if tag.startswith('desktop-') else 'cli']
-        if tag.split('-v', 1)[1] != expected_tag_version:
+        if ((asset['product'] == 'desktop' and tag != 'desktop-v' + asset['version']) or
+                (asset['product'] == 'cli' and tag.startswith('cli-') and tag != 'cli-v' + asset['version'])):
             raise ValueError('Release tag version mismatch')
         if asset['url'] != f'https://github.com/{repo}/releases/download/{tag}/{name}':
             raise ValueError('Invalid asset download URL')
@@ -265,6 +277,48 @@ def validate_manifest(manifest):
     return manifest
 
 
+def stable_version(value):
+    if '-' in version(value):
+        raise ValueError('Only stable releases update the download documentation')
+    return tuple(map(int, value.split('.')))
+
+
+def merge_manifests(current, incoming):
+    """Keep the newest stable release of each independently versioned product."""
+    validate_manifest(incoming)
+    if current:
+        validate_manifest(current)
+        if current['repository'] != incoming['repository']:
+            raise ValueError('Cannot merge releases from different repositories')
+    selected = {}
+    for source in (current, incoming):
+        if source is None:
+            continue
+        for product, product_version in source['versions'].items():
+            candidate = stable_version(product_version)
+            if product not in selected or candidate > stable_version(selected[product]['versions'][product]):
+                selected[product] = source
+    repo = incoming['repository']
+    merged = {'schema_version':1, 'repository':repo,
+              'catalog':{'schema_version':1, 'repository':repo, 'desktop':[], 'flatpak':[], 'cli':[]},
+              'source_commit':'', 'source_commits':{}, 'versions':{}, 'releases':{}, 'assets':[]}
+    for product in ('desktop', 'cli'):
+        if product not in selected:
+            continue
+        source = selected[product]
+        merged['versions'][product] = source['versions'][product]
+        merged['releases'][product] = source['releases'][product]
+        merged['source_commits'][product] = source.get('source_commits', {}).get(product, source.get('source_commit', ''))
+        for group in (('desktop', 'flatpak') if product == 'desktop' else ('cli',)):
+            merged['catalog'][group] = source['catalog'][group]
+        merged['assets'].extend(asset for asset in source['assets'] if asset['product'] == product)
+    merged['assets'].sort(key=lambda asset: asset['name'])
+    commits = set(merged['source_commits'].values())
+    if len(commits) == 1:
+        merged['source_commit'] = next(iter(commits))
+    return validate_manifest(json.loads(json.dumps(merged)))
+
+
 def human_size(size):
     return f'{size / 1048576:.2f} MiB' if size >= 1048576 else f'{size / 1024:.1f} KiB'
 
@@ -272,9 +326,10 @@ def human_size(size):
 def svg(data, manifest=None):
     """Accessible, repository-native vector artwork; values come from the catalog."""
     if manifest: data = manifest['catalog']
-    count = sum(len(row['formats']) for group in ('desktop','flatpak','cli') for row in data[group])
-    subtitle = ('RELEASE ASSETS VERIFIED · ' + ' / '.join(manifest['releases'].values())) if manifest else 'BUILD TARGETS · DOWNLOADS APPEAR AFTER A COMPLETE RELEASE'
+    count = len(manifest['assets']) if manifest else sum(len(row['formats']) for group in ('desktop','flatpak','cli') for row in data[group])
+    subtitle = ('RELEASE ASSETS VERIFIED · ' + ' / '.join(dict.fromkeys(manifest['releases'][p] for p in ('desktop', 'cli') if p in manifest['releases']))) if manifest else 'BUILD TARGETS · DOWNLOADS APPEAR AFTER A COMPLETE RELEASE'
     subtitle = html.escape(subtitle)
+    headline = 'HireFerry · Every desktop, one ferry.' if not manifest or 'desktop' in manifest['versions'] else 'HireFerry · One CLI. Every platform.'
     cards = []
     for i, (platform, symbol) in enumerate((('Windows','window'),('macOS','apple'),('Linux','terminal'))):
         x = 36 + i * 302
@@ -284,19 +339,20 @@ def svg(data, manifest=None):
             mark = f'<rect x="{x+23}" y="132" width="39" height="28" rx="4" fill="none" stroke="#c3d9cb" stroke-width="2"/><path d="M{x+17} 166h51m-27-6v6" stroke="#c3d9cb" stroke-width="2"/>'
         else:
             mark = f'<rect x="{x+22}" y="132" width="42" height="34" rx="6" fill="none" stroke="#c3d9cb" stroke-width="2"/><path d="m{x+31} 142 7 7-7 7m13 0h12" fill="none" stroke="#c3d9cb" stroke-width="2"/>'
-        rows = [row for group in ('desktop', 'flatpak') for row in data[group] if row['platform'] == platform]
-        native = next((row for row in rows if row['architecture'] == 'x86_64'), None)
-        formats = ' · '.join(LABELS[f] for f in native['formats']) if native else 'No native package'
-        if platform == 'Linux' and data['flatpak']: formats += ' · Flatpak'
-        architectures = ' + '.join(dict.fromkeys(ARCH_LABELS.get(row['architecture'], row['architecture']) for row in rows))
-        cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">Desktop + hfy CLI</text>')
+        desktop_rows = [row for group in ('desktop', 'flatpak') for row in data[group] if row['platform'] == platform]
+        cli_rows = [row for row in data['cli'] if row['platform'] == platform]
+        rows = desktop_rows or cli_rows
+        formats = ' · '.join(dict.fromkeys('Flatpak' if fmt == 'flatpak' else LABELS[fmt] for row in rows for fmt in row['formats'])) or 'No release assets'
+        architectures = ' + '.join(dict.fromkeys(ARCH_LABELS.get(row['architecture'], row['architecture']) for row in desktop_rows + cli_rows))
+        products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows)) if present) or 'No published packages'
+        cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">{products}</text>')
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
-<title id="title">HireFerry desktop and CLI release matrix</title><desc id="description">Windows, macOS and Linux; x64 and ARM64; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
+<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
 <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f5f2e9"/><stop offset="1" stop-color="#e2e6db"/></linearGradient></defs>
 <style>text{{font-family:Inter,system-ui,sans-serif}}.platform{{font-size:25px;font-weight:650;fill:#fbfaf6}}.detail{{font-size:14px;fill:#bfcac0}}.formats{{font-size:12px;fill:#dce6de}}</style>
 <rect width="960" height="392" rx="24" fill="url(#paper)"/>
 <path d="M38 42h40L68 57H48zM56 21v17H41zM62 25l13 13H62z" fill="#343b35"/>
-<text x="94" y="47" font-size="26" font-weight="650" fill="#29332c">HireFerry · Every desktop, one ferry.</text>
+<text x="94" y="47" font-size="26" font-weight="650" fill="#29332c">{headline}</text>
 <text x="38" y="82" font-size="10.5" letter-spacing="1.2" fill="#526455">{subtitle}</text>
 {''.join(cards)}
 <text x="38" y="353" font-size="13" fill="#455747">{count} package variants · SHA-256 verification · one release catalog</text><path d="M682 350h236" stroke="#809484" stroke-dasharray="3 7"/><circle cx="918" cy="350" r="4" fill="#526d59"/>
@@ -315,6 +371,8 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
              f'[所有 Releases](https://github.com/{repo}/releases)', '']
     if manifest:
         lines += ['下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。', '']
+        if 'desktop' not in manifest['versions']:
+            lines += ['**尚未收录已发布的桌面安装包。** 当前下载表只包含 hfy CLI；桌面构建目标见 `release/targets.json`。', '']
         for product in ('desktop','cli'):
             if product in manifest['versions']:
                 tag = manifest['releases'][product]
@@ -339,19 +397,20 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
               '', 'Linux CLI 的静态 musl 包可用于 glibc 与 musl 发行版；桌面版需要图形会话。Flatpak 首次安装共享运行时需要额外空间，后续应用可复用。',
               '', 'Windows 的 NSIS 包按需下载 WebView2；macOS 使用系统 WebKit。桌面版不附带服务器或数据库，业务页面连接所选 HireFerry 站点。',
               '', f'**兼容范围不是“所有历史发行版本均实测”。** 架构、运行时和系统依赖满足要求才适用；具体要求、安装命令与签名说明见 [桌面版文档]({guide})。',
-              '', '维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。修改构建目标不会改写历史包，下一次成功发布才更新下载表。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
+              '', '维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版与 CLI 按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
     return '\n'.join(lines)
 
 
-def assemble(args):
+def assemble(args, products=('desktop', 'cli')):
     data = catalog()
-    versions = {'desktop':package_version('desktop'), 'cli':package_version('cli')}
-    if args.tag != 'desktop-v' + versions['desktop']:
-        raise ValueError('Release tag must match the desktop Cargo package version')
+    versions = {product:package_version(product) for product in products}
+    primary = 'desktop' if 'desktop' in products else 'cli'
+    if args.tag != primary + '-v' + versions[primary]:
+        raise ValueError(f'Release tag must match the {primary} Cargo package version')
     repo = repository(args.repository or data['repository'])
-    wanted = expected(data, versions)
+    wanted = expected(data, versions, products)
     files = verified_inputs(args.source, wanted)
-    manifest = make_manifest(data, wanted, files, args.tag, repo, args.commit)
+    manifest = validate_manifest(make_manifest(data, wanted, files, args.tag, repo, args.commit))
     args.destination.mkdir(parents=True, exist_ok=False)
     for name, path in files.items():
         shutil.copyfile(path, args.destination/name)
@@ -363,9 +422,16 @@ def assemble(args):
     print(f'Verified {len(files)} package assets for {args.tag}')
 
 
+def assemble_cli(args):
+    assemble(args, ('cli',))
+
+
 def docs(args):
     manifest_path = args.manifest or (SNAPSHOT if SNAPSHOT.exists() else None)
     manifest = validate_manifest(json.loads(manifest_path.read_text())) if manifest_path else None
+    if args.manifest:
+        current = json.loads(SNAPSHOT.read_text()) if SNAPSHOT.exists() else None
+        manifest = merge_manifests(current, manifest)
     data = manifest['catalog'] if manifest else catalog()
     outputs = {ROOT/'docs/downloads.md':markdown(data, manifest), ROOT/'docs/assets/release-matrix.svg':svg(data, manifest)}
     if args.manifest:
@@ -395,13 +461,14 @@ def main():
         stage.add_argument('--out', type=Path, required=True)
         stage.add_argument('--bundle-dir' if command == 'stage-desktop' else '--binary', type=Path, required=True)
         stage.set_defaults(run=fn)
-    build = commands.add_parser('assemble')
-    build.add_argument('source', type=Path)
-    build.add_argument('destination', type=Path)
-    build.add_argument('--tag', required=True)
-    build.add_argument('--repository')
-    build.add_argument('--commit', default='')
-    build.set_defaults(run=assemble)
+    for command, fn in (('assemble', assemble), ('assemble-cli', assemble_cli)):
+        build = commands.add_parser(command)
+        build.add_argument('source', type=Path)
+        build.add_argument('destination', type=Path)
+        build.add_argument('--tag', required=True)
+        build.add_argument('--repository')
+        build.add_argument('--commit', default='')
+        build.set_defaults(run=fn)
     generate = commands.add_parser('docs')
     generate.add_argument('--manifest', type=Path)
     generate.add_argument('--check', action='store_true')

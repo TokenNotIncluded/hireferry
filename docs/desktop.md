@@ -116,7 +116,7 @@ npm run tauri -- build
 4. 各操作系统原生构建；Linux 另外生成 Flatpak。发布任务只在全部包成功后运行。
 5. 汇总脚本拒绝缺失平台、重复包、额外陈旧文件或 SHA-256 不匹配，生成完整的 `downloads.json`、`downloads.md`、`release-matrix.svg`、`VERSION` 和 `SHA256SUMS`。
 6. 资产先传入草稿 Release，确认上传完成后公开。已公开的版本不被覆盖，修复需提升版本。
-7. 下载文档从已发布的清单更新；仓库分支保护可能要求通过 PR 接受文档变更，Release 自身仍包含准确的矩阵与完整清单。
+7. 桌面版和独立 CLI Release 均从已发布清单自动更新下载文档，按各自稳定版本保留最新条目；仓库分支保护可能要求通过 PR 接受文档变更，Release 自身仍包含准确的矩阵与完整清单。
 
 桌面 Release 使用 `--latest=false`，保留现有 CLI 一键安装器依赖的 GitHub `latest` 通道。用户从[下载矩阵](downloads.md)进入桌面 Release；不要用仓库通用 `/releases/latest` 代替桌面版下载入口。
 
@@ -126,6 +126,8 @@ npm run tauri -- build
 python3 scripts/release.py matrix desktop
 python3 scripts/release.py matrix cli
 python3 scripts/release.py matrix flatpak
+# CLI 独立发布也生成经过验证的 JSON / Markdown / SVG
+python3 scripts/release.py assemble-cli artifacts/cli-release dist/cli-release --tag cli-v0.1.2
 python3 scripts/release.py docs
 python3 scripts/release.py docs --check
 python3 tests/release.test.py
@@ -137,7 +139,7 @@ python3 tests/release.test.py
 python3 scripts/release.py docs --manifest /path/to/downloads.json
 ```
 
-该命令同时保存 `release/latest.json` 快照，包含发布时固定的目标目录、包清单和仓库地址。`docs --check` 按这个已发布目录验证并生成下载表；`matrix` 命令独立验证当前 `release/targets.json`。因此可以先提交新增架构或包格式的构建配置，已发布下载表仍保留原来真实存在的包；下一次完整 Release 成功后再更新快照，无需删除或篡改历史发布记录。
+该命令同时保存 `release/latest.json` 快照，包含发布时固定的目标目录、包清单和仓库地址。`docs --check` 按这个已发布目录验证并生成下载表；`matrix` 命令独立验证当前 `release/targets.json`。因此可以先提交新增架构或包格式的构建配置，已发布下载表仍保留原来真实存在的包；每个产品的稳定 Release 成功后自动合并其条目，无需删除或篡改历史发布记录。独立 CLI 发布不会移除桌面下载；较新的桌面包即使附带较旧 CLI，也不会把 CLI 行降级。清单保留各产品原始标签、下载地址与 `source_commits` 来源提交。
 
 ### 签名与发布凭据
 

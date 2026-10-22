@@ -64,6 +64,12 @@ jobs:
         if: runner.os == 'Windows'
         run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
 
+      - name: Cache CLI build dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: cli-${{ matrix.target }}
+          cache-on-failure: true
+
       - name: Validate version and tag
         env:
           REF_TYPE: ${{ github.ref_type }}
@@ -116,7 +122,11 @@ jobs:
           path: artifacts/cli-release
 
       - name: Assemble and verify all six packages
-        run: python3 scripts/assemble-cli-release.py artifacts/cli-release dist/release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/release.py assemble-cli artifacts/cli-release dist/release \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
 
       - name: Publish GitHub Release
         env:
@@ -126,7 +136,15 @@ jobs:
           state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || printf missing)
           if [[ "$state" == false ]]; then echo 'This release is already published; bump the CLI version.' >&2; exit 1; fi
           if [[ "$state" == missing ]]; then
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "HireFerry CLI ${RELEASE_TAG#cli-v}" --notes-file docs/cli-release-notes.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "HireFerry CLI ${RELEASE_TAG#cli-v}" --notes-file dist/release/downloads.md
           fi
           gh release upload "$RELEASE_TAG" dist/release/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --notes-file dist/release/downloads.md --draft=false --latest
+
+  update-docs:
+    needs: publish
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-docs.yml
+    with:
+      tag: ${{ github.ref_name }}

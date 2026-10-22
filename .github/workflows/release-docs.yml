@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Published stable desktop tag, for example desktop-v0.1.0
+        description: Published stable tag, for example desktop-v0.1.0 or cli-v0.1.2
         required: true
         type: string
   workflow_call:
@@ -21,10 +21,11 @@ permissions:
 concurrency:
   group: release-download-documentation
   cancel-in-progress: false
+  queue: max
 
 jobs:
   update:
-    if: github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'desktop-v') && !github.event.release.prerelease)
+    if: github.event_name != 'release' || ((startsWith(github.event.release.tag_name, 'desktop-v') || startsWith(github.event.release.tag_name, 'cli-v')) && !github.event.release.prerelease)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -37,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
-          [[ "$RELEASE_TAG" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          [[ "$RELEASE_TAG" =~ ^(desktop|cli)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName > "$RUNNER_TEMP/release-metadata.json"
           gh release download "$RELEASE_TAG" --pattern downloads.json --pattern SHA256SUMS --dir "$RUNNER_TEMP/hfy-downloads"
           python3 - <<'PY'
@@ -52,30 +53,14 @@ jobs:
           assert expected == [actual], 'Download manifest checksum mismatch'
           manifest = json.loads((folder/'downloads.json').read_text())
           assert manifest['repository'] == os.environ['GITHUB_REPOSITORY']
-          assert manifest['releases']['desktop'] == os.environ['RELEASE_TAG']
-          PY
-      - name: Keep the newest stable desktop documentation
-        id: version
-        run: |
-          python3 - <<'PY'
-          import json, os, pathlib
-          incoming = json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'hfy-downloads/downloads.json').read_text())
-          saved = pathlib.Path('release/latest.json')
-          parse = lambda v: tuple(map(int, v.split('.')))
-          apply = True
-          if saved.exists():
-              old = json.loads(saved.read_text())['versions'].get('desktop')
-              apply = old is None or parse(incoming['versions']['desktop']) >= parse(old)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write(f'apply={str(apply).lower()}\n')
+          product = os.environ['RELEASE_TAG'].split('-v', 1)[0]
+          assert manifest['releases'][product] == os.environ['RELEASE_TAG']
           PY
       - name: Generate documentation from actual published packages
-        if: steps.version.outputs.apply == 'true'
         run: |
           python3 scripts/release.py docs --manifest "$RUNNER_TEMP/hfy-downloads/downloads.json"
           python3 scripts/release.py docs --check
       - name: Commit the updated download matrix
-        if: steps.version.outputs.apply == 'true'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}

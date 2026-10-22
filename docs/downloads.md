@@ -41,4 +41,4 @@ Windows 的 NSIS 包按需下载 WebView2；macOS 使用系统 WebKit。桌面�
 
 **兼容范围不是“所有历史发行版本均实测”。** 架构、运行时和系统依赖满足要求才适用；具体要求、安装命令与签名说明见 [桌面版文档](desktop.md)。
 
-维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。修改构建目标不会改写历史包，下一次成功发布才更新下载表。运行 `python3 scripts/release.py docs --check` 检查生成文件。
+维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版与 CLI 按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。

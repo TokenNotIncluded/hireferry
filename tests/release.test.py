@@ -163,6 +163,99 @@ class ReleaseTests(unittest.TestCase):
         self.data['desktop'][0]['formats'].clear()
         self.assertEqual(manifest['catalog']['desktop'][0]['formats'], ['deb','rpm','AppImage'])
 
+    def released_fixture(self, versions, tag, data=None, commit='abc'):
+        data = data or self.data
+        wanted = release.expected(data, versions, tuple(versions))
+        source = Path(tempfile.mkdtemp(dir=self.root, prefix='published-'))
+        for i, name in enumerate(wanted):
+            folder = source/f'job-{i}'
+            folder.mkdir()
+            (folder/name).write_bytes(('package '+name).encode())
+            release.checksums(folder)
+        files = release.verified_inputs(source, wanted)
+        return release.make_manifest(data, wanted, files, tag, data['repository'], commit), source
+
+    def test_standalone_cli_assembly_has_six_assets_and_no_desktop_claim(self):
+        _, source = self.released_fixture({'cli':'0.1.2'}, 'cli-v0.1.2')
+        args = argparse.Namespace(source=source, destination=self.root/'cli-release',
+                                  tag='cli-v0.1.2', repository=None, commit='ccc')
+        with patch.object(release, 'package_version', return_value='0.1.2'):
+            release.assemble_cli(args)
+        manifest = release.validate_manifest(json.loads((args.destination/'downloads.json').read_text()))
+        self.assertEqual(len(manifest['assets']), 6)
+        self.assertEqual(manifest['versions'], {'cli':'0.1.2'})
+        self.assertEqual(manifest['source_commits'], {'cli':'ccc'})
+        self.assertEqual(manifest['catalog']['desktop'], [])
+        self.assertEqual(manifest['catalog']['flatpak'], [])
+        artwork = (args.destination/'release-matrix.svg').read_text()
+        self.assertIn('6 package variants', artwork)
+        self.assertNotIn('Desktop + hfy CLI', artwork)
+        self.assertNotIn('Every desktop', artwork)
+        self.assertNotIn('NSIS', artwork)
+        ET.fromstring(artwork)
+        self.assertIn('尚未收录已发布的桌面安装包', (args.destination/'downloads.md').read_text())
+        sums = (args.destination/'SHA256SUMS').read_text()
+        self.assertIn(release.digest(args.destination/'downloads.json')+'  downloads.json', sums)
+
+    def test_cli_first_then_desktop_keeps_newer_cli_and_frozen_catalog(self):
+        future = json.loads(json.dumps(self.data))
+        future['cli'].append(dict(future['cli'][0], target='riscv64gc-unknown-linux-musl', architecture='riscv64gc'))
+        cli, _ = self.released_fixture({'cli':'0.1.10'}, 'cli-v0.1.10', future, 'ccc')
+        desktop, _ = self.released_fixture({'desktop':'0.2.0','cli':'0.1.9'}, 'desktop-v0.2.0', commit='ddd')
+        fixture = self.root/'merged-docs'
+        fixture.mkdir()
+        snapshot = fixture/'latest.json'
+        incoming = fixture/'incoming.json'
+        with patch.object(release, 'ROOT', fixture), patch.object(release, 'SNAPSHOT', snapshot):
+            incoming.write_text(json.dumps(cli))
+            release.docs(argparse.Namespace(manifest=incoming, check=False))
+            self.assertEqual(json.loads(snapshot.read_text())['versions'], {'cli':'0.1.10'})
+            incoming.write_text(json.dumps(desktop))
+            release.docs(argparse.Namespace(manifest=incoming, check=False))
+            release.docs(argparse.Namespace(manifest=None, check=True))
+            merged = release.validate_manifest(json.loads(snapshot.read_text()))
+            self.assertEqual(merged['versions'], {'desktop':'0.2.0','cli':'0.1.10'})
+            self.assertEqual(merged['releases'], {'desktop':'desktop-v0.2.0','cli':'cli-v0.1.10'})
+            self.assertEqual(merged['source_commits'], {'desktop':'ddd','cli':'ccc'})
+            self.assertEqual(len(merged['catalog']['cli']), 7)
+            self.assertEqual(len(merged['assets']), 22)
+            self.assertEqual([a for a in merged['assets'] if a['product']=='cli'], cli['assets'])
+            before = snapshot.read_text()
+            release.docs(argparse.Namespace(manifest=incoming, check=False))
+            self.assertEqual(snapshot.read_text(), before)
+            self.assertIn('22 package variants', (fixture/'docs/assets/release-matrix.svg').read_text())
+
+    def test_retained_cli_can_come_from_an_older_desktop_tag(self):
+        old, _ = self.released_fixture({'desktop':'0.1.0','cli':'0.1.10'}, 'desktop-v0.1.0', commit='aaa')
+        incoming, _ = self.released_fixture({'desktop':'0.2.0','cli':'0.1.9'}, 'desktop-v0.2.0', commit='bbb')
+        merged = release.merge_manifests(old, incoming)
+        self.assertEqual(merged['versions'], {'desktop':'0.2.0','cli':'0.1.10'})
+        self.assertEqual(merged['releases']['cli'], 'desktop-v0.1.0')
+        self.assertEqual(merged['source_commits'], {'desktop':'bbb','cli':'aaa'})
+        self.assertEqual(release.validate_manifest(merged), merged)
+        for asset in merged['assets']:
+            if asset['product'] == 'cli': self.assertIn('/desktop-v0.1.0/', asset['url'])
+
+    def test_newer_cli_updates_without_replacing_desktop(self):
+        desktop, _ = self.released_fixture({'desktop':'0.1.0','cli':'0.1.2'}, 'desktop-v0.1.0')
+        newer, _ = self.released_fixture({'cli':'0.1.10'}, 'cli-v0.1.10', commit='ddd')
+        older, _ = self.released_fixture({'cli':'0.1.9'}, 'cli-v0.1.9', commit='eee')
+        merged = release.merge_manifests(desktop, newer)
+        self.assertEqual(merged['versions'], {'desktop':'0.1.0','cli':'0.1.10'})
+        self.assertEqual(release.merge_manifests(merged, older), merged)
+        self.assertEqual([a for a in merged['assets'] if a['product']=='desktop'],
+                         [a for a in desktop['assets'] if a['product']=='desktop'])
+
+    def test_documentation_merge_rejects_prereleases_and_cross_repository(self):
+        stable, _ = self.released_fixture({'cli':'0.1.2'}, 'cli-v0.1.2')
+        prerelease, _ = self.released_fixture({'cli':'0.1.3-rc.1'}, 'cli-v0.1.3-rc.1')
+        with self.assertRaisesRegex(ValueError, 'Only stable releases'):
+            release.merge_manifests(stable, prerelease)
+        fork = json.loads(json.dumps(self.data)); fork['repository'] = 'example/fork'
+        another, _ = self.released_fixture({'cli':'0.1.3'}, 'cli-v0.1.3', fork)
+        with self.assertRaisesRegex(ValueError, 'different repositories'):
+            release.merge_manifests(stable, another)
+
     def test_invalid_versions_rejected(self):
         for value in ('v0.1.0','0.1','01.2.3','0.1.0/evil','0.1.0-01','0.1.0+build','0.1.0;echo'):
             with self.subTest(value=value),self.assertRaises(ValueError): release.version(value)

@@ -168,6 +168,22 @@ fn main() {
                         }
                     })
                     .build()?;
+            let connection_handle = app.handle().clone();
+            launcher.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                    && connection_handle
+                        .webview_windows()
+                        .keys()
+                        .any(|label| label.starts_with("workbench-"))
+                {
+                    // Keep connection settings available from the menu while
+                    // the user continues working in the remote window.
+                    api.prevent_close();
+                    if let Some(window) = connection_handle.get_webview_window("launcher") {
+                        let _ = window.hide();
+                    }
+                }
+            });
             launcher.on_menu_event(|window, event| {
                 if event.id().as_ref() == "settings" {
                     show_launcher(window.app_handle());

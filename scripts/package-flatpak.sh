@@ -7,7 +7,8 @@ usage() {
 Usage: package-flatpak.sh --deb FILE --version VERSION --arch x86_64|aarch64
                           [--out-dir DIR] [--smoke-test]
 
-Requires flatpak, dpkg-deb and the installed org.gnome.Platform/Sdk 51 runtimes.
+Requires flatpak, dpkg-deb, Python, a host GdkPixbuf SVG loader (librsvg2-common
+on Debian/Ubuntu), and the installed org.gnome.Platform/Sdk 51 runtimes.
 Always checks dependencies and --version inside the end-user runtime. With
 --smoke-test, also launches the local UI under Xvfb; requires xvfb-run,
 dbus-run-session and timeout. No package, remote or application is installed.
