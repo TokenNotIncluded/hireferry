@@ -62,6 +62,10 @@ jobs:
           rustup default stable
           rustup target add "$TARGET"
 
+      - name: Link the Windows C runtime statically
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+
       - name: Validate version and tag
         env:
           REF_TYPE: ${{ github.ref_type }}

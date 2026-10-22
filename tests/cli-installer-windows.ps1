@@ -15,7 +15,8 @@ try {
     New-Item -ItemType Directory -Path $assets -Force | Out-Null
     Copy-Item (Join-Path $PackageDirectory '*') $assets
     $manifest = Get-Content -LiteralPath (Join-Path $root 'crates/hireferry-cli/Cargo.toml') -Raw
-    $version = [regex]::Match($manifest, '(?m)^version = "([^"]+)"$').Groups[1].Value
+    $version = [regex]::Match($manifest, '(?m)^version = "([^"]+)"\r?$').Groups[1].Value
+    if (-not $version) { throw 'Cannot read CLI version from Cargo.toml.' }
     Set-Content -LiteralPath (Join-Path $assets 'VERSION') -Value $version -Encoding ascii
     $env:HFY_INSTALL_DIR = $destination
     $env:HFY_NO_PATH = '1'

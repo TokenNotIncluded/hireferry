@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Installer(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='hfy-installer-test-')
-        self.base = Path(self.temp.name)
+        self.base = Path(self.temp.name).resolve()
         self.assets = self.base/'assets'
         self.assets.mkdir()
         self.bin = self.base/'mock-bin'
