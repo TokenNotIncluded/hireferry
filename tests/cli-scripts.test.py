@@ -172,5 +172,56 @@ class CliScripts(unittest.TestCase):
         self.assertEqual((output / "SHA256SUMS").read_text().split(), [hashlib.sha256(archive.read_bytes()).hexdigest(), archive.name])
 
 
+class CliReleaseAssembly(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="hireferry-cli-release-")
+        self.root = Path(self.temp.name)
+        (self.root / "scripts").mkdir()
+        shutil.copy2(REPO / "scripts/assemble-cli-release.py", self.root / "scripts")
+        manifest = self.root / "crates/hireferry-cli/Cargo.toml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('version = "1.2.3"\n')
+        self.packages = self.root / "packages"
+        targets = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+                   "x86_64-apple-darwin", "aarch64-apple-darwin",
+                   "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc")
+        for target in targets:
+            folder = self.packages / ("cli-release-" + target)
+            folder.mkdir(parents=True)
+            name = f"hireferry-cli-1.2.3-{target}." + ("zip" if "windows" in target else "tar.gz")
+            data = target.encode()
+            (folder / name).write_bytes(data)
+            marker = " *" if "windows" in target else "  "
+            (folder / "SHA256SUMS").write_bytes((hashlib.sha256(data).hexdigest() + marker + name + "\r\n").encode())
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def assemble(self):
+        return subprocess.run(["python3", str(self.root / "scripts/assemble-cli-release.py"),
+                               str(self.packages), str(self.root / "release")],
+                              capture_output=True, text=True, timeout=15)
+
+    def test_native_text_and_binary_checksum_formats_publish_one_canonical_manifest(self):
+        result = self.assemble()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = self.root / "release"
+        self.assertEqual((output / "VERSION").read_text(), "1.2.3\n")
+        lines = (output / "SHA256SUMS").read_text().splitlines()
+        self.assertEqual(len(lines), 6)
+        for line in lines:
+            digest, name = line.split("  ")
+            self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
+
+    def test_tampered_archive_prevents_a_publishable_release(self):
+        archive = next((self.packages / "cli-release-x86_64-pc-windows-msvc").glob("*.zip"))
+        archive.write_bytes(b"changed after packaging")
+        result = self.assemble()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid checksums", result.stderr)
+        self.assertFalse((self.root / "release/VERSION").exists())
+        self.assertFalse((self.root / "release/SHA256SUMS").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
