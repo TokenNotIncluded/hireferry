@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const load = async name => import('data:text/javascript;base64,' + Buffer.from(await readFile(new URL(`../static/${name}`, import.meta.url), 'utf8')).toString('base64'));
 const {effectiveOrderStatus, activationRecovery, createBillingUI} = await load('billing-ui.js');
+const {createPromoUI} = await load('promo-ui.js');
 const {formatMinor} = await load('money.js');
 const employer = {role:'employer', employer_paid:false};
 const order = (changes = {}) => ({id:'activation-one',kind:'onboarding',status:'pending',currency:'JPY',currency_decimals:0,amount_cents:1200,refunded_cents:0,provider:'stripe',live_mode:false,created_at:100,checkout_expires_at:Math.floor(Date.now()/1000)+3600,...changes});
@@ -53,7 +54,7 @@ test('an empty history still offers activation to an unactivated employer', () =
   assert.doesNotMatch(page({role:'seeker'},[]),/data-action="role-employer"/);
 });
 
-test('only activation expiry is inferred; an absent deadline never invents payment state', () => {
+test('without a promotion deadline only activation expiry is inferred', () => {
   assert.equal(effectiveOrderStatus(order({checkout_expires_at:null})), 'pending');
   assert.equal(effectiveOrderStatus(order({kind:'publish',checkout_expires_at:1})), 'pending');
   assert.equal(effectiveOrderStatus(order({status:'paid',checkout_expires_at:1})), 'paid');
@@ -67,4 +68,75 @@ test('older records fold away without hiding review warnings or changing the inp
   assert.match(html,/data-disclosure="orders-history"\s*>/);
   assert.match(html,/data-disclosure="order-older"/);
   assert.match(html,/data-disclosure="order-newer"/);
+});
+
+test('discounted publication orders retain their real amount and an allowance-release action', () => {
+  const user = {...employer,employer_paid:true};
+  const promotional = order({id:'discounted-role',kind:'publish',amount_cents:600,snapshot_json:JSON.stringify({promo:{code_id:'promotion-one',discount_percent:50,original_amount_cents:1200}})});
+  const html = page(user,[promotional]);
+  assert.match(html,/data-action="promo-cancel-order" data-id="discounted-role"/);
+  assert.match(html,/data-action="pay-order" data-id="discounted-role"/);
+  assert.match(html,/JPY\s*600/);
+  assert.doesNotMatch(html,/JPY\s*1,200/);
+  for (const changes of [{status:'paid'},{status:'cancelled'},{status:'expired'},{kind:'onboarding'},{snapshot_json:'{}'},{snapshot_json:'invalid'}]) {
+    assert.doesNotMatch(page(user,[{...promotional,...changes}]),/data-action="promo-cancel-order"/);
+  }
+});
+
+test('the earlier promotion deadline governs payment while a pending reservation remains cancellable', () => {
+  const user = {...employer,employer_paid:true};
+  const now = Math.floor(Date.now()/1000);
+  const publication = order({id:'limited-promotion',kind:'publish',checkout_expires_at:now+86400,checkout_url:'https://checkout.example/long-lived',snapshot_json:JSON.stringify({promo:{code_id:'promotion-one',reserved_until:now+3600}})});
+  const upcoming = page(user,[publication]);
+  assert.equal(effectiveOrderStatus(publication),'pending');
+  assert.match(upcoming,/Promotion payment deadline/);
+  assert.ok(upcoming.includes(new Date((now+3600)*1000).toISOString()));
+  assert.ok(!upcoming.includes(new Date((now+86400)*1000).toISOString()));
+  for (const changes of [
+    {snapshot_json:JSON.stringify({promo:{code_id:'promotion-one',reserved_until:now-1}})},
+    {checkout_expires_at:now-1},
+  ]) {
+    const pending = {...publication,...changes};
+    const html = page(user,[pending]);
+    assert.equal(effectiveOrderStatus(pending),'expired');
+    assert.equal(pending.status,'pending');
+    assert.match(html,/Promotion payment deadline.*\(expired\)/);
+    assert.match(html,/data-action="promo-cancel-order" data-id="limited-promotion"/);
+    assert.doesNotMatch(html,/data-action="pay-order"|data-disclosure="orders-history"/);
+    assert.ok(html.includes(new Date((now-1)*1000).toISOString()));
+  }
+  assert.doesNotMatch(page(user,[{...publication,provider:'free',status:'paid',amount_cents:0}]),/Promotion payment deadline|data-action="pay-order"|data-action="promo-cancel-order"/);
+});
+
+test('confirming promotion cancellation refreshes billing only after the server succeeds', async () => {
+  const user = {...employer,employer_paid:true};
+  let current = order({id:'reserved-promotion',kind:'publish',amount_cents:600,snapshot_json:JSON.stringify({promo:{code_id:'promotion-one'}})});
+  let html = page(user,[current]);
+  let confirm,complete;
+  const events = [];
+  const waiting = new Promise(resolve=>{complete=resolve;});
+  const ui = createPromoUI({
+    t:(_zh,en)=>en,
+    confirmDialog:(_title,_description,action)=>{confirm=action;},
+    api:async(path,options)=>{
+      assert.equal(path,'/api/orders/reserved-promotion/cancel');
+      assert.equal(options.method,'POST');
+      events.push('request');
+      await waiting;
+      current={...current,status:'cancelled'};
+      return current;
+    },
+    render:async()=>{events.push('refresh');html=page(user,[current]);},
+    notify:message=>events.push(message),
+  });
+  await ui.action('promo-cancel-order',{dataset:{id:current.id}});
+  assert.deepEqual(events,[]);
+  const pending=confirm();
+  assert.deepEqual(events,['request']);
+  assert.match(html,/data-action="promo-cancel-order"/);
+  complete();
+  await pending;
+  assert.deepEqual(events,['request','refresh','Order cancelled. The allowance is available again.']);
+  assert.match(html,/>cancelled</);
+  assert.doesNotMatch(html,/data-action="promo-cancel-order"|data-action="pay-order"/);
 });

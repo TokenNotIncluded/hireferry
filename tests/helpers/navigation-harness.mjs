@@ -18,9 +18,10 @@ export const fixtureUser={id:'fixture-user',role:'seeker',name:'Synthetic QA mem
 export const fixtureConfig={name:'HireFerry QA',default_language:'en',humangrant_enabled:false,google_enabled:false,email_enabled:true,development:false,pricing:{currency:'CNY',currency_decimals:2,onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,edit_mode:'salary_percent',edit_bps:100,max_edits:3,allowed_currencies:['CNY']},limits:{list_page_size:50,workbench_page_size:25},providers:[]};
 
 export async function createNavigationHarness(directory,{latencyMs=0,mountChat=false}={}) {
-  const [source,services,money,navigation,humanGrant,requests,cliAuth,billing]=await Promise.all([
+  const [source,services,money,navigation,humanGrant,requests,cliAuth,billing,promo]=await Promise.all([
     sourceSnapshot(resolve(directory,'app.js')),sourceModule(directory,'service-ui.js'),sourceModule(directory,'money.js'),sourceModule(directory,'navigation.js'),sourceModule(directory,'humangrant-ui.js'),sourceModule(directory,'requests.js').catch(()=>({})),sourceModule(directory,'cli-auth-return.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
     sourceModule(directory,'billing-ui.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
+    sourceModule(directory,'promo-ui.js'),
   ]);
   const sourceHashes=Object.fromEntries(await Promise.all(['app.js','service-ui.js','requests.js','cli-auth-return.js','billing-ui.js','disclosure.js'].map(async name=>[name,await sourceSnapshot(resolve(directory,name)).then(value=>createHash('sha256').update(value).digest('hex')).catch(()=>null)])));
   const root=node(),dialogs=node(),toast=node(),region=node();
@@ -75,7 +76,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
   // This HTML sink has no layout or native disclosure events. Their behavior is
   // exercised with a dedicated event fixture in disclosure.test.mjs.
   const createDisclosureUI=()=>({sync(){},reset(){},dispose(){}});
-  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...billing,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
+  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...billing,...promo,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
   const executable=source.replace(/^import .*;\n/gm,'').replace(/render\(\);\s*$/,'');
   const app=new Function(...Object.keys(dependencies),executable+'\nreturn {state,api,session,render,go,service,refreshVisibleSession:typeof refreshVisibleSession==="function"?refreshVisibleSession:null};')(...Object.values(dependencies));
   Object.assign(app.state,{config:structuredClone(fixtureConfig),lang:'en'});

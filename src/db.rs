@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 8 {
+    if version > 9 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -126,6 +126,14 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         let tx = db.unchecked_transaction()?;
         crate::cli_auth::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 8)?;
+        tx.commit()?;
+    }
+    // Version 9 makes promotion reservations part of payment fulfillment.
+    // Older binaries must refuse this database rather than ignore their expiry.
+    if version < 9 {
+        let tx = db.unchecked_transaction()?;
+        crate::promos::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 9)?;
         tx.commit()?;
     }
     Ok(())

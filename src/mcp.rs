@@ -69,8 +69,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "choose_role",
-            "Choose seeker (free) or employer. Employer activation follows the configured one-time fee in get_site_config; zero enables access immediately, otherwise it creates an unpaid order without charging a payment method.",
-            json!({"role":{"enum":["seeker","employer"]},"provider":{"enum":["stripe","waffo"]}}),
+            "Choose seeker (free) or employer. Employer activation follows the configured one-time fee in get_site_config; zero enables access immediately, otherwise it creates an unpaid order without charging a payment method. An approved promo_code can use one of its remaining free employer activations. Promotion activation never falls back to a full-price order.",
+            json!({"role":{"enum":["seeker","employer"]},"provider":{"enum":["stripe","waffo"]},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"promo_code":{"type":"string","minLength":6,"maxLength":64,"description":"Approved promotion code for a free employer activation."}}),
             &["role"],
             false,
             false,
@@ -101,8 +101,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "create_job",
-            "Create a job listing under the configured publication fee policy. Salary is integer minor units in an enabled currency; omitted currency uses the site default. Title, currency and salary become immutable. Optional planned headcount defaults to 1; zero pauses new matching. Headcount never changes the fee and can be updated freely. Paid actions return a pending order; free actions are fulfilled immediately without a payment gateway.",
-            json!({"title":{"type":"string","maxLength":120},"jd_md":{"type":"string","maxLength":80000},"salary_cents":{"type":"integer","minimum":1},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"provider":{"enum":["stripe","waffo"]},"headcount":{"type":"integer","minimum":0,"maximum":1000000,"default":1}}),
+            "Create a job listing under the configured publication fee policy. Salary is integer minor units in an enabled currency; omitted currency uses the site default. Title, currency and salary become immutable. Optional planned headcount defaults to 1; zero pauses new matching. Headcount never changes the fee and can be updated freely. An approved promo_code discounts publication; 100% means free. When using a code, supply a unique request_key and reuse it for retries of the same request to avoid consuming another use. Optional expected_amount_cents carries an accepted quote in minor currency units and rejects a changed price before creation. Paid actions return a pending order; free actions are fulfilled immediately without a payment gateway.",
+            json!({"title":{"type":"string","maxLength":120},"jd_md":{"type":"string","maxLength":80000},"salary_cents":{"type":"integer","minimum":1},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"provider":{"enum":["stripe","waffo"]},"headcount":{"type":"integer","minimum":0,"maximum":1000000,"default":1},"promo_code":{"type":"string","minLength":6,"maxLength":64,"description":"Approved promotion code for discounted publication."},"request_key":{"type":"string","minLength":8,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$","description":"Required with promo_code. Unique request identifier using ASCII letters, numbers, hyphens or underscores, such as a UUID. Reuse it only for retries of the same job publication."},"expected_amount_cents":{"type":"integer","minimum":0,"description":"Optional accepted quote in minor currency units; reject creation if the current amount differs."}}),
             &["title", "jd_md", "salary_cents"],
             false,
             false,
@@ -212,6 +212,9 @@ pub fn tools() -> Vec<Value> {
             false,
         ),
     ];
+    if let Some(create_job) = result.iter_mut().find(|tool| tool["name"] == "create_job") {
+        create_job["inputSchema"]["dependentRequired"] = json!({"promo_code":["request_key"]});
+    }
     result.extend(conversation_tools(false));
     result.extend([
         tool("get_mandate", "Read your own job-search mandate, including targets and external outreach consent.", json!({}), &[], true, false),
@@ -813,7 +816,14 @@ async fn user_call(s: &AppState, uid: &str, name: &str, args: Value) -> AppResul
         }
         "choose_role" => {
             let i: api::RoleInput = parse(args)?;
-            let (u, o) = commerce::choose_role(s, uid, &i.role, i.provider.as_deref())?;
+            let (u, o) = commerce::choose_role_with_promo(
+                s,
+                uid,
+                &i.role,
+                i.provider.as_deref(),
+                i.currency.as_deref(),
+                i.promo_code.as_deref(),
+            )?;
             Ok(json!({"user":u,"order":o}))
         }
         "list_jobs" => api::matched_jobs(s, &parse(args)?, uid),
@@ -822,7 +832,7 @@ async fn user_call(s: &AppState, uid: &str, name: &str, args: Value) -> AppResul
         "get_job" => api::job_detail(s, &parse::<IdInput>(args)?.id, Some(uid)),
         "create_job" => {
             let i: api::JobInput = parse(args)?;
-            let (j, o) = commerce::new_job_with_currency(
+            let (j, o) = commerce::new_job_with_promo(
                 s,
                 uid,
                 &i.title,
@@ -831,6 +841,9 @@ async fn user_call(s: &AppState, uid: &str, name: &str, args: Value) -> AppResul
                 &i.provider,
                 i.headcount,
                 i.currency.as_deref(),
+                i.promo_code.as_deref(),
+                i.request_key.as_deref(),
+                i.expected_amount_cents,
             )?;
             Ok(json!({"job":j,"order":o}))
         }
