@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {dirname,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 
 // Executes the real route and service code. This DOM sink records published HTML;
@@ -11,16 +12,19 @@ const sourceCache=new Map();
 function sourceSnapshot(file){if(!sourceCache.has(file))sourceCache.set(file,readFile(file,'utf8'));return sourceCache.get(file);}
 async function sourceModule(directory,name){
   const file=resolve(directory,name);
-  if(!moduleCache.has(file))moduleCache.set(file,sourceSnapshot(file).then(source=>import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'))));
+  if(!moduleCache.has(file))moduleCache.set(file,sourceSnapshot(file).then(source=>{
+    const linked=source.replace(/from (['"])(\.[^'"]+)\1/g,(_match,_quote,path)=>'from '+JSON.stringify(pathToFileURL(resolve(dirname(file),path)).href));
+    return import('data:text/javascript;base64,'+Buffer.from(linked).toString('base64'));
+  }));
   return moduleCache.get(file);
 }
 export const fixtureUser={id:'fixture-user',role:'seeker',name:'Synthetic QA member',email:'member@example.test',public_email:'',resume_md:'QA_PROFILE_READY',employer_paid:false};
 export const fixtureConfig={name:'HireFerry QA',default_language:'en',humangrant_enabled:false,google_enabled:false,email_enabled:true,development:false,pricing:{currency:'CNY',currency_decimals:2,onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,edit_mode:'salary_percent',edit_bps:100,max_edits:3,allowed_currencies:['CNY']},limits:{list_page_size:50,workbench_page_size:25},providers:[]};
 
 export async function createNavigationHarness(directory,{latencyMs=0,mountChat=false,beforeResponse=()=>{},initialStorage=[],useFixtureConfig=true}={}) {
-  const [source,services,money,navigation,humanGrant,requests,cliAuth,team,cliGuide,billing,promo,staff,browserCache,cliMotion,controls,finance,peopleJobs]=await Promise.all([
+  const [source,services,money,navigation,humanGrant,requests,cliAuth,team,cliGuide,billing,promo,staff,browserCache,cliMotion,controls,finance,peopleJobs,relationTools]=await Promise.all([
     sourceSnapshot(resolve(directory,'app.js')),sourceModule(directory,'service-ui.js'),sourceModule(directory,'money.js'),sourceModule(directory,'navigation.js'),sourceModule(directory,'humangrant-ui.js'),sourceModule(directory,'requests.js').catch(()=>({})),sourceModule(directory,'cli-auth-return.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
-    sourceModule(directory,'team-ui.js'),sourceModule(directory,'cli-guide.js'),sourceModule(directory,'billing-ui.js'),sourceModule(directory,'promo-ui.js'),sourceModule(directory,'staff-ui.js'),sourceModule(directory,'browser-cache.js'),sourceModule(directory,'cli-motion.js'),sourceModule(directory,'controls.js'),sourceModule(directory,'finance-ui.js'),sourceModule(directory,'people-jobs-ui.js'),
+    sourceModule(directory,'team-ui.js'),sourceModule(directory,'cli-guide.js'),sourceModule(directory,'billing-ui.js'),sourceModule(directory,'promo-ui.js'),sourceModule(directory,'staff-ui.js'),sourceModule(directory,'browser-cache.js'),sourceModule(directory,'cli-motion.js'),sourceModule(directory,'controls.js'),sourceModule(directory,'finance-ui.js'),sourceModule(directory,'people-jobs-ui.js'),sourceModule(directory,'relation-webmcp.js'),
   ]);
   const sourceHashes=Object.fromEntries(await Promise.all(['app.js','service-ui.js','requests.js','cli-auth-return.js','billing-ui.js','disclosure.js'].map(async name=>[name,await sourceSnapshot(resolve(directory,name)).then(value=>createHash('sha256').update(value).digest('hex')).catch(()=>null)])));
   const root=node(),dialogs=node(),toast=node(),region=node();
@@ -39,8 +43,8 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
   const overrides=new Map();
   let currentUser=structuredClone(fixtureUser);
   const conversation={id:'platform_fixture-user',kind:'platform',user_id:'fixture-user',title:'HireFerry team',writable:true,participants:[fixtureUser],unread_count:0,last_message_preview:'Synthetic preview',last_message_at:1800000000};
-  function response(path){
-    if(overrides.has(path)){const value=overrides.get(path);return typeof value==='function'?value():value;}
+  function response(path,options){
+    if(overrides.has(path)){const value=overrides.get(path);return typeof value==='function'?value(options):value;}
     if(path==='/api/config')return fixtureConfig;
     if(path==='/api/session')return {user:currentUser,admin:false,bootstrap:false,csrf:currentUser?'fixture-csrf':null};
     if(path==='/api/profile')return fixtureUser;
@@ -50,6 +54,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
     if(path==='/api/chat/conversations')return {items:[conversation]};
     if(path.startsWith('/api/chat/conversations/platform_fixture-user/messages'))return {items:[{id:1,sender_kind:'platform',sender_id:null,sender_name:'HireFerry',body:'QA_MESSAGE_READY',body_html:'<p>QA_MESSAGE_READY</p>',created_at:1800000000}],next_cursor:1,first_cursor:1,has_older:false};
     if(path==='/api/ai/eligibility')return {eligible:false};
+    if(path==='/api/admin/relations/query')return {data_rev:1,summary:{users:0,seekers:0,jobs:0,edges:0,state_counts:{}},groups:{left:[],right:[]},bundles:[],items:[],total:0,next_cursor:null,remaining:0};
     return {items:[]};
   }
   const fetch=async(path,options={})=>{
@@ -60,7 +65,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
       const timer=setTimeout(()=>{Promise.resolve(gate).then(()=>{options.signal?.removeEventListener('abort',fail);yes();},no);},latencyMs);
       if(options.signal?.aborted)fail();else options.signal?.addEventListener('abort',fail,{once:true});
     });
-    const data=response(path);record.finished=performance.now();
+    const data=response(path,options);record.finished=performance.now();
     const status=data?.httpStatus||200;
     return {ok:status>=200&&status<300,status,json:async()=>structuredClone(data?.httpStatus?data.body:data)};
   };
@@ -79,7 +84,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
   const createPublicConfigCache=load=>browserCache.createPublicConfigCache(load,{storage:localStorage});
   // The dedicated content-refresh suite and browser gate exercise actual DOM animation.
   const animateContentRefresh=async(_root,_html,commit,{isCurrent})=>{if(!isCurrent())return false;commit();return true;};
-  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...team,...cliGuide,...billing,...promo,...staff,...browserCache,...cliMotion,...controls,...finance,...peopleJobs,createPublicConfigCache,animateContentRefresh,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
+  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...team,...cliGuide,...billing,...promo,...staff,...browserCache,...cliMotion,...controls,...finance,...peopleJobs,...relationTools,createPublicConfigCache,animateContentRefresh,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
   const executable=source.replace(/^import .*;\n/gm,'').replace(/render\(\);\s*$/,'');
   const app=new Function(...Object.keys(dependencies),executable+'\nreturn {state,api,session,render,go,service,configCache,refreshPublicPage,refreshVisibleSession:typeof refreshVisibleSession==="function"?refreshVisibleSession:null};')(...Object.values(dependencies));
   if(useFixtureConfig)Object.assign(app.state,{config:structuredClone(fixtureConfig),lang:'en'});

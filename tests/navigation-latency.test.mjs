@@ -56,7 +56,7 @@ test('rapid cold navigation shares startup reads and publishes only the newest d
     assert.equal(harness.network.filter(value=>value.path==='/api/config').length,1);
     assert.equal(harness.network.filter(value=>value.path==='/api/session').length,1);
     assert.equal(harness.network.some(value=>value.path==='/api/admin/team'),false);
-    assert.equal(harness.network.some(value=>value.path.startsWith('/api/admin/users')),true);
+    assert.equal(harness.network.some(value=>value.path==='/api/admin/relations/query'),true);
     assert.equal(harness.network.some(value=>value.aborted),false);
   }finally{config.resolve();await Promise.all([first,second]);harness.dispose();}
 });
