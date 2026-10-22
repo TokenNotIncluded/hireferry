@@ -17,10 +17,10 @@ async function sourceModule(directory,name){
 export const fixtureUser={id:'fixture-user',role:'seeker',name:'Synthetic QA member',email:'member@example.test',public_email:'',resume_md:'QA_PROFILE_READY',employer_paid:false};
 export const fixtureConfig={name:'HireFerry QA',default_language:'en',humangrant_enabled:false,google_enabled:false,email_enabled:true,development:false,pricing:{currency:'CNY',currency_decimals:2,onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,edit_mode:'salary_percent',edit_bps:100,max_edits:3,allowed_currencies:['CNY']},limits:{list_page_size:50,workbench_page_size:25},providers:[]};
 
-export async function createNavigationHarness(directory,{latencyMs=0,mountChat=false,beforeResponse=()=>{}}={}) {
-  const [source,services,money,navigation,humanGrant,requests,cliAuth,team,cliGuide,billing,promo,staff]=await Promise.all([
+export async function createNavigationHarness(directory,{latencyMs=0,mountChat=false,beforeResponse=()=>{},initialStorage=[],useFixtureConfig=true}={}) {
+  const [source,services,money,navigation,humanGrant,requests,cliAuth,team,cliGuide,billing,promo,staff,browserCache,cliMotion]=await Promise.all([
     sourceSnapshot(resolve(directory,'app.js')),sourceModule(directory,'service-ui.js'),sourceModule(directory,'money.js'),sourceModule(directory,'navigation.js'),sourceModule(directory,'humangrant-ui.js'),sourceModule(directory,'requests.js').catch(()=>({})),sourceModule(directory,'cli-auth-return.js').catch(error=>{if(error.code==='ENOENT')return {};throw error;}),
-    sourceModule(directory,'team-ui.js'),sourceModule(directory,'cli-guide.js'),sourceModule(directory,'billing-ui.js'),sourceModule(directory,'promo-ui.js'),sourceModule(directory,'staff-ui.js'),
+    sourceModule(directory,'team-ui.js'),sourceModule(directory,'cli-guide.js'),sourceModule(directory,'billing-ui.js'),sourceModule(directory,'promo-ui.js'),sourceModule(directory,'staff-ui.js'),sourceModule(directory,'browser-cache.js'),sourceModule(directory,'cli-motion.js'),
   ]);
   const sourceHashes=Object.fromEntries(await Promise.all(['app.js','service-ui.js','requests.js','cli-auth-return.js','billing-ui.js','disclosure.js'].map(async name=>[name,await sourceSnapshot(resolve(directory,name)).then(value=>createHash('sha256').update(value).digest('hex')).catch(()=>null)])));
   const root=node(),dialogs=node(),toast=node(),region=node();
@@ -33,7 +33,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
   const history={pushState(_state,_title,value){url=new URL(value,url);}};
   const savedDocument=globalThis.document,savedLocation=globalThis.location;
   globalThis.document=document;globalThis.location=location;
-  const storage=new Map([['hireferry-language','en']]);
+  const storage=new Map([['hireferry-language','en'],...initialStorage]);
   const localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
   const network=[],mounts=[],stops=[];
   const overrides=new Map();
@@ -76,11 +76,14 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
   // This HTML sink has no layout or native disclosure events. Their behavior is
   // exercised with a dedicated event fixture in disclosure.test.mjs.
   const createDisclosureUI=()=>({sync(){},reset(){},dispose(){}});
-  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...team,...cliGuide,...billing,...promo,...staff,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
+  const createPublicConfigCache=load=>browserCache.createPublicConfigCache(load,{storage:localStorage});
+  // The dedicated content-refresh suite and browser gate exercise actual DOM animation.
+  const animateContentRefresh=async(_root,_html,commit,{isCurrent})=>{if(!isCurrent())return false;commit();return true;};
+  const dependencies={document,navigator:{},window:{addEventListener:listen,scrollTo(){}},localStorage,sessionStorage:localStorage,location,history,fetch,requestAnimationFrame:callback=>setImmediate(()=>callback(performance.now())),...services,...money,...navigation,...humanGrant,...requests,...cliAuth,...team,...cliGuide,...billing,...promo,...staff,...browserCache,...cliMotion,createPublicConfigCache,animateContentRefresh,mountPage,createServiceUI,createDisclosureUI,renderLegal:()=>''};
   const executable=source.replace(/^import .*;\n/gm,'').replace(/render\(\);\s*$/,'');
-  const app=new Function(...Object.keys(dependencies),executable+'\nreturn {state,api,session,render,go,service,refreshVisibleSession:typeof refreshVisibleSession==="function"?refreshVisibleSession:null};')(...Object.values(dependencies));
-  Object.assign(app.state,{config:structuredClone(fixtureConfig),lang:'en'});
-  return {app,root,document,network,mounts,stops,location,overrides,sourceHashes,setUser:user=>{currentUser=user;},dispatch(type,event={}){for(const listener of listeners.get(type)||[])listener(event);},async prime(){await app.session();await app.render();network.length=0;mounts.length=0;},async route(target,marker){
+  const app=new Function(...Object.keys(dependencies),executable+'\nreturn {state,api,session,render,go,service,configCache,refreshPublicPage,refreshVisibleSession:typeof refreshVisibleSession==="function"?refreshVisibleSession:null};')(...Object.values(dependencies));
+  if(useFixtureConfig)Object.assign(app.state,{config:structuredClone(fixtureConfig),lang:'en'});
+  return {app,root,document,network,mounts,stops,location,overrides,sourceHashes,localStorage,setUser:user=>{currentUser=user;},dispatch(type,event={}){for(const listener of listeners.get(type)||[])listener(event);},async prime(){await app.session();await app.render();network.length=0;mounts.length=0;},async route(target,marker){
     const began=performance.now(),start=network.length,mountStart=mounts.length;
     await app.go(target);
     const relevant=mounts.slice(mountStart),content=relevant.find(value=>!value.busy&&value.html.includes(marker));

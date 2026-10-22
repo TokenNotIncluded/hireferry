@@ -48,6 +48,7 @@
 | --- | --- |
 | [验收记录](acceptance.md) | 测试、界面截图、构建与外部联调范围 |
 | [CLI 验收](cli-validation.md) | 登录、凭据、脚本及浏览器验证 |
+| [CLI 页面与浏览器缓存](browser-cache-and-cli.md) | 终端演示、复制交互、缓存更新与浏览器验证 |
 | [CLI 发布说明](cli-release-notes.md) | 已记录的版本变化 |
 | [页面导航验证](workspace-navigation-validation.md) | 页面切换与交互验证 |
 | [聊天热路径验证](chat-hotpath-validation.md) | 聊天查询、负载与性能记录 |

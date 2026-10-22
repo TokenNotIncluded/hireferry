@@ -2,6 +2,7 @@ pub mod access;
 pub mod admin;
 pub mod admin_ai;
 pub mod api;
+mod assets;
 pub mod auth;
 pub mod chat;
 pub mod cli_auth;
@@ -33,7 +34,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 pub use error::{AppError, AppResult};
-use include_dir::{Dir, include_dir};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Clone)]
@@ -113,7 +113,6 @@ impl AppState {
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
-static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/static");
 pub fn app(state: AppState) -> Router {
     Router::new()
         .merge(auth::routes())
@@ -137,45 +136,13 @@ pub fn app(state: AppState) -> Router {
             "/healthz",
             axum::routing::get(|| async { StatusCode::NO_CONTENT }),
         )
-        .fallback(static_asset)
+        .fallback_service(
+            axum::routing::get(assets::serve)
+                .layer(tower_http::compression::CompressionLayer::new()),
+        )
         .layer(DefaultBodyLimit::max(3 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), security))
         .with_state(state)
-}
-async fn static_asset(uri: axum::http::Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
-    let path = path.strip_prefix("static/").unwrap_or(path);
-    if path.starts_with("api/") || path.starts_with("v1/") || path == "mcp" {
-        return AppError::not_found("Route not found").into_response();
-    }
-    let name = if path.is_empty() || !path.rsplit('/').next().unwrap_or("").contains('.') {
-        "index.html"
-    } else {
-        path
-    };
-    match ASSETS.get_file(name) {
-        Some(file) => {
-            let mime = if name.ends_with(".css") {
-                "text/css; charset=utf-8"
-            } else if name.ends_with(".js") {
-                "text/javascript; charset=utf-8"
-            } else if name.ends_with(".svg") {
-                "image/svg+xml"
-            } else if name.ends_with(".png") {
-                "image/png"
-            } else if name.ends_with(".woff2") {
-                "font/woff2"
-            } else {
-                "text/html; charset=utf-8"
-            };
-            (
-                [("content-type", mime), ("cache-control", "no-cache")],
-                file.contents(),
-            )
-                .into_response()
-        }
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
 }
 async fn security(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if let Some(origin) = req.headers().get("origin") {

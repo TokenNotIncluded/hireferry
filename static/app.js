@@ -1,4 +1,7 @@
 import { renderCliGuide } from './cli-guide.js';
+import { mountCliGuide, copyCliCommand } from './cli-motion.js';
+import { createPublicConfigCache, samePublicConfig } from './browser-cache.js';
+import { animateContentRefresh } from './content-refresh.js';
 import { createServiceUI, createMessageId } from './service-ui.js';
 import { renderLegal } from './legal-content.js';
 import { takeCliReturn } from './cli-auth-return.js';
@@ -24,7 +27,8 @@ function promos() { return promoModule ||= createPromoUI({state,api,t,esc,icon,m
 const root = document.querySelector('#root');
 const dialogs = document.querySelector('#dialog-root');
 const disclosureUI = createDisclosureUI({root, doc:document, win:window});
-const state = { lang: localStorage.getItem('hireferry-language') || 'zh', config:null, user:null, admin:false, owner:false, super_admin:false, staffRole:null, staff:null, bootstrap:false, csrf:null, sculpture:null, homeStory:null, particleTitles:null, brandMotion:null, motionPaused:false, render:0, eligibility:null, chat:null, chatTimer:null };
+function savedLanguage() {try{return localStorage.getItem('hireferry-language');}catch{return null;}}
+const state = { lang: savedLanguage() || 'zh', config:null, configCached:false, cliGuide:null, user:null, admin:false, owner:false, super_admin:false, staffRole:null, staff:null, bootstrap:false, csrf:null, sculpture:null, homeStory:null, particleTitles:null, brandMotion:null, motionPaused:false, render:0, eligibility:null, chat:null, chatTimer:null };
 const t = (zh,en) => state.lang === 'en' ? en : zh;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const currency = record => currencyMeta(state.config,record);
@@ -236,10 +240,56 @@ const requests = createRequestClient(async (path,{method='GET',body,...options}=
   return result;
 });
 const sessionReader = createSessionReader(() => api('/api/session',{fresh:true}));
+// A public page may paint before its identity read is applied. Explicit resets
+// still provide a known guest state so expiry can show sign-in immediately.
+let sessionKnown=false;
+const configCache = createPublicConfigCache(() => api('/api/config',{fresh:true}));
+const cachedConfig = configCache.peek();
+if(cachedConfig){applyConfig(cachedConfig);state.configCached=true;}
+const publicPages = new Set(['/','/cli','/contact','/refunds']);
+function applyConfig(config) {
+  state.config=config;state.configCached=false;
+  if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
+  document.documentElement.lang=state.lang==='en'?'en':'zh-CN';
+  document.title=(config.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+}
+function publicBody(path) {
+  if(path==='/')return home();
+  if(path==='/cli')return renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
+  if(path==='/contact')return contactPage();
+  if(path==='/refunds')return refundsPage();
+}
+async function refreshPublicPage(version,{refreshConfig=true}={}) {
+  if(!publicPages.has(location.pathname)||version!==state.render)return;
+  const path=location.pathname,before=identityOf(state),language=state.lang,displayedConfig=state.config;
+  const isCurrent=()=>version===state.render&&location.pathname===path;
+  sessionKnown=false;
+  root.dataset.configState='checking';
+  try {
+    // Settle both reads before applying identity, which cancels private requests.
+    // Either successful result remains useful when the other endpoint is unavailable.
+    const [configuration,identity]=await Promise.allSettled([refreshConfig?configCache.refresh():Promise.resolve({value:state.config,changed:false}),sessionReader.read()]);
+    if(!isCurrent())return;
+    if(identity.status==='fulfilled')await session(version);
+    if(!isCurrent())return;
+    if(configuration.status==='fulfilled')applyConfig(configuration.value.value);
+    root.dataset.configState=configuration.status==='fulfilled'?'fresh':'stale';
+    if(samePublicConfig(displayedConfig,state.config)&&before===identityOf(state)&&language===state.lang)return;
+    const html=header()+publicBody(path)+footer();
+    await animateContentRefresh(root,html,()=>{
+      state.cliGuide?.dispose();state.cliGuide=null;
+      if(path==='/'){state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;state.sculpture?.dispose();state.sculpture=null;}
+      mountPage(root,html,pageIdentity(path,qs().get('tab')));
+      disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();mountBrand();
+      if(path==='/cli')state.cliGuide=mountCliGuide(root);
+      if(path==='/')void mountHome();
+    },{isCurrent});
+  }catch{if(isCurrent())root.dataset.configState='stale';}
+}
 const identityOf = value => `${value.super_admin?'owner':value.staff?`staff:${value.staff.id}`:(value.staffRole||value.staff_role)==='manager'?`manager:${value.user?.id||''}`:value.user?.id||'guest'}:${value.csrf||''}`;
 const authMutation = path => /^\/api\/(?:auth\/|role$|team\/invitations\/accept$|staff\/invitations\/[^/]+\/accept$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
 function invalidateIdentity() {
-  sessionReader.invalidate();requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;
+  sessionKnown=false;sessionReader.invalidate();requests.invalidate({abort:true});configCache.invalidate();jobCache.clear();state.eligibility=null;
 }
 function announceIdentityChange() {try{localStorage.setItem('hireferry-session-change',`${Date.now()}:${Math.random()}`);}catch{}}
 async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
@@ -279,6 +329,7 @@ async function session(renderVersion) {
     const elevated={...s,admin:!!s.admin||s.staff_role==='manager',owner:s.super_admin===true,super_admin:s.super_admin===true,staffRole:s.staff_role||null,staff:s.staff||null};
     if(identityOf(state)!==identityOf(elevated)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
     Object.assign(state,{user:s.user,admin:elevated.admin,owner:elevated.owner,super_admin:elevated.super_admin,staffRole:elevated.staffRole,staff:elevated.staff,bootstrap:s.bootstrap,csrf:s.csrf});
+    sessionKnown=true;
   }
   return s;
 }
@@ -325,10 +376,10 @@ function pricingSection() {
   const price=publish.mode==='free'?t('免费','Free'):publish.mode==='fixed'?money(publish.fixed_minor,meta):percent(publish.bps);
   const suffix=publish.mode==='salary_percent'?t('岗位月薪底薪','base monthly salary'):t('每次发布','per publication');
   let quote='—';try{quote=money(calculateFee(example,publish),meta);}catch{}
-  return `<section class="section pricing-section" id="pricing"><div class="section-heading"><div><h2>${t('服务费用','Pricing')}</h2></div><p>${t('求职免费。招聘按次付费。','Free for job seekers. Pay per posting.')}</p></div><div class="pricing-grid"><article class="pricing-card seeker"><h3>${t('给求职者','For job seekers')}</h3><div class="price">${t('免费','Free')}</div><p>${t('提交简历。获取匹配。与平台沟通。','Share your résumé. Get matched. Talk to our team.')}</p><a href="/login?role=seeker" data-nav class="button secondary">${t('开始求职','Find work')}${icon('arrow')}</a></article><article class="pricing-card"><div class="pricing-details"><div><h3>${t('招聘方开通','Employer activation')}</h3><div class="price">${money(pricing().onboarding_cents)}<small>/ ${t('一次','once')}</small></div><p>${t('开通后可发布多个岗位。','Publish multiple roles with one account.')}</p></div><div><h3>${t('每个招聘广告','Each job advertisement')}</h3><div class="price">${price}<small>/ ${suffix}</small></div><p>${publish.mode==='free'?t('发布后开始匹配。','Matching starts after publication.'):t('支付后开始匹配。','Matching starts after payment.')}</p></div></div><div class="price-calculator"><label for="salary-example">${t('例如底薪','Example salary')} · ${esc(meta.currency)}<input id="salary-example" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" value="6000" inputmode="decimal" aria-label="${esc(t('岗位月薪底薪','Base monthly salary')+' · '+meta.currency)}"></label><span>${t('发布费','Posting fee')} <strong class="price-result" id="salary-example-result">${quote}</strong></span></div><div class="pricing-note">${t(`按固定底薪计费。发布后锁定标题、币种和底薪。<br>描述修改每次 ${feeRule('edit')}。最多 ${pricing().max_edits} 次。<br>招聘人数可免费调整。填 0 暂停新匹配。`,`Fees use fixed base pay. Publication locks the title, currency and salary.<br>Description updates: ${feeRule('edit')}. Up to ${pricing().max_edits} updates.<br>Change hiring targets for free. Set 0 to pause new introductions.`)}</div>${currencies().length>1?`<details class="currency-fees"><summary>${t('查看各币种费用','Fees by currency')}</summary>${currencyFeeTable()}<p class="help">${t('开通时选择付款币种。岗位费用按创建时选择的币种结算。','Choose a currency at checkout. Role fees use the currency selected for that role.')}</p></details>`:''}</article></div></section>`;
+  return `<section class="section pricing-section" id="pricing"><div class="section-heading"><div><h2>${t('服务费用','Pricing')}</h2></div><p>${t('求职免费。招聘按次付费。','Free for job seekers. Pay per posting.')}</p></div><div class="pricing-grid"><article class="pricing-card seeker"><h3>${t('给求职者','For job seekers')}</h3><div class="price">${t('免费','Free')}</div><p>${t('提交简历。获取匹配。与平台沟通。','Share your résumé. Get matched. Talk to our team.')}</p><a href="/login?role=seeker" data-nav class="button secondary">${t('开始求职','Find work')}${icon('arrow')}</a></article><article class="pricing-card"><div class="pricing-details"><div><h3>${t('招聘方开通','Employer activation')}</h3><div class="price"><span data-refresh-key="pricing-activation">${money(pricing().onboarding_cents)}</span><small>/ ${t('一次','once')}</small></div><p>${t('开通后可发布多个岗位。','Publish multiple roles with one account.')}</p></div><div><h3>${t('每个招聘广告','Each job advertisement')}</h3><div class="price"><span data-refresh-key="pricing-publication">${price}</span><small>/ ${suffix}</small></div><p>${publish.mode==='free'?t('发布后开始匹配。','Matching starts after publication.'):t('支付后开始匹配。','Matching starts after payment.')}</p></div></div><div class="price-calculator"><label for="salary-example">${t('例如底薪','Example salary')} · ${esc(meta.currency)}<input id="salary-example" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" value="6000" inputmode="decimal" aria-label="${esc(t('岗位月薪底薪','Base monthly salary')+' · '+meta.currency)}"></label><span>${t('发布费','Posting fee')} <strong class="price-result" id="salary-example-result">${quote}</strong></span></div><div class="pricing-note" data-refresh-key="pricing-note">${t(`按固定底薪计费。发布后锁定标题、币种和底薪。<br>描述修改每次 ${feeRule('edit')}。最多 ${pricing().max_edits} 次。<br>招聘人数可免费调整。填 0 暂停新匹配。`,`Fees use fixed base pay. Publication locks the title, currency and salary.<br>Description updates: ${feeRule('edit')}. Up to ${pricing().max_edits} updates.<br>Change hiring targets for free. Set 0 to pause new introductions.`)}</div>${currencies().length>1?`<details class="currency-fees"><summary>${t('查看各币种费用','Fees by currency')}</summary>${currencyFeeTable()}<p class="help">${t('开通时选择付款币种。岗位费用按创建时选择的币种结算。','Choose a currency at checkout. Role fees use the currency selected for that role.')}</p></details>`:''}</article></div></section>`;
 }
 function currencyFeeTable() {
-  return `<div class="table-wrap"><table class="data-table"><thead><tr><th>${t('币种','Currency')}</th><th>${t('发布费','Publication')}</th><th>${t('每次描述修改','Each description update')}</th></tr></thead><tbody>${currencies().map(meta=>`<tr><th scope="row">${esc(meta.currency)}</th><td>${feeRule('publish',meta)}</td><td>${feeRule('edit',meta)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="data-table"><thead><tr><th>${t('币种','Currency')}</th><th>${t('发布费','Publication')}</th><th>${t('每次描述修改','Each description update')}</th></tr></thead><tbody>${currencies().map(meta=>`<tr><th scope="row">${esc(meta.currency)}</th><td data-refresh-key="fee-publish-${esc(meta.currency)}">${feeRule('publish',meta)}</td><td data-refresh-key="fee-edit-${esc(meta.currency)}">${feeRule('edit',meta)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 function home() {
@@ -350,7 +401,7 @@ function home() {
     <section class="home-story" aria-label="${t('认识聘渡','Discover HireFerry')}">
       <div class="hero page-width">
         <div class="hero-copy">
-          <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description">${story.description}</p></article>`).join('')}</div>
+          <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description" data-refresh-key="home-story-${i}">${story.description}</p></article>`).join('')}</div>
           <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer" data-nav class="button secondary">${t('找人才','Find people')}${icon('arrow')}</a></div>
         </div>
         <div class="sculpture-panel">
@@ -390,11 +441,11 @@ function mountBrand() {
 let homeModules;
 async function mountHome() {
   const canvas=document.querySelector('#sculpture');if(!canvas)return;
-  const version=state.render;
+  const version=state.render,mountVersion=state.homeMount=(state.homeMount||0)+1;
   try{
     homeModules ||= Promise.all([import('./runtime/timeline.js'),import('./runtime/motion.js'),import('./scenes.js'),import('./home-story.js'),import('./particle-type.js')]).catch(error=>{homeModules=null;throw error;});
     const [{createTimeline},{mountSculpture},{makeScenes},{mountHomeStory},{mountParticleTitles}]=await homeModules;
-    if(version!==state.render||!canvas.isConnected)return;
+    if(version!==state.render||mountVersion!==state.homeMount||!canvas.isConnected)return;
     const shouldPause=state.motionPaused || navigator.connection?.saveData===true;
     state.particleTitles=mountParticleTitles(document.querySelector('.home-story'));
     state.sculpture=mountSculpture(canvas,createTimeline(makeScenes(),{hold:8,morph:2}),{
@@ -417,7 +468,7 @@ async function mountHome() {
     state.homeStory=mountHomeStory(document.querySelector('.home-story'),{
       onPosition:position=>{state.sculpture?.seek(position);state.particleTitles?.seek(position);}
     });
-  }catch{if(version===state.render){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}}
+  }catch{if(version===state.render&&mountVersion===state.homeMount){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}}
 }
 
 function sidebar(tab,admin=false) {
@@ -537,6 +588,8 @@ function refreshJobPrice(form) {
 }
 
 function syncCurrencyFields(container=root) {
+  const example=container.querySelector('#salary-example'),result=container.querySelector('#salary-example-result');
+  if(example&&result){try{result.textContent=money(calculateFee(centsInput(example.value),feeSettings('publish')));}catch{result.textContent='—';}}
   const jobForm=container.querySelector('form[data-form="job"]');
   if(jobForm)refreshJobPrice(jobForm);
   for(const select of container.querySelectorAll('select[name="salary_currency"]'))service.updateSalaryCurrency(select);
@@ -573,13 +626,13 @@ async function legal(kind) {
 }
 
 function refundsPage() {
-  return `<main id="main" class="page-width"><article class="prose"><div class="eyebrow">PAYMENTS, WITH CARE</div><h1 style="margin-top:18px">${t('退款问题，我们认真核对。','Refunds deserve a careful review.')}</h1><p>${t('这份说明适用于聘渡的招聘方开通、岗位发布和岗位描述修改订单。求职者使用服务免费。','This policy covers HireFerry employer activation, job publication, and job description update orders. The service is free for job seekers.')}</p><h2>${t('如何提出退款问题','How to ask about a refund')}</h2><p>${t('如有误付、重复付款、付款后服务未生效或其他订单异常，请发送邮件至支持邮箱，并提供订单号与简要情况说明。订单号可以在工作台的「订单」中找到。平台会根据订单记录和实际服务情况进行人工核对。','For a mistaken payment, duplicate payment, a service that did not activate after payment, or another order issue, email support with your order number and a brief description. Find the order number under Orders in your workspace. HireFerry reviews the order record and the service actually provided.')}</p><p><a href="${esc(contactMailto(t('HireFerry 订单与退款咨询','HireFerry order and refund inquiry')))}" class="contact-email-link">${esc(contactEmail())}</a></p><h2>${t('退款如何处理','How refunds are handled')}</h2><p>${t('退款经人工核对后，由平台通过支付服务商的商户后台处理。网站不直接发起退款。我们会在沟通中说明核对结果和后续处理方式；请保留订单号，以便继续跟进。','After review, HireFerry handles refunds through the payment provider’s merchant dashboard. The website does not initiate refunds directly. We explain the review result and next steps in our correspondence. Keep the order number for follow-up.')}</p><h2>${t('如何确认退款状态','How to confirm refund status')}</h2><p>${t('收到并验证 Waffo 成功退款通知后，订单会显示累计已退款金额、当前净额及「部分退款」或「已全额退款」状态。若原订单仍需人工核对，部分退款后可能继续显示「待人工核对」。失败或尚未确认的退款不会显示为成功，也不会扣减已记录的净收款。请在订单页面刷新核对。Stripe 退款请联系支持核对；本站暂不自动同步 Stripe 退款状态和净额。','After a successful Waffo refund notification is received and verified, the order shows the cumulative refunded amount, current net amount, and Partially refunded or Fully refunded status. An order that already needs manual review may retain Needs review after a partial refund. Failed or unconfirmed refunds are not shown as successful and do not reduce recorded net receipts. Refresh the order page to check. For Stripe refunds, contact support to verify the outcome; this website does not yet automatically update Stripe refund status or net amounts.')}</p><h2>${t('只提供必要的信息','Share only what is needed')}</h2><p>${t('退款咨询不需要提供银行卡卡号、手机号、验证码、通行密钥或 AI 访问令牌。请提供订单号与问题说明；支付信息由对应支付服务商处理。','A refund inquiry does not require a card number, phone number, sign-in code, passkey, or AI access token. Send the order number and a description of the issue. Payment information is handled by the relevant provider.')}</p><div class="policy-actions"><a href="/app?tab=orders" data-nav class="button secondary">${t('查看我的订单','View my orders')}${icon('receipt')}</a><a href="/contact" data-nav class="text-button">${t('联系与支持','Contact and support')} →</a></div></article></main>`;
+  return `<main id="main" class="page-width"><article class="prose"><div class="eyebrow">PAYMENTS, WITH CARE</div><h1 style="margin-top:18px">${t('退款问题，我们认真核对。','Refunds deserve a careful review.')}</h1><p>${t('这份说明适用于聘渡的招聘方开通、岗位发布和岗位描述修改订单。求职者使用服务免费。','This policy covers HireFerry employer activation, job publication, and job description update orders. The service is free for job seekers.')}</p><h2>${t('如何提出退款问题','How to ask about a refund')}</h2><p>${t('如有误付、重复付款、付款后服务未生效或其他订单异常，请发送邮件至支持邮箱，并提供订单号与简要情况说明。订单号可以在工作台的「订单」中找到。平台会根据订单记录和实际服务情况进行人工核对。','For a mistaken payment, duplicate payment, a service that did not activate after payment, or another order issue, email support with your order number and a brief description. Find the order number under Orders in your workspace. HireFerry reviews the order record and the service actually provided.')}</p><p><a href="${esc(contactMailto(t('HireFerry 订单与退款咨询','HireFerry order and refund inquiry')))}" class="contact-email-link" data-refresh-key="contact-email">${esc(contactEmail())}</a></p><h2>${t('退款如何处理','How refunds are handled')}</h2><p>${t('退款经人工核对后，由平台通过支付服务商的商户后台处理。网站不直接发起退款。我们会在沟通中说明核对结果和后续处理方式；请保留订单号，以便继续跟进。','After review, HireFerry handles refunds through the payment provider’s merchant dashboard. The website does not initiate refunds directly. We explain the review result and next steps in our correspondence. Keep the order number for follow-up.')}</p><h2>${t('如何确认退款状态','How to confirm refund status')}</h2><p>${t('收到并验证 Waffo 成功退款通知后，订单会显示累计已退款金额、当前净额及「部分退款」或「已全额退款」状态。若原订单仍需人工核对，部分退款后可能继续显示「待人工核对」。失败或尚未确认的退款不会显示为成功，也不会扣减已记录的净收款。请在订单页面刷新核对。Stripe 退款请联系支持核对；本站暂不自动同步 Stripe 退款状态和净额。','After a successful Waffo refund notification is received and verified, the order shows the cumulative refunded amount, current net amount, and Partially refunded or Fully refunded status. An order that already needs manual review may retain Needs review after a partial refund. Failed or unconfirmed refunds are not shown as successful and do not reduce recorded net receipts. Refresh the order page to check. For Stripe refunds, contact support to verify the outcome; this website does not yet automatically update Stripe refund status or net amounts.')}</p><h2>${t('只提供必要的信息','Share only what is needed')}</h2><p>${t('退款咨询不需要提供银行卡卡号、手机号、验证码、通行密钥或 AI 访问令牌。请提供订单号与问题说明；支付信息由对应支付服务商处理。','A refund inquiry does not require a card number, phone number, sign-in code, passkey, or AI access token. Send the order number and a description of the issue. Payment information is handled by the relevant provider.')}</p><div class="policy-actions"><a href="/app?tab=orders" data-nav class="button secondary">${t('查看我的订单','View my orders')}${icon('receipt')}</a><a href="/contact" data-nav class="text-button">${t('联系与支持','Contact and support')} →</a></div></article></main>`;
 }
 
 function contactPage() {
   let origin=location.origin;
   try {const configured=new URL(state.config?.public_origin||origin);if(['https:','http:'].includes(configured.protocol))origin=configured.origin;}catch{}
-  return `<main id="main" class="page-width"><article class="prose contact-page"><h1 style="margin-top:18px">${t('联系我们','Contact us')}</h1><p>${t('咨询求职、招聘、账户或订单问题。','Help with your search, hiring, account or order.')}</p><section class="panel contact-card"><span class="contact-icon">${icon('mail')}</span><div><h2>${t('支持邮箱','Support email')}</h2><a href="${esc(contactMailto())}" class="contact-email-link">${esc(contactEmail())}</a><p class="help">${t('订单与退款咨询请附上订单号和简要说明。','For orders and refunds, include your order number and a brief description.')}</p></div></section><h2>${t('在工作台沟通','Talk in your workspace')}</h2><p>${t('在私聊中讨论需求。在匹配会话中联系对方。','Discuss your needs privately. Contact your match in a shared room.')}</p><a href="${state.user?'/app?tab=messages':'/login'}" data-nav class="button">${t('与平台沟通','Talk to HireFerry')}${icon('message')}</a><h2>${t('关于付款与隐私','Payments and privacy')}</h2><p>${t('付款咨询请提供订单号。资料更正或删除可通过邮箱申请。','Include your order number for payment queries. Email us to correct or delete your profile.')}</p><div class="policy-links"><a href="/refunds" data-nav class="help-link">${t('退款政策','Refund policy')}</a><a href="/privacy" data-nav class="help-link">${t('隐私说明','Privacy notice')}</a><a href="/terms" data-nav class="help-link">${t('服务条款','Terms')}</a></div><p class="contact-origin">${t('聘渡官网','HireFerry website')} · <a href="${esc(origin)}" class="help-link">${esc(origin)}</a></p></article></main>`;
+  return `<main id="main" class="page-width"><article class="prose contact-page"><h1 style="margin-top:18px">${t('联系我们','Contact us')}</h1><p>${t('咨询求职、招聘、账户或订单问题。','Help with your search, hiring, account or order.')}</p><section class="panel contact-card"><span class="contact-icon">${icon('mail')}</span><div><h2>${t('支持邮箱','Support email')}</h2><a href="${esc(contactMailto())}" class="contact-email-link" data-refresh-key="contact-email">${esc(contactEmail())}</a><p class="help">${t('订单与退款咨询请附上订单号和简要说明。','For orders and refunds, include your order number and a brief description.')}</p></div></section><h2>${t('在工作台沟通','Talk in your workspace')}</h2><p>${t('在私聊中讨论需求。在匹配会话中联系对方。','Discuss your needs privately. Contact your match in a shared room.')}</p><a href="${state.user?'/app?tab=messages':'/login'}" data-nav class="button">${t('与平台沟通','Talk to HireFerry')}${icon('message')}</a><h2>${t('关于付款与隐私','Payments and privacy')}</h2><p>${t('付款咨询请提供订单号。资料更正或删除可通过邮箱申请。','Include your order number for payment queries. Email us to correct or delete your profile.')}</p><div class="policy-links"><a href="/refunds" data-nav class="help-link">${t('退款政策','Refund policy')}</a><a href="/privacy" data-nav class="help-link">${t('隐私说明','Privacy notice')}</a><a href="/terms" data-nav class="help-link">${t('服务条款','Terms')}</a></div><p class="contact-origin" data-refresh-key="contact-origin">${t('聘渡官网','HireFerry website')} · <a href="${esc(origin)}" class="help-link">${esc(origin)}</a></p></article></main>`;
 }
 
 async function render({navigation=false}={}) {
@@ -593,8 +646,9 @@ async function render({navigation=false}={}) {
     record('shell');await fast;record('ready');return;
   }
   requests.cancel(`navigation:${state.render}`);
-  const version=++state.render;service.stopChat();state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=(state.config?.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+  const version=++state.render;service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=(state.config?.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
   const path=location.pathname,tab=qs().get('tab');
+  const publicPage=publicPages.has(path);
   const pageKey=pageIdentity(path,tab);
   const placeholderTab=path.startsWith('/human/')?'human-review':path.startsWith('/app/jobs/')?'editor':tab||(path==='/admin'?'overview':'messages');
   const pendingBody=()=>{const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
@@ -604,15 +658,15 @@ async function render({navigation=false}={}) {
   showPending();
   recordPaint('shell');
   try {
-    if(!state.config) {
+    let loadedConfig=false;
+    if(!state.config||(!publicPage&&state.configCached)) {
       // Read in parallel, then apply identity: its private-request cancellation must not abort config.
-      const [config]=await Promise.all([api('/api/config'),sessionReader.read()]);
+      // A public page needs no account data before its first paint.
+      const [result]=await Promise.all([configCache.refresh(),publicPage?Promise.resolve():sessionReader.read()]);
       if(version!==state.render)return;
-      await session(version);
+      if(!publicPage)await session(version);
       if(version!==state.render)return;
-      state.config=config;
-      if(!localStorage.getItem('hireferry-language'))state.lang=state.config.default_language==='en'?'en':'zh';
-      document.documentElement.lang=state.lang==='en'?'en':'zh-CN';showPending(true);
+      applyConfig(result.value);loadedConfig=true;showPending(true);
     }
     if(resumeCliLogin())return;
     let body;
@@ -621,7 +675,7 @@ async function render({navigation=false}={}) {
     else if(path==='/humangrant')body=humanGrant().intro();
     else if(/^\/human\/[A-Za-z0-9_-]+$/.test(path)){await session(version);if(version!==state.render)return;body=await humanGrant().reviewPage(path.split('/')[2],version);}
     else if(path==='/team/invite'){await session(version);if(version!==state.render)return;body=await team().reviewPage(location.hash.slice(1),version);}
-    else if(path==='/login'){if(state.user||state.admin){go(afterSignIn());return;}body=login();}
+    else if(path==='/login'){if(!sessionKnown)await session(version);if(version!==state.render||resumeCliLogin())return;if(state.user||state.admin){go(afterSignIn());return;}body=login();}
     else if(/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(path)){await session(version);if(version!==state.render)return;body=await staffUI().invitePage(path.split('/')[3]);}
     else if(path==='/jobs'||path==='/people'){await session(version);if(version!==state.render)return;go(state.user?'/app?tab=matches':'/login');return;}
     else if(/^\/jobs\/[^/]+$/.test(path))body=await jobDetail(decodeURIComponent(path.split('/')[2]));
@@ -650,6 +704,8 @@ async function render({navigation=false}={}) {
     else if(path==='/billing/return'||path==='/payment/return'||path==='/payment/success'||path==='/checkout/return'){await session(version);if(version!==state.render)return;body=await paymentReturn();}
     else body=`<main id="main" class="page-width page-error"><h1 style="margin-top:20px">${t('页面未找到','Page not found')}</h1><p>${t('请检查地址。','Check the address.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to home')}${icon('arrow')}</a></main>`;
     if(version!==state.render||resumeCliLogin())return;mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();recordPaint('ready');mountBrand();if(path==='/')void mountHome();
+    if(path==='/cli')state.cliGuide=mountCliGuide(root);
+    if(publicPage)void refreshPublicPage(version,{refreshConfig:!loadedConfig});
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&tab!=='promos'&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
@@ -888,7 +944,7 @@ document.addEventListener('click',async event=>{
     else if(action==='admin-restore-job')await jobLifecycleDialog(id,'restore',true);
     else if(action==='close-job')confirmDialog(t('结束这个岗位的招聘？','Close this role?'),t('关闭后不能恢复招聘。仅想暂停，请将招聘人数设为 0。原有订单记录保留。','Closing cannot be undone. To pause temporarily, set the hiring target to 0. Order records remain.'),async()=>{await api(`/api/jobs/${encodeURIComponent(id)}/close`,{method:'POST',body:{}});await render();notify(t('岗位已关闭。','Role closed.'));});
     else if(action==='pay-order'){setBusy(button,true);await payOrder(await api(`/api/orders/${encodeURIComponent(id)}`));}
-    else if(action==='copy-command'){await navigator.clipboard.writeText(button.dataset.copy);notify(t('命令已复制。','Command copied.'));}
+    else if(action==='copy-command'){await copyCliCommand(button);notify(t('命令已复制。','Command copied.'));}
     else if(action==='copy-token'){await navigator.clipboard.writeText(button.dataset.copy);notify(t('已复制。请妥善保管。','Copied. Keep it private.'));}
     else if(action==='revoke-token')confirmDialog(t('撤销这个 AI 连接？','Revoke this AI connection?'),t('使用这个令牌的 AI 将立即失去访问权限。','The AI using this token will immediately lose access.'),async()=>{await api(`/api/tokens/${encodeURIComponent(id)}`,{method:'DELETE'});await render();notify(t('连接已撤销。','Connection revoked.'));});
     else if(action==='admin-passkey-login'||action==='admin-reauth'){setBusy(button,true);await passkey();}
@@ -940,7 +996,7 @@ window.addEventListener('hashchange',()=>{if(location.pathname==='/team/invite')
 window.addEventListener('pagehide',event=>{service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted){state.homeStory?.dispose();state.particleTitles?.dispose();state.sculpture?.dispose();state.brandMotion?.dispose();}});
 function resetPrivateView() {
   disclosureUI.reset();
-  invalidateIdentity();Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
+  invalidateIdentity();sessionKnown=true;Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
 }
 async function refreshVisibleSession() {
   if(document.hidden||!state.config)return;
@@ -949,7 +1005,8 @@ async function refreshVisibleSession() {
   catch(error){sessionReader.invalidate();requests.invalidate();if(error.status===401&&(state.user||state.admin)){resetPrivateView();void render();}}
 }
 window.addEventListener('storage',event=>{if(event.key==='hireferry-session-change'){resetPrivateView();void render();}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else void refreshVisibleSession();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else void refreshVisibleSession();});
+window.addEventListener('online',()=>{if(publicPages.has(location.pathname))void refreshPublicPage(state.render);});
 window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView();void render();}});
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
