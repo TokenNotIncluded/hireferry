@@ -7,7 +7,7 @@ trap 'rm -rf -- "$work"' EXIT
 for recipe in "$@"; do
   recipe=$(realpath "$recipe")
   name=$(basename "$recipe")
-  [[ $name =~ ^hireferry-(server|cli)-(git|bin)$ ]] || { echo "Unexpected package: $name" >&2; exit 1; }
+  [[ $name =~ ^hireferry-(server|cli|desktop)-(git|bin)$ ]] || { echo "Unexpected package: $name" >&2; exit 1; }
   (cd "$recipe" && makepkg --printsrcinfo) > "$work/SRCINFO"
   cmp "$work/SRCINFO" "$recipe/.SRCINFO"
   version=$(sed -n 's/^[[:space:]]*pkgver = //p' "$recipe/.SRCINFO")
@@ -23,6 +23,8 @@ for recipe in "$@"; do
   allowed=(PKGBUILD .SRCINFO)
   if [[ $name == hireferry-server-bin ]]; then
     allowed+=(hireferry.service hireferry.sysusers hireferry.tmpfiles)
+  elif [[ $name == hireferry-desktop-bin ]]; then
+    allowed+=(LICENSE)
   fi
   for file in "${allowed[@]}"; do
     [[ -f $recipe/$file && ! -L $recipe/$file ]]
