@@ -10,7 +10,7 @@
 
 ## 当前可安装版本
 
-下载入口以 [自动生成的下载矩阵](downloads.md) 为准。2026-10-22 核对时，正式 Release 为 **CLI 0.1.3、服务端 0.1.0**，尚无正式桌面 Release。六个平台已有一轮工程构建成功记录，但临时 CI artifact 不作为正式下载安装入口。详细证据和待验证项见 [桌面发行验收记录](desktop-release-status.md)。
+下载入口以 [自动生成的下载矩阵](downloads.md) 为准。2026-10-22 核对时，正式 Release 为 **CLI 0.1.3、服务端 0.1.0**，尚无正式桌面 Release。本次发行分支已通过六平台原生启动、15 个桌面包与两架构 Flatpak 的工程验收，但临时 CI artifact 不作为正式下载安装入口。详细证据和待验证项见 [桌面发行验收记录](desktop-release-status.md)。
 
 ## 选择安装包
 

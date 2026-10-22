@@ -13,32 +13,38 @@
 
 GitHub 仓库通用 `/releases/latest` 用于现有 CLI 安装器。桌面、服务端保持独立标签与下载入口；桌面发布使用 `--latest=false`，不会改变 CLI 的 latest。
 
-## 已经完成的一轮桌面工程构建
+## 本次提交的桌面工程验收
 
-证据：[Desktop and CLI packages，run 39735931535](https://github.com/TokenNotIncluded/hireferry/actions/runs/39735931535)，源码提交 `4bd3963c295e68960b00d7df51e878c000a2baea`。这是本次补齐之前的 PR 验证记录，不代表随后修改过的提交已经通过同样检查。
+证据：[Desktop and CLI packages，run 39827315512](https://github.com/TokenNotIncluded/hireferry/actions/runs/39827315512)，分支提交 `bb2f513dd14f9d2c16e760b65f9498d8de06fe82`，2026-10-22 全部构建与汇总成功。该记录对应桌面发行分支；随后把移动端共享 Tauri 代码合入的集成提交仍须独立运行同样工作流。
 
-| 平台 / 架构 | 构建及单元测试 | 当时的原生界面启动验证 | 包格式 |
+| 平台 / 架构 | 构建、单元测试及原生界面启动 | 已生成并校验的包 | 本轮签名状态 |
 | --- | --- | --- | --- |
-| Linux x64 | 通过 | WebKit 启动器通过 | `.deb`、`.rpm`、`.AppImage` |
-| Linux ARM64 | 通过 | WebKit 启动器通过 | `.deb`、`.rpm`、`.AppImage` |
-| Windows x64 | 通过 | 当时未运行 GUI smoke | NSIS `.exe`、`.msi` |
-| Windows ARM64 | 通过 | 当时未运行 GUI smoke | NSIS `.exe` |
-| macOS Intel x64 | 通过 | 当时未运行 GUI smoke | `.dmg`、`.app.tar.gz` |
-| macOS Apple Silicon | 通过 | 当时未运行 GUI smoke | `.dmg`、`.app.tar.gz` |
-| Flatpak x64 / ARM64 | 两者通过 | 运行时依赖、版本检查与启动器 smoke 通过 | 各一个 `.flatpak` |
+| Linux x64 | 通过，真实 WebKit 启动器 | `.deb`、`.rpm`、`.AppImage` | SHA-256 完整性校验 |
+| Linux ARM64 | 通过，真实 WebKit 启动器 | `.deb`、`.rpm`、`.AppImage` | SHA-256 完整性校验 |
+| Windows x64 | 通过，原生 WebView2 启动器 | NSIS `.exe`、`.msi` | unsigned，工程验证 |
+| Windows ARM64 | 通过，原生 WebView2 启动器 | NSIS `.exe` | unsigned，工程验证 |
+| macOS Intel x64 | 通过，原生 WebKit 启动器 | `.dmg`、`.app.tar.gz` | ad-hoc；未使用 Developer ID / 公证 |
+| macOS Apple Silicon | 通过，原生 WebKit 启动器 | `.dmg`、`.app.tar.gz` | ad-hoc；未使用 Developer ID / 公证 |
+| Flatpak x64 / ARM64 | 两者通过，运行时与启动器 smoke | 各一个 `.flatpak` | 单文件工程包，未上架 Flathub |
 
-该轮完整产物汇总成功，发布 job 被跳过。构建未配置维护者的 Apple / Windows 证书，因此没有被记为平台发行签名通过。CI artifact 的有效期和可下载性由 GitHub 保留策略决定，文档不把它当作永久安装地址。
+本轮实际生成 **15 个桌面包与 6 个 CLI 归档**。汇总步骤成功验证全部包名、大小、SHA-256，以及与最终包字节绑定的签名分类报告，生成 Markdown、SVG 和 JSON。macOS 最终 DMG 挂载验证已修正许可证分页与确认交互；两种架构均通过。正式发布、下载页写回和 AUR 发布 job 均按工程构建规则跳过。
+
+验收产物保存在上述 run 的 Actions artifacts 中，清单标记 `distribution=engineering`。它们不是正式 Releases 下载入口；其有效期及下载权限受 GitHub artifact 保留策略控制。不能将 Windows unsigned、macOS ad-hoc 结果写成维护者证书签名或公证成功。
+
+AUR 另有 [run 39827315453](https://github.com/TokenNotIncluded/hireferry/actions/runs/39827315453) 成功记录：真实 Arch `base-devel` 下的配方元数据与安装边界验证通过。本次没有向 AUR 发布包。
+
+历史基线 [run 39735931535](https://github.com/TokenNotIncluded/hireferry/actions/runs/39735931535) 只作追溯，不能替代上述提交的结果。
 
 ## 此次新增的验证门槛
 
-- 相关路径 PR 自动运行六平台原生构建、单元测试、各自 WebView 启动器 smoke，以及两架构 Flatpak；Windows / macOS GUI smoke 是本次新增，只有新提交的工作流成功后才能在上表新增结果。
+- 相关路径 PR 自动运行六平台原生构建、单元测试、各自 WebView 启动器 smoke，以及两架构 Flatpak；Windows / macOS GUI smoke 已在上述提交实际通过。
 - PR 与普通手动构建标记 `distribution=engineering`；工程清单禁止自动写入公开下载页或生成 AUR 二进制配方。PR 不接收签名 secrets。
 - `desktop-vX.Y.Z` 正式标签构建必须先通过凭据完整性检查，再实际验签最终包。Windows 要求有效 Authenticode 与时间戳；macOS 要求 Developer ID 签名和 stapler 验证，验证对象是最终 DMG 与 `.app.tar.gz` 内的应用。
 - 每个原生目标输出包含最终包名、大小、SHA-256、签名分类的报告。汇总再次检查报告与包字节一致；发布步骤再次验证完整目录，不允许工程清单转为正式发布。
 - Linux 报告明确为 `checksum-only`，不把完整性校验称作平台发布者签名。Flatpak 是单文件分发，不表示已经上架 Flathub。
 - AUR 验证工作流在 Arch `base-devel` 中以普通用户执行真实 `makepkg --printsrcinfo` 与配方文件安装边界测试；桌面 source 配方与 Release 二进制配方分别处理，后者只从正式清单取两个 Linux `.deb` 的校验和。
 
-本地签名策略测试使用模拟的原生命令结果来验证拒绝条件，不代表已经有真实签名证书。此次环境只运行 Python 发布门槛测试、真实 makepkg 元数据生成和 bsdtar 文件安装测试；六平台运行与真实签名必须以对应 GitHub 工作流和最终包验签结果为准。
+本地签名策略测试使用模拟的原生命令结果来验证拒绝条件，不代表已经有真实签名证书。本地运行 Python 发布门槛测试；真实 makepkg 元数据、bsdtar 安装边界、六平台原生启动及最终包验证以上述 GitHub 工作流为证。维护者真实签名与公证尚未运行。
 
 ## 实际发布还需要什么
 
