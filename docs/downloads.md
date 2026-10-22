@@ -25,12 +25,13 @@
 
 ## Arch Linux / AUR
 
-服务端与客户端 CLI 独立安装，支持 x86_64 和 aarch64。同一组件的 `-git` 与 `-bin` 互斥，服务端与 CLI 可以共存。
+服务端、CLI 与桌面 GUI 独立安装，支持 x86_64 和 aarch64。同一组件的 `-git` 与 `-bin` 互斥，不同组件可以共存。
 
 | 组件 | 跟随 main 编译 | 安装 Release 二进制 |
 | --- | --- | --- |
 | 服务端 | [hireferry-server-git](https://aur.archlinux.org/packages/hireferry-server-git) | [hireferry-server-bin](https://aur.archlinux.org/packages/hireferry-server-bin) |
 | hfy CLI | [hireferry-cli-git](https://aur.archlinux.org/packages/hireferry-cli-git) | [hireferry-cli-bin](https://aur.archlinux.org/packages/hireferry-cli-bin) |
+| 桌面 GUI | 仓库提供 `hireferry-desktop-git` 配方；AUR 可用性见指南 | `hireferry-desktop-bin` 必须依据正式桌面 Release 生成；可用性见指南 |
 
 安装、服务初始化与发布流程见 [AUR 指南](aur.md)。AUR 配方不计入上面的 Release 二进制数量。
 

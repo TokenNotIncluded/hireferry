@@ -8,6 +8,10 @@
 
 `hfy` 是独立的用户端 CLI，不需要安装桌面版。服务器程序仍名为 `hireferry`，与桌面程序 `hireferry-desktop`、用户 CLI `hfy` 分开发布。
 
+## 当前可安装版本
+
+下载入口以 [自动生成的下载矩阵](downloads.md) 为准。2026-10-22 核对时，正式 Release 为 **CLI 0.1.3、服务端 0.1.0**，尚无正式桌面 Release。六个平台已有一轮工程构建成功记录，但临时 CI artifact 不作为正式下载安装入口。详细证据和待验证项见 [桌面发行验收记录](desktop-release-status.md)。
+
 ## 选择安装包
 
 | 系统 | 架构 | 桌面包 | 用户 CLI |
@@ -29,7 +33,8 @@ Linux 使用多种包格式覆盖主流发行版系列，不能仅凭扩展名�
 | --- | --- | --- |
 | Ubuntu、Debian、Mint、Pop!_OS、Zorin、elementary | `.deb` | 原生构建基线 Ubuntu 22.04；需要 WebKitGTK 4.1。Debian 12 和提供相同依赖的后续版本可安装 |
 | Fedora、openSUSE、RHEL、Rocky、Alma | `.rpm`；必要时用 Flatpak | 安装器必须能满足所需库；旧企业发行版缺少 WebKitGTK 4.1 时使用 Flatpak |
-| Arch、Manjaro、EndeavourOS、Gentoo | AppImage 或 Flatpak | 图形会话、宿主 glibc 与运行时需兼容；不是所有历史版本的兼容承诺 |
+| Arch、Manjaro、EndeavourOS | AUR 源码配方；正式桌面发布后可用二进制配方 | 当前仓库提供 `hireferry-desktop-git`；AUR 上架状态及构建命令见 [AUR 指南](aur.md) |
+| Gentoo | AppImage 或 Flatpak | 图形会话、宿主 glibc 与运行时需兼容；不是所有历史版本的兼容承诺 |
 | NixOS、SteamOS、不可变桌面 | Flatpak | 通过发行版配置安装 Flatpak、运行时及桌面 portal |
 | Alpine / musl | CLI 用 musl 压缩包；桌面使用可用的 Flatpak 环境 | glibc `.deb`、`.rpm` 和 AppImage 不适用于原生 musl 环境 |
 
@@ -37,7 +42,7 @@ Tauri 2 原生 Linux 构建依赖 WebKitGTK 4.1。原生包在 **Ubuntu 22.04 �
 
 Flatpak 使用独立共享运行时提供图形依赖，通过 `.flatpak` 附件分发。**生成 Flatpak 附件不表示已上架 Flathub。** 安装运行时需要可用的软件源；部分受限或旧系统需要先配置相应服务。参考 [Flatpak 安装帮助](https://flatpak.org/setup/)及 [Tauri Flatpak 文档](https://v2.tauri.app/distribute/flatpak/)。
 
-本仓库的 CI 验证构建、打包、包集合和校验信息；没有把每个发行版都实际运行过的结果记录为通过。32 位 x86、ARMv7 和 RISC-V 暂不在当前发布矩阵中。
+本仓库的 CI 验证六个平台构建、包集合、校验和与启动器加载；Linux 还在两个架构运行 Flatpak 启动检查。验收记录区分旧工作流已有的测试结果与本次新增检查，只有对应提交的工作流成功后才能计为通过。并没有把每个 Linux 发行版都记录为实机运行通过。32 位 x86、ARMv7 和 RISC-V 暂不在当前发布矩阵中。
 
 ## 安装与校验
 
@@ -91,11 +96,20 @@ CLI 的一键安装、登录、升级与卸载见 [CLI 文档](cli.md)。它继�
 
 桌面窗口内可使用站点提供的邮箱验证码登录。Google 等第三方提供方可能拒绝嵌入式 WebView；系统浏览器与桌面窗口的会话也不自动共享。此版本没有加入浏览器 OAuth 会话回传桥接，使用此类登录时应在浏览器里继续访问站点。不要把“浏览器成功登录”误认为桌面窗口也已登录。
 
-桌面壳的更新通过下载新版本安装包完成，Flatpak 通过重新安装新附件更新。这里的“自动更新”指**发布文档和下载矩阵自动生成**，并没有配置未签名的应用内自动更新器。
+## 手动更新
+
+桌面壳当前通过新安装包更新：
+
+1. 打开 [下载矩阵](downloads.md)，选择“桌面版”对应 Release 和当前 CPU 架构。仓库通用 `releases/latest` 保留给 CLI，不是桌面更新入口。
+2. 下载该 Release 的安装包和 `SHA256SUMS`，按前面的命令校验。Windows、macOS 正式 Release 还必须通过发布工作流的原生签名与公证验证。
+3. 关闭桌面应用。Windows 运行新安装器；macOS 用新应用替换 Applications 中的旧版本；Linux 使用原有包管理器安装较新的本地包。业务数据保存在所连接的站点，不在安装包内。
+4. 使用 Flatpak 附件时运行 `flatpak install --user --reinstall ./新版本.flatpak`；这不会建立 Flathub 上架关系。AUR 包由相应 AUR 配方更新后使用包管理器升级；`-git` 版本需重新构建以跟随源码。
+
+当前没有安装 Tauri updater 插件或应用内自动更新端点。`release/latest.json` 是多产品下载目录，**不是** Tauri updater 的 `version/platforms/url/signature` 更新协议；不能把它当作更新 feed。将来启用自动更新需要单独的持久签名密钥、客户端公钥以及对应的 `.sig` 产物，不能用 SHA-256 或平台代码签名替代。[Tauri updater 官方说明](https://v2.tauri.app/plugin/updater/)列出了这一要求。
 
 ## 本地构建
 
-桌面包独立于服务器 Cargo workspace，避免普通服务器或 CLI 测试被迫安装 GTK / WebKit 开发依赖。请先按 [Tauri 官方前置条件](https://v2.tauri.app/start/prerequisites/)安装当前系统所需工具。
+桌面包独立于服务器 Cargo workspace，避免普通服务器或 CLI 测试被迫安装 GTK / WebKit 开发依赖。Rust 需要 **1.90 或更新版本**，与当前锁定的 Tauri opener 依赖要求一致。请先按 [Tauri 官方前置条件](https://v2.tauri.app/start/prerequisites/)安装当前系统所需工具。
 
 ```sh
 cd desktop
@@ -111,12 +125,12 @@ npm run tauri -- build
 发布目标由 [`release/targets.json`](../release/targets.json) 定义。CI 矩阵、预期包集合、Markdown、JSON 和 SVG 都读取这个目录，新增平台时不需要分别维护多张表。
 
 1. 在 `desktop/src-tauri/Cargo.toml`、`desktop/src-tauri/tauri.conf.json` 和 `desktop/package.json` 中保持桌面版本一致；更新相应锁文件。
-2. 提交源码，等待 [桌面发布工作流](../.github/workflows/desktop-release.yml) 的验证构建通过。手动运行可验证构建，不会把分支名称当作正式版本发布。
+2. 提交源码，等待 [桌面发布工作流](../.github/workflows/desktop-release.yml) 的相关路径 PR 验证通过。PR 不接收签名 secrets，产物标记 `distribution=engineering`。手动运行可以选择 `require_signing=true` 验证真实签名，但仍不公开发布。
 3. 创建与桌面版本完全一致的 `desktop-v<版本>` 标签并推送。CLI 仍可通过原有 `cli-v<版本>` 标签单独发布。
-4. 各操作系统原生构建；Linux 另外生成 Flatpak。发布任务只在全部包成功后运行。
-5. 汇总脚本拒绝缺失平台、重复包、额外陈旧文件或 SHA-256 不匹配，生成完整的 `downloads.json`、`downloads.md`、`release-matrix.svg`、`VERSION` 和 `SHA256SUMS`。
+4. 各操作系统原生构建；Linux 另外生成 Flatpak。Windows / macOS 在构建前检查签名凭据，缺失时正式标签任务失败；不能把未签名结果降级当正式 Release 继续。
+5. 每个原生目标对最终包生成 `desktop-signing-<target>.json`，报告绑定具体包名、SHA-256 和大小。汇总脚本拒绝缺失平台、重复包、陈旧文件、字节不符或不满足正式签名要求的报告。工程模式清单不能导入公开文档或 AUR 二进制配方。
 6. 资产先传入草稿 Release，确认上传完成后公开。已公开的版本不被覆盖，修复需提升版本。
-7. 桌面版和独立 CLI Release 均从已发布清单自动更新下载文档，按各自稳定版本保留最新条目；仓库分支保护可能要求通过 PR 接受文档变更，Release 自身仍包含准确的矩阵与完整清单。
+7. 正式发布后调用下载文档与 AUR 更新工作流，`hireferry-desktop-bin` 只取本次 Linux `.deb` 的真实 URL 和 SHA-256。文档按各产品稳定版本保留最新条目；分支保护不允许直接写回时，文档更新任务会失败，维护者需从已发布清单重新生成并通过 PR 合入；Release 自身的清单仍可使用。
 
 桌面 Release 使用 `--latest=false`，保留现有 CLI 一键安装器依赖的 GitHub `latest` 通道。用户从[下载矩阵](downloads.md)进入桌面 Release；不要用仓库通用 `/releases/latest` 代替桌面版下载入口。
 
@@ -145,6 +159,21 @@ python3 scripts/release.py docs --manifest /path/to/downloads.json
 
 Release 上传使用 GitHub Actions 自带的 `GITHUB_TOKEN`。最终发布任务和下载文档写回任务获得 `contents: write`；一般构建任务只读仓库。
 
-初始工作流不导入签名证书，也不配置代码签名 secrets。Windows 包未签名；macOS 仅采用构建工具默认的本地签名方式，不包含 Apple Developer ID 签名或公证。系统可能提示来源未验证，生成的包也不等于已完成商店审核。维护者可在获得自己的证书与账户凭据后添加签名步骤。配置 Apple 签名及公证方式见 [Tauri macOS 签名](https://v2.tauri.app/distribute/sign/macos/)，Windows 见 [Tauri Windows 签名](https://v2.tauri.app/distribute/sign/windows/)。
+正式桌面发布需要维护者实际持有的平台凭据。脚本只检查配置是否完整，随后由操作系统验签；凭据存在本身不代表签名有效。
 
-SHA-256 用于检测下载损坏和包清单不一致；它不替代平台代码签名。应用内更新签名另有独立密钥要求，当前流程不配置自动执行更新。
+| 平台 | 仓库 secrets / variables | 构建与发布条件 |
+| --- | --- | --- |
+| Windows | secrets：`WINDOWS_CERTIFICATE`（base64 PFX）、`WINDOWS_CERTIFICATE_PASSWORD`、`WINDOWS_CERTIFICATE_THUMBPRINT`；variable：`WINDOWS_TIMESTAMP_URL` | 导入 CurrentUser 证书库，校验所选证书包含私钥且未过期；Tauri 用 SHA-256 与 RFC 3161 时间戳签名；最终 `.exe` / `.msi` 必须 `Get-AuthenticodeSignature` 为 Valid 且包含时间戳证书 |
+| macOS | secrets：`APPLE_CERTIFICATE`（base64 P12）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`（Developer ID Application） | Tauri 导入维护者证书并完成签名；同时配置下方一组公证凭据；最终 DMG 内与压缩包解出后的 `.app` 都要通过 `codesign --verify --deep --strict` 和 `xcrun stapler validate` |
+| Linux | 不要求 Apple / Windows 凭据 | 记录每个最终包的 SHA-256；结果明确为 `checksum-only`，不称作发布者代码签名 |
+
+macOS 公证凭据**二选一**：
+
+- Apple ID：`APPLE_ID`、`APPLE_PASSWORD`（app-specific password）、`APPLE_TEAM_ID`。
+- App Store Connect API：`APPLE_API_ISSUER`、`APPLE_API_KEY`、`APPLE_API_KEY_BASE64`（P8 私钥文件的 base64）。工作流仅在临时目录生成文件并设置 `APPLE_API_KEY_PATH`，结束时删除。
+
+凭据只传入对应平台的正式标签或主动要求验签的手动任务；PR 不接收。未启用签名的工程构建在 macOS 显式使用 ad-hoc 签名，Windows 结果标记 unsigned。对应 artifact 的清单、Markdown 和图片均标明工程状态，不能自动进入下载页。
+
+当前 Windows 接口支持维护者已有的可导出 PFX 证书。新签发 OV / EV 证书常要求硬件或云签名；这类服务需要按证书颁发方接入 Tauri 的 `signCommand`，本工作流没有假设 HSM、Azure 账户或私钥存在，也不代为创建凭据。**代码签名不保证 SmartScreen 立即建立信誉。** 参考 [Tauri Windows 签名](https://v2.tauri.app/distribute/sign/windows/)与 [macOS 签名及公证](https://v2.tauri.app/distribute/sign/macos/)。
+
+SHA-256 用于检测下载损坏和清单不一致；不替代平台代码签名。此仓库当前没有记录一轮带维护者真实证书的正式桌面发布结果，配置预检和模拟测试通过也不会被记录为平台签名验收通过。
