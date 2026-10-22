@@ -61,13 +61,22 @@ if (mobile) {
 }
 const storage = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
-  set(key, value) { try { localStorage.setItem(key, value); } catch { /* A session still works without storage. */ } }
+  set(key, value) { try { localStorage.setItem(key, value); } catch { /* A session still works without storage. */ } },
+  remove(key) { try { localStorage.removeItem(key); } catch { /* A session still works without storage. */ } }
 };
 let language = storage.get('hireferry.desktop.language') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
 if (!messages[language]) language = 'en';
 let statusKey = '', statusError = false;
 const server = document.getElementById('server');
-server.value = storage.get('hireferry.desktop.server') || 'https://hireferry.lmm.best';
+const canonicalServerOrigin = window.HireFerryConnection.canonicalServerOrigin;
+try {
+  server.value = canonicalServerOrigin(storage.get('hireferry.desktop.server') || 'https://hireferry.lmm.best');
+} catch {
+  // Remove invalid legacy values rather than displaying credentials or query
+  // tokens saved by an earlier build in the connection form.
+  storage.remove('hireferry.desktop.server');
+  server.value = 'https://hireferry.lmm.best';
+}
 
 function render() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
@@ -92,9 +101,9 @@ async function run(command) {
   buttons.forEach(button => { button.disabled = true; });
   if (command === 'connect') status('opening');
   try {
-    const address = server.value.trim();
-    // Mobile navigation unloads this document before an invoke response can
-    // resolve. Saving an address never connects automatically or grants access.
+    const address = canonicalServerOrigin(server.value);
+    // Mobile navigation may unload before invoke resolves. Persist only the
+    // canonical origin, after rejecting credentials, paths, query and fragment.
     if (mobile) storage.set('hireferry.desktop.server', address);
     await invoke(command, { server: address });
     storage.set('hireferry.desktop.server', address);
