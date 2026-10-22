@@ -33,6 +33,8 @@ export function mountQuickFeedback(doc = document, win = window) {
   const message = $('#feedback-message'), result = $('#feedback-result'), send = $('.feedback-send');
   const positionKey = 'hireferry-feedback-position';
   const clamp = (value, min, max) => Math.max(min, Math.min(value, Math.max(min, max)));
+  const visible = element => element?.isConnected && element.getClientRects().length > 0;
+  let panelAnchor = launch;
   let position = null, drag = null, dragged = false;
   try {
     const saved = JSON.parse(win.localStorage.getItem(positionKey));
@@ -54,7 +56,8 @@ export function mountQuickFeedback(doc = document, win = window) {
         top:`${area.top + position.y * Math.max(0, area.height - launch.offsetHeight)}px`});
     }
     if (panel.hidden) return;
-    const anchor = launch.getBoundingClientRect();
+    const anchorElement = visible(panelAnchor) ? panelAnchor : visible(launch) ? launch : null;
+    const anchor = anchorElement?.getBoundingClientRect() || {top:area.top, bottom:area.top, right:area.left + area.width};
     const above = clamp(anchor.top - area.top - 12, 0, area.height);
     const below = clamp(area.top + area.height - anchor.bottom - 12, 0, area.height);
     const openAbove = above >= below;
@@ -117,11 +120,15 @@ export function mountQuickFeedback(doc = document, win = window) {
     launch.title = t.move;
     $('[data-feedback-close]').ariaLabel = t.close;
   }
-  function toggle(open) {
+  function toggle(open, anchor = launch) {
     panel.hidden = !open;
     launch.setAttribute('aria-expanded', String(open));
-    if (open) { translate(); layout(); message.focus(); }
-    else launch.focus();
+    if (open) { panelAnchor = anchor; translate(); layout(); message.focus(); }
+    else {
+      // The originating route may have changed while this shared panel was open.
+      const target = [panelAnchor, ...doc.querySelectorAll('.chat-tools > summary, [data-chat-feedback]'), launch].find(visible);
+      target?.focus();
+    }
   }
   translate();
   layout();
@@ -130,6 +137,17 @@ export function mountQuickFeedback(doc = document, win = window) {
     if (dragged && event.detail !== 0) { dragged = false; event.preventDefault(); return; }
     dragged = false;
     toggle(panel.hidden);
+  });
+  doc.addEventListener('click', event => {
+    const trigger = event.target.closest?.('[data-chat-feedback]');
+    if (!trigger) return;
+    event.preventDefault();
+    const menu = trigger.closest('details.chat-tools');
+    const anchor = menu?.querySelector('summary') || trigger;
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.setAttribute('aria-controls', 'feedback-panel');
+    if (menu) menu.open = false;
+    toggle(true, anchor);
   });
   $('[data-feedback-close]').addEventListener('click', () => toggle(false));
   doc.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) toggle(false); });
