@@ -1,0 +1,23 @@
+/* One small, consistent feedback entrypoint on both SPA and OAuth pages. */
+.feedback-launch {position:fixed;z-index:80;right:24px;bottom:22px;display:inline-flex;align-items:center;gap:9px;min-height:45px;padding:11px 18px;border:0;border-radius:99px;background:var(--accent);color:var(--on-accent);box-shadow:0 7px 26px #0002;font:550 12px var(--font);cursor:pointer;}
+.feedback-launch:hover {filter:brightness(.94);transform:translateY(-1px);}
+.feedback-launch svg {width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;}
+.feedback-panel {position:fixed;z-index:81;right:24px;bottom:80px;width:min(380px,calc(100vw - 32px));max-height:min(640px,calc(100dvh - 100px));overflow-y:auto;padding:25px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 70px #0003;}
+.feedback-panel-head {display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:12px;}
+.feedback-panel h2 {font-size:22px;line-height:1.3;letter-spacing:-.04em;}
+.feedback-close {border:0;background:var(--raised);color:var(--ink);border-radius:50%;height:32px;width:32px;flex:none;cursor:pointer;font-size:20px;}
+.feedback-description {color:var(--muted);font-size:12px;line-height:1.8;margin:0 0 18px;}
+.feedback-panel label {display:block;color:var(--ink);font-size:12px;font-weight:550;margin:16px 0 7px;}
+.feedback-panel select,.feedback-panel textarea {width:100%;padding:10px 12px;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:10px;font:13px/1.6 var(--font);}
+.feedback-panel textarea {display:block;min-height:125px;max-height:245px;resize:vertical;}
+.feedback-hint,.feedback-count {font-size:11px;line-height:1.7;color:var(--muted);}
+.feedback-count {display:block;text-align:right;margin-top:4px;}
+.feedback-panel .feedback-send {width:100%;min-height:43px;padding:11px 16px;margin-top:18px;border:0;border-radius:99px;color:var(--on-accent);background:var(--accent);font:550 13px var(--font);cursor:pointer;}
+.feedback-send:disabled {opacity:.55;cursor:wait;}
+.feedback-result {margin:12px 0 0;font-size:12px;line-height:1.8;color:var(--accent);overflow-wrap:anywhere;}
+.feedback-result.error {color:var(--danger);}
+@media(max-width:560px) {
+  .feedback-launch {right:16px;bottom:16px;min-height:44px;}
+  .feedback-panel {right:16px;bottom:74px;padding:20px;max-height:calc(100dvh - 95px);}
+}
+@media(prefers-reduced-motion:reduce) {.feedback-launch:hover {transform:none;}}

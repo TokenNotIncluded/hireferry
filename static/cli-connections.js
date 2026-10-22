@@ -47,24 +47,29 @@ function draw() {
   else if (identity?.user) $('account').textContent = [identity.user.name, identity.user.email].filter(Boolean).join(' · ');
   const fragment = document.createDocumentFragment();
   for (const item of items) {
-    const row = element('section', undefined, 'connection');
-    row.append(element('h3', item.client_id));
+    const row = element('article', undefined, 'connection');
+    const heading = element('div', undefined, 'connection-heading');
+    heading.append(element('h3', item.client_id));
+    const expired = Number(item.expires_at) * 1000 <= Date.now();
+    heading.append(element('span', text(item.revoked ? 'revoked' : expired ? 'expired' : 'active'),
+      'connection-status' + (item.revoked || expired ? ' inactive' : '')));
+    row.append(heading);
     row.append(element('p', item.scope, 'connection-scope'));
-    const dates = element('p', undefined, 'hint');
+    const dates = element('div', undefined, 'connection-meta');
     for (const [key, value] of [['created', item.created_at], ['expires', item.expires_at]]) {
       const date = new Date(Number(value) * 1000);
       const readable = Number.isFinite(date.getTime()) ? date.toLocaleString(language === 'en' ? 'en-US' : 'zh-CN') : String(value);
-      dates.append(element('span', text(key) + ': ' + readable), document.createElement('br'));
+      dates.append(element('span', text(key) + ': ' + readable));
     }
     row.append(dates);
-    const expired = Number(item.expires_at) * 1000 <= Date.now();
-    row.append(element('span', text(item.revoked ? 'revoked' : expired ? 'expired' : 'active'), 'connection-status'));
     if (!item.revoked && !expired) {
-      const button = element('button', text('revoke'));
+      const actions = element('div', undefined, 'connection-actions');
+      const button = element('button', text('revoke'), 'button secondary small');
       button.type = 'button';
       button.disabled = busy;
       button.addEventListener('click', () => revoke(item.id));
-      row.append(button);
+      actions.append(button);
+      row.append(actions);
     }
     fragment.append(row);
   }

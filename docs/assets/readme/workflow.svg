@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="690" viewBox="0 0 800 690" role="img" aria-labelledby="title desc">
+  <title id="title">HireFerry recruiting workflow</title>
+  <desc id="desc">Candidates and employers each have a separate private conversation with platform HR. Human staff and authorized AI work within the current permissions. A platform introduction opens a new shared conversation for the matched candidate and employer. Their earlier HR conversations remain separate.</desc>
+  <style>
+    .paper { fill: #f5f3ed; }
+    .panel { fill: #eeece5; stroke: #d0cec3; }
+    .focus { fill: #e6e8dc; stroke: #b6bba3; }
+    .ink { fill: #181917; }
+    .muted { fill: #66675f; }
+    .border { fill: none; stroke: #d8d5cb; }
+    .route { fill: none; stroke: #70775e; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .arrow { fill: #70775e; }
+    .icon { fill: none; stroke: #181917; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #181917; }
+      .panel { fill: #22231f; stroke: #46483d; }
+      .focus { fill: #30342a; stroke: #687052; }
+      .ink { fill: #f5f3ed; }
+      .muted { fill: #b6b3a9; }
+      .border { stroke: #3d3e37; }
+      .route { stroke: #b9c3a0; }
+      .arrow { fill: #b9c3a0; }
+      .icon { stroke: #f5f3ed; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="arrow" d="M0 0 L8 4 L0 8 Z"/></marker>
+  </defs>
+  <rect class="paper" width="800" height="690" rx="24"/>
+  <rect class="border" x="0.5" y="0.5" width="799" height="689" rx="23.5"/>
+  <text class="ink" x="40" y="57" font-size="29" font-weight="600" letter-spacing="-0.6">Private conversations. Clear introductions.</text>
+  <rect class="panel" x="40" y="104" width="310" height="128" rx="18"/>
+  <rect class="panel" x="450" y="104" width="310" height="128" rx="18"/>
+  <g class="icon">
+    <circle cx="78" cy="143" r="10"/><path d="M61 172 C61 151 95 151 95 172"/>
+    <rect x="476" y="138" width="32" height="27" rx="4"/><path d="M485 138 V132 H499 V138 M476 150 H508"/>
+  </g>
+  <text class="ink" x="110" y="158" font-size="29" font-weight="600">Candidate</text>
+  <text class="muted" x="65" y="204" font-size="23">Profile + goals</text>
+  <text class="ink" x="524" y="158" font-size="29" font-weight="600">Employer</text>
+  <text class="muted" x="475" y="204" font-size="23">Role + requirements</text>
+  <path class="route" d="M195 232 V270 Q195 292 217 292 H307 Q329 292 329 314" marker-end="url(#arrow)"/>
+  <path class="route" d="M605 232 V270 Q605 292 583 292 H493 Q471 292 471 314" marker-end="url(#arrow)"/>
+  <text class="muted" x="225" y="270" font-size="21">Private chat</text>
+  <text class="muted" x="464" y="270" font-size="21">Private chat</text>
+  <rect class="focus" x="210" y="319" width="380" height="123" rx="18"/>
+  <text class="ink" x="400" y="366" text-anchor="middle" font-size="33" font-weight="600">Platform HR</text>
+  <text class="muted" x="400" y="409" text-anchor="middle" font-size="23">Human team + authorized AI</text>
+  <path class="route" d="M400 442 V519" marker-end="url(#arrow)"/>
+  <text class="muted" x="421" y="487" font-size="22">Authorized introduction</text>
+  <rect class="panel" x="160" y="525" width="480" height="107" rx="18"/>
+  <text class="ink" x="400" y="568" text-anchor="middle" font-size="29" font-weight="600">New shared conversation</text>
+  <text class="muted" x="400" y="607" text-anchor="middle" font-size="23">Matched profile + role</text>
+  <text class="muted" x="400" y="666" text-anchor="middle" font-size="21">Earlier HR chats stay in their own conversations.</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="630" viewBox="0 0 800 630" role="img" aria-labelledby="title desc">
+  <title id="title">HireFerry system architecture</title>
+  <desc id="desc">The web interface, hfy command-line client, and authorized AI clients connect to one Rust and Axum server. Website assets are embedded in the server binary. Business data is stored in SQLite and configuration is loaded from TOML. Google login, SMTP, and payment gateways are optional external integrations.</desc>
+  <style>
+    .paper { fill: #f5f3ed; }
+    .panel { fill: #eeece5; stroke: #d0cec3; }
+    .focus { fill: #e6e8dc; stroke: #b6bba3; }
+    .ink { fill: #181917; }
+    .muted { fill: #66675f; }
+    .border { fill: none; stroke: #d8d5cb; }
+    .route { fill: none; stroke: #70775e; stroke-width: 2.5; stroke-linecap: round; }
+    .arrow { fill: #70775e; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #181917; }
+      .panel { fill: #22231f; stroke: #46483d; }
+      .focus { fill: #30342a; stroke: #687052; }
+      .ink { fill: #f5f3ed; }
+      .muted { fill: #b6b3a9; }
+      .border { stroke: #3d3e37; }
+      .route { stroke: #b9c3a0; }
+      .arrow { fill: #b9c3a0; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="arrow" d="M0 0 L8 4 L0 8 Z"/></marker>
+  </defs>
+  <rect class="paper" width="800" height="630" rx="24"/>
+  <rect class="border" x="0.5" y="0.5" width="799" height="629" rx="23.5"/>
+  <text class="ink" x="40" y="57" font-size="29" font-weight="600" letter-spacing="-0.6">One service. Three ways in.</text>
+  <rect class="panel" x="40" y="102" width="220" height="106" rx="16"/>
+  <rect class="panel" x="290" y="102" width="220" height="106" rx="16"/>
+  <rect class="panel" x="540" y="102" width="220" height="106" rx="16"/>
+  <text class="ink" x="150" y="147" text-anchor="middle" font-size="29" font-weight="600">Web</text>
+  <text class="muted" x="150" y="182" text-anchor="middle" font-size="21">Browser</text>
+  <text class="ink" x="400" y="147" text-anchor="middle" font-size="29" font-weight="600">hfy CLI</text>
+  <text class="muted" x="400" y="182" text-anchor="middle" font-size="21">Terminal</text>
+  <text class="ink" x="650" y="147" text-anchor="middle" font-size="29" font-weight="600">AI clients</text>
+  <text class="muted" x="650" y="182" text-anchor="middle" font-size="21">MCP</text>
+  <g class="route" marker-end="url(#arrow)">
+    <path d="M150 208 V254"/><path d="M400 208 V254"/><path d="M650 208 V254"/>
+  </g>
+  <rect class="focus" x="40" y="260" width="720" height="155" rx="18"/>
+  <text class="ink" x="69" y="313" font-size="36" font-weight="600" letter-spacing="-0.6">Rust + Axum</text>
+  <text class="muted" x="732" y="310" text-anchor="end" font-size="23">Embedded web UI</text>
+  <text class="ink" x="69" y="376" font-size="25">Accounts · Matching · Messaging · Billing</text>
+  <path class="route" d="M150 415 V465"/>
+  <path class="route" d="M400 465 V422" marker-end="url(#arrow)"/>
+  <path class="route" d="M650 415 V465" stroke-dasharray="5 7"/>
+  <rect class="panel" x="40" y="465" width="220" height="128" rx="16"/>
+  <rect class="panel" x="290" y="465" width="220" height="128" rx="16"/>
+  <rect class="panel" x="540" y="465" width="220" height="128" rx="16" stroke-dasharray="5 6"/>
+  <text class="ink" x="150" y="512" text-anchor="middle" font-size="29" font-weight="600">SQLite</text>
+  <text class="muted" x="150" y="553" text-anchor="middle" font-size="22">Business data</text>
+  <text class="ink" x="400" y="512" text-anchor="middle" font-size="29" font-weight="600">TOML</text>
+  <text class="muted" x="400" y="553" text-anchor="middle" font-size="22">Configuration</text>
+  <text class="ink" x="650" y="505" text-anchor="middle" font-size="26" font-weight="600">Optional</text>
+  <text class="muted" x="650" y="541" text-anchor="middle" font-size="21">Google · SMTP</text>
+  <text class="muted" x="650" y="572" text-anchor="middle" font-size="21">Payments</text>
+</svg>
