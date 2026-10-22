@@ -43,6 +43,12 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Verify bundled chat renderers
+        run: |
+          npm ci --ignore-scripts
+          npm run check:chat
+          npm run test:chat
+
       - name: Test server and command-line client
         run: cargo test --locked --workspace --no-fail-fast
 
@@ -72,6 +78,7 @@ jobs:
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-polish-browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/admin-browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/chat-streaming.browser.mjs
 
       - name: Build Linux release
         run: cargo build --locked --release --workspace

@@ -373,6 +373,32 @@ test('registered user tools recheck current eligibility before any business requ
   assert.deepEqual(harness.requests.map(r => r.path), ['/api/ai/eligibility']);
 });
 
+test('WebMCP chat capabilities are shared by eligible identities and recheck eligibility on execution', async () => {
+  const capabilities = {
+    formats: ['plain', 'markdown', 'openui'],
+    openui: { library: 'hireferry@1', spec_url: '/static/chat-openui.json' },
+    welcome: { platform: { en: { body: 'Welcome **aboard**', prompts: ['Ask a question'] } } },
+  };
+  for (const identity of [{ role: 'seeker' }, { role: 'employer' }, { admin: true }]) {
+    const harness = webmcp({ ...identity, responses: { '/api/chat/capabilities': capabilities } });
+    const tool = harness.registered.get('hireferry_get_chat_capabilities');
+    assert.ok(tool);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    assert.deepEqual(tool.inputSchema, { type: 'object', properties: {}, required: [], additionalProperties: false });
+    const result = await tool.execute({});
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(JSON.parse(result.content[0].text), capabilities);
+    assert.deepEqual(harness.requests.map(request => request.path), ['/api/ai/eligibility', '/api/chat/capabilities']);
+    assert.ok(harness.requests.every(request => request.options.method === 'GET'));
+    assert.equal(harness.registered.has('hireferry_admin_get_chat_capabilities'), false);
+
+    harness.setEligible(false);
+    const requestCount = harness.requests.length;
+    assert.equal((await tool.execute({})).isError, true);
+    assert.deepEqual(harness.requests.slice(requestCount).map(request => request.path), ['/api/ai/eligibility']);
+  }
+});
+
 test('WebMCP messages carry the AI attribution header and preserve explicit conversation IDs', async () => {
   const harness = webmcp();
   await harness.registered.get('hireferry_send_message').execute({ conversation_id: 'platform_one', body: 'Hello', client_id: 'synthetic-message-id' });
@@ -383,6 +409,101 @@ test('WebMCP messages carry the AI attribution header and preserve explicit conv
   assert.deepEqual(JSON.parse(sent.options.body), { body: 'Hello', client_id: 'synthetic-message-id' });
   assert.equal(harness.registered.has('hireferry_admin_list_users'), false);
   assert.equal(harness.registered.has('hireferry_list_people'), false);
+});
+
+test('WebMCP send supports each explicit format and retains the legacy omitted format and generated client ID', async () => {
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin });
+    const tool = harness.registered.get(`${admin ? 'hireferry_admin_' : 'hireferry_'}send_message`);
+    assert.deepEqual(tool.inputSchema.properties.format.enum, ['plain', 'markdown', 'openui']);
+    assert.equal(tool.inputSchema.required.includes('format'), false);
+    assert.equal(tool.inputSchema.required.includes('client_id'), false);
+    for (const format of ['plain', 'markdown', 'openui', undefined]) {
+      const input = { conversation_id: 'room/one?after=999#end', body: 'Hello **world**' };
+      if (format !== undefined) Object.assign(input, { format, client_id: `synthetic-${format}` });
+      const result = await tool.execute(input);
+      assert.equal(result.isError, undefined);
+      const sent = harness.requests.at(-1);
+      assert.equal(sent.path, '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end/messages');
+      assert.equal(sent.options.method, 'POST');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.headers['X-CSRF-Token'], 'synthetic-csrf');
+      const body = JSON.parse(sent.options.body);
+      if (format === undefined) {
+        assert.match(body.client_id, /^[0-9a-f]{32}$/);
+        assert.deepEqual(body, { body: input.body, client_id: body.client_id });
+      } else {
+        assert.deepEqual(body, { body: input.body, client_id: input.client_id, format });
+      }
+    }
+  }
+});
+
+test('WebMCP stream tools encode the room route and preserve sequences, receipts and AI attribution', async () => {
+  const conversation_id = 'room/one?after=999#end';
+  const base = '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end/streams';
+  const operations = [
+    { name: 'begin_message', path: base, input: { conversation_id, client_id: 'synthetic-stream', body: '**First', format: 'markdown' }, body: { client_id: 'synthetic-stream', body: '**First', format: 'markdown' }, receipt: { id: 42, conversation_id, sequence: 0, status: 'streaming', body: '**First', event_cursor: 100 } },
+    { name: 'append_message', path: `${base}/42/append`, input: { conversation_id, message_id: 42, sequence: 1, delta: ' chunk**' }, body: { sequence: 1, delta: ' chunk**' }, receipt: { id: 42, conversation_id, sequence: 1, status: 'streaming', event_cursor: 101 } },
+    { name: 'finish_message', path: `${base}/42/finish`, input: { conversation_id, message_id: 42, sequence: 2 }, body: { sequence: 2 }, receipt: { id: 42, conversation_id, sequence: 2, status: 'complete', event_cursor: 102 } },
+    { name: 'cancel_message', path: `${base}/43/cancel`, input: { conversation_id, message_id: 43, sequence: 3 }, body: { sequence: 3 }, receipt: { id: 43, conversation_id, sequence: 3, status: 'cancelled', event_cursor: 103 } },
+  ];
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin, responses: Object.fromEntries(operations.map(operation => [operation.path, operation.receipt])) });
+    for (const operation of operations) {
+      const tool = harness.registered.get(`${admin ? 'hireferry_admin_' : 'hireferry_'}${operation.name}`);
+      assert.ok(tool);
+      assert.equal(tool.annotations.readOnlyHint, false);
+      assert.equal(tool.inputSchema.additionalProperties, false);
+      const before = harness.requests.length;
+      const result = await tool.execute(operation.input);
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(JSON.parse(result.content[0].text), operation.receipt);
+      assert.deepEqual(harness.requests.slice(before).map(request => request.path), ['/api/ai/eligibility', operation.path]);
+      const sent = harness.requests.at(-1);
+      assert.equal(sent.options.method, 'POST');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.headers['X-CSRF-Token'], 'synthetic-csrf');
+      assert.deepEqual(JSON.parse(sent.options.body), operation.body);
+    }
+  }
+});
+
+test('WebMCP conversation and event reads preserve room scoping and distinct zero or saved event cursors', async () => {
+  const conversation_id = 'room/one?after=999#end';
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin });
+    const prefix = admin ? 'hireferry_admin_' : 'hireferry_';
+    const conversation = harness.registered.get(prefix + 'get_conversation');
+    assert.ok(conversation);
+    assert.equal(conversation.annotations.readOnlyHint, true);
+    assert.equal((await conversation.execute({ conversation_id })).isError, undefined);
+    const read = harness.requests.at(-1);
+    assert.equal(read.path, '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end');
+    assert.equal(read.options.method, 'GET');
+    assert.equal(read.options.headers['X-HireFerry-AI'], 'webmcp');
+
+    const events = harness.registered.get(prefix + 'get_chat_events');
+    assert.ok(events);
+    assert.equal(events.annotations.readOnlyHint, true);
+    assert.deepEqual(events.inputSchema.required, ['after']);
+    assert.equal(events.inputSchema.properties.after.minimum, 0);
+    assert.equal(events.inputSchema.properties.limit.maximum, 100);
+    for (const input of [{ conversation_id, after: 12345, limit: 7 }, { conversation_id, after: 0 }, { after: 0 }]) {
+      const before = harness.requests.length;
+      const result = await events.execute(input);
+      assert.equal(result.isError, undefined);
+      const sent = harness.requests.at(-1);
+      assert.equal(harness.requests[before].path, '/api/ai/eligibility');
+      const url = new URL(sent.path, 'https://hireferry.test');
+      assert.equal(url.pathname, '/api/chat/events');
+      assert.equal(url.hash, '');
+      assert.deepEqual([...url.searchParams], Object.entries(input).map(([key, value]) => [key, String(value)]));
+      assert.equal(sent.options.method, 'GET');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.body, undefined);
+    }
+  }
 });
 
 test('administrator WebMCP exposes business operations without token or passkey management', () => {

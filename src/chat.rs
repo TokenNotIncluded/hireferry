@@ -18,13 +18,13 @@ use crate::{
 };
 
 const POLL_MS: i64 = 5000;
-const THREAD_FROM: &str = "FROM chat_conversations c
+pub(crate) const THREAD_FROM: &str = "FROM chat_conversations c
  LEFT JOIN users pu ON pu.id=c.user_id
  LEFT JOIN matches mt ON mt.id=c.match_id
  LEFT JOIN jobs j ON j.id=mt.job_id
  LEFT JOIN users sk ON sk.id=mt.seeker_id
  LEFT JOIN users er ON er.id=j.owner_id";
-const VISIBLE: &str = "(?1=1 OR (c.kind='platform' AND pu.banned=0 AND c.user_id=?2)
+pub(crate) const VISIBLE: &str = "(?1=1 OR (c.kind='platform' AND pu.banned=0 AND c.user_id=?2)
  OR (c.kind='matched' AND mt.status IN ('introduced','interview','hired')
  AND j.status<>'deleted' AND sk.banned=0 AND er.banned=0
  AND (mt.seeker_id=?2 OR j.owner_id=?2)))";
@@ -100,6 +100,16 @@ pub struct MessageInput {
     pub client_id: String,
 }
 
+/// Explicit wire format; legacy Rust callers keep using MessageInput.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormattedMessageInput {
+    pub body: String,
+    pub client_id: String,
+    #[serde(default = "crate::chat_stream::default_format")]
+    pub format: String,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MandateInput {
@@ -154,6 +164,7 @@ struct ReadInput {
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .merge(crate::chat_stream::routes())
         .route("/api/chat/conversations", get(http_conversations))
         .route("/api/chat/conversations/{id}", get(http_conversation))
         .route("/api/chat/platform", post(http_platform))
@@ -183,7 +194,7 @@ pub fn routes() -> Router<AppState> {
 fn missing_thread() -> AppError {
     AppError::not_found("Conversation not found")
 }
-fn user_key(p: &Principal) -> AppResult<String> {
+pub(crate) fn user_key(p: &Principal) -> AppResult<String> {
     if p.admin {
         // Managers keep their personal user identity; team employees use the
         // independent membership identity below. Neither shares the root cursor.
@@ -218,14 +229,14 @@ fn user_key(p: &Principal) -> AppResult<String> {
 fn uid(p: &Principal) -> &str {
     p.user_id.as_deref().unwrap_or("")
 }
-fn limit(value: i64) -> AppResult<i64> {
+pub(crate) fn limit(value: i64) -> AppResult<i64> {
     if value < 1 {
         Err(AppError::bad_request("Limit must be positive"))
     } else {
         Ok(value.min(100))
     }
 }
-fn text(value: &str, max: usize, label: &str) -> AppResult<()> {
+pub(crate) fn text(value: &str, max: usize, label: &str) -> AppResult<()> {
     if value.chars().count() > max
         || value
             .chars()
@@ -246,7 +257,7 @@ fn require_admin(db: &Connection, p: &Principal) -> AppResult<()> {
 }
 
 /// Validates existence and current membership before creating any conversation row.
-fn ensure_thread(db: &Connection, p: &Principal, id: &str) -> AppResult<()> {
+pub(crate) fn ensure_thread(db: &Connection, p: &Principal, id: &str) -> AppResult<()> {
     access::ensure_active(db, p)?;
     if let Some(user) = id.strip_prefix("platform_") {
         if user.is_empty() || (!p.admin && uid(p) != user) {
@@ -303,7 +314,7 @@ fn unread(db: &Connection, p: &Principal, id: &str) -> AppResult<i64> {
     let key = user_key(p)?;
     Ok(db.query_row("SELECT COUNT(*) FROM chat_messages WHERE conversation_id=?1 AND sender_key<>?2 AND id>COALESCE((SELECT last_message_id FROM chat_reads WHERE conversation_id=?1 AND reader_key=?2),0)", params![id,key], |r| r.get(0))?)
 }
-fn writable(db: &Connection, id: &str) -> AppResult<bool> {
+pub(crate) fn writable(db: &Connection, id: &str) -> AppResult<bool> {
     Ok(db.query_row(&format!("SELECT EXISTS(SELECT 1 {THREAD_FROM} WHERE c.id=?1 AND ((c.kind='platform' AND pu.banned=0) OR (c.kind='matched' AND mt.status IN ('introduced','interview','hired') AND j.status<>'deleted' AND sk.banned=0 AND er.banned=0)))"),[id],|r|r.get(0))?)
 }
 fn thread_value(db: &Connection, p: &Principal, id: &str) -> AppResult<Value> {
@@ -409,6 +420,7 @@ pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
         ensure_thread(&tx, p, &format!("platform_{}", uid(p)))?;
     }
     ensure_matches(&tx, p)?;
+    let expired = crate::chat_stream::expire_inactive(&tx)?;
     // Bound the authorized rooms before expanding message metadata. Materializing
     // this CTE prevents latest-message and unread lookups for discarded rooms.
     let sql = format!(
@@ -444,8 +456,13 @@ pub fn list_conversations(s: &AppState, p: &Principal) -> AppResult<Value> {
         )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     access::ensure_active(&tx, p)?;
+    let event_cursor = crate::chat_stream::cursor(&tx)?;
     tx.commit()?;
-    Ok(json!({"items":items,"poll_after_ms":POLL_MS}))
+    drop(db);
+    if expired {
+        s.chat_notify.notify_waiters();
+    }
+    Ok(json!({"items":items,"poll_after_ms":POLL_MS,"event_cursor":event_cursor}))
 }
 
 /// Reads a known room independently of the bounded recent-conversations list.
@@ -483,7 +500,7 @@ fn raw_message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::
     let body: String = r.get("body")?;
     let sender_name: String = r.get("sender_name")?;
     let via_ai: bool = r.get("via_ai")?;
-    let mut value = json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"client_id":r.get::<_,String>("client_id")?,"via_ai":via_ai,"created_at":r.get::<_,i64>("created_at")?});
+    let mut value = json!({"id":r.get::<_,i64>("id")?,"conversation_id":r.get::<_,String>("conversation_id")?,"sender_kind":kind,"sender_id":r.get::<_,Option<String>>("sender_id")?,"sender_name":if kind=="platform"{"HireFerry · 聘渡".to_owned()}else{sender_name},"body":body,"format":r.get::<_,String>("format")?,"status":r.get::<_,String>("status")?,"sequence":r.get::<_,i64>("sequence")?,"client_id":r.get::<_,String>("client_id")?,"via_ai":via_ai,"created_at":r.get::<_,i64>("created_at")?});
     if let Some(viewer) = admin_key {
         let sender_key: String = r.get("sender_key")?;
         value["is_own"] = json!(kind == "platform" && sender_key == viewer);
@@ -512,14 +529,25 @@ fn raw_message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::
     }
     Ok(value)
 }
-fn render_message(mut message: Value) -> Value {
-    message["body_html"] = Value::String(safety::markdown(message["body"].as_str().unwrap_or("")));
+pub(crate) fn render_message(mut message: Value) -> Value {
+    let body = message["body"].as_str().unwrap_or("");
+    let escaped = || {
+        body.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    message["body_html"] = Value::String(match message["format"].as_str().unwrap_or("markdown") {
+        "plain" => format!("<p>{}</p>", escaped().replace('\n', "<br>")),
+        "openui" => format!("<pre>{}</pre>", escaped()),
+        _ => safety::markdown(body),
+    });
     message
 }
 fn message_row(r: &rusqlite::Row<'_>, admin_key: Option<&str>) -> rusqlite::Result<Value> {
     raw_message_row(r, admin_key).map(render_message)
 }
-fn load_message(db: &Connection, p: &Principal, id: i64) -> AppResult<Value> {
+pub(crate) fn load_message(db: &Connection, p: &Principal, id: i64) -> AppResult<Value> {
     let key = p.admin.then(|| user_key(p)).transpose()?;
     Ok(db.query_row(
         &format!("SELECT {MESSAGE_FIELDS} FROM chat_messages msg {MESSAGE_JOINS} WHERE msg.id=?1"),
@@ -556,6 +584,7 @@ fn message_page(
     let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     ensure_thread(&tx, p, id)?;
+    let expired = crate::chat_stream::expire_inactive(&tx)?;
     let backwards = after == -1;
     let (comparison, bound, ordering) = if backwards {
         ("<", before.unwrap_or(i64::MAX), "DESC")
@@ -594,13 +623,17 @@ fn message_page(
         false
     };
     access::ensure_active(&tx, p)?;
+    let event_cursor = crate::chat_stream::cursor(&tx)?;
     tx.commit()?;
     // The authorized snapshot owns its strings. Markdown parsing and sanitizing
     // must not hold the shared database mutex or its write transaction.
     drop(db);
+    if expired {
+        s.chat_notify.notify_waiters();
+    }
     let items = items.into_iter().map(render_message).collect::<Vec<_>>();
     Ok(
-        json!({"items":items,"next_cursor":cursor,"first_cursor":first,"has_more":!backwards&&extra,"has_older":older,"poll_after_ms":POLL_MS}),
+        json!({"items":items,"next_cursor":cursor,"first_cursor":first,"has_more":!backwards&&extra,"has_older":older,"poll_after_ms":POLL_MS,"event_cursor":event_cursor}),
     )
 }
 
@@ -610,6 +643,25 @@ pub fn send_message(
     id: &str,
     input: MessageInput,
 ) -> AppResult<Value> {
+    send_formatted_message(
+        s,
+        p,
+        id,
+        FormattedMessageInput {
+            body: input.body,
+            client_id: input.client_id,
+            format: crate::chat_stream::default_format(),
+        },
+    )
+}
+
+pub fn send_formatted_message(
+    s: &AppState,
+    p: &Principal,
+    id: &str,
+    input: FormattedMessageInput,
+) -> AppResult<Value> {
+    crate::chat_stream::validate_format(&input.format)?;
     text(&input.body, 10000, "Message")?;
     text(&input.client_id, 80, "Message client ID")?;
     if input.body.trim().is_empty()
@@ -629,9 +681,9 @@ pub fn send_message(
             "This conversation is archived and read-only",
         ));
     }
-    let previous: Option<(i64,String)>=tx.query_row("SELECT id,body FROM chat_messages WHERE conversation_id=?1 AND sender_key=?2 AND client_id=?3",params![id,key,input.client_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-    let result = if let Some((message_id, body)) = previous {
-        if body != input.body {
+    let previous: Option<(i64,String,String,String)>=tx.query_row("SELECT id,body,format,status FROM chat_messages WHERE conversation_id=?1 AND sender_key=?2 AND client_id=?3",params![id,key,input.client_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+    let result = if let Some((message_id, body, format, status)) = previous {
+        if body != input.body || format != input.format || status != "complete" {
             return Err(AppError::conflict(
                 "This client ID already belongs to another message",
             ));
@@ -640,8 +692,17 @@ pub fn send_message(
     } else {
         let kind = if p.admin { "platform" } else { "user" };
         let sender = if p.admin { None } else { p.user_id.as_deref() };
-        tx.execute("INSERT INTO chat_messages(conversation_id,sender_kind,sender_id,sender_key,sender_actor,body,client_id,via_ai,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,kind,sender,key,p.actor,input.body,input.client_id,p.via_ai,now()])?;
+        tx.execute("INSERT INTO chat_messages(conversation_id,sender_kind,sender_id,sender_key,sender_actor,body,client_id,via_ai,created_at,format) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![id,kind,sender,key,p.actor,input.body,input.client_id,p.via_ai,now(),input.format])?;
         let message_id = tx.last_insert_rowid();
+        crate::chat_stream::record_event(
+            &tx,
+            id,
+            message_id,
+            "message.created",
+            0,
+            Some(&input.body),
+            None,
+        )?;
         tx.execute(
             "UPDATE chat_conversations SET updated_at=?2 WHERE id=?1",
             params![id, now()],
@@ -657,6 +718,8 @@ pub fn send_message(
     };
     access::ensure_active(&tx, p)?;
     tx.commit()?;
+    drop(db);
+    s.chat_notify.notify_waiters();
     Ok(result)
 }
 
@@ -998,10 +1061,10 @@ async fn http_send(
     State(s): State<AppState>,
     h: HeaderMap,
     Path(id): Path<String>,
-    Json(i): Json<MessageInput>,
+    Json(i): Json<FormattedMessageInput>,
 ) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, true)?;
-    Ok(Json(send_message(&s, &p, &id, i)?))
+    Ok(Json(send_formatted_message(&s, &p, &id, i)?))
 }
 async fn http_read(
     State(s): State<AppState>,

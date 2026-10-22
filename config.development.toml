@@ -117,3 +117,16 @@ rate_limit_requests = 100
 rate_limit_window_seconds = 300
 max_user_code_attempts = 30
 max_pending_grants = 1000
+
+# Optional local welcome override; uncomment this entire block to try it.
+# Only empty, writable platform chats for job seekers use this audience.
+# Other audiences and omitted fields keep the built-in localized copy.
+# [chat.welcome.platform_seeker]
+# title = "欢迎来到开发环境"
+# title_en = "Welcome to the development workspace"
+# body_md = "可以从一段 **Markdown** 草稿开始。"
+# body_md_en = "Start with a **Markdown** draft."
+# prompts = [
+#   { label = "试写草稿", body = "你好，想聊聊我的求职方向。", label_en = "Try a draft", body_en = "Hello, I would like to discuss my job search." }
+# ]
+# Use prompts=[] instead to hide buttons. See docs/chat-agents.md.

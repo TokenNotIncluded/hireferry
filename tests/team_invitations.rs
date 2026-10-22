@@ -650,7 +650,7 @@ fn schema_thirteen_upgrade_preserves_existing_identities_and_rolls_back_on_failu
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM sessions WHERE admin=1", [], |r| r

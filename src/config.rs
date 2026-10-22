@@ -25,6 +25,7 @@ pub struct Config {
     pub team: Team,
     pub feedback: Feedback,
     pub maintenance: Maintenance,
+    pub chat: Chat,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -49,7 +50,101 @@ impl Default for Config {
             team: Team::default(),
             feedback: Feedback::default(),
             maintenance: Maintenance::default(),
+            chat: Chat::default(),
         }
+    }
+}
+/// An absent field keeps built-in localized copy; an empty prompt list hides it.
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Chat {
+    pub welcome: BTreeMap<String, ChatWelcome>,
+}
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatWelcome {
+    pub title: Option<String>,
+    pub title_en: Option<String>,
+    pub body_md: Option<String>,
+    pub body_md_en: Option<String>,
+    pub prompts: Option<Vec<ChatPrompt>>,
+}
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatPrompt {
+    pub label: String,
+    pub body: String,
+    pub label_en: Option<String>,
+    pub body_en: Option<String>,
+}
+impl Chat {
+    pub fn validate(&self) -> AppResult<()> {
+        for (audience, welcome) in &self.welcome {
+            if !matches!(
+                audience.as_str(),
+                "platform_seeker" | "platform_employer" | "matched" | "staff"
+            ) {
+                return Err(AppError::bad_request("Unknown chat welcome audience"));
+            }
+            let check = |value: &str, max: usize| -> AppResult<()> {
+                if value.chars().count() > max
+                    || value
+                        .chars()
+                        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                {
+                    return Err(AppError::bad_request(
+                        "Chat welcome text is too long or contains invalid characters",
+                    ));
+                }
+                Ok(())
+            };
+            for title in [&welcome.title, &welcome.title_en].into_iter().flatten() {
+                check(title, 160)?;
+            }
+            for body in [&welcome.body_md, &welcome.body_md_en]
+                .into_iter()
+                .flatten()
+            {
+                check(body, 4000)?;
+            }
+            if let Some(prompts) = &welcome.prompts {
+                if prompts.len() > 6 {
+                    return Err(AppError::bad_request(
+                        "At most six chat welcome prompts are allowed",
+                    ));
+                }
+                for prompt in prompts {
+                    if prompt.label.trim().is_empty() || prompt.body.trim().is_empty() {
+                        return Err(AppError::bad_request(
+                            "Chat welcome prompts need a label and message",
+                        ));
+                    }
+                    check(&prompt.label, 80)?;
+                    check(&prompt.body, 2000)?;
+                    if let Some(label) = &prompt.label_en {
+                        check(label, 80)?;
+                    }
+                    if let Some(body) = &prompt.body_en {
+                        check(body, 2000)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn public(&self) -> serde_json::Value {
+        let mut value = serde_json::json!(self);
+        for (audience, welcome) in &self.welcome {
+            if let Some(body) = &welcome.body_md {
+                value["welcome"][audience]["body_html"] =
+                    serde_json::json!(crate::safety::markdown(body));
+            }
+            if let Some(body) = &welcome.body_md_en {
+                value["welcome"][audience]["body_html_en"] =
+                    serde_json::json!(crate::safety::markdown(body));
+            }
+        }
+        value
     }
 }
 #[derive(Clone, Deserialize)]
@@ -595,6 +690,7 @@ impl Config {
     }
     pub fn validate(&self) -> AppResult<()> {
         self.cli_distribution.validate()?;
+        self.chat.validate()?;
         let team = &self.team;
         if !(1..=720).contains(&team.invitation_ttl_hours)
             || !(1..=365).contains(&team.ai_token_ttl_days)

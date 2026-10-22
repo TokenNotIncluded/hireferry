@@ -1,0 +1,71 @@
+/* Scoped to the lazy-loaded message island. No external fonts or assets. */
+.hfy-rich-message {
+  --hfy-ui-ink:var(--ink,#172c39); --hfy-ui-muted:var(--muted,#657580); --hfy-ui-faint:var(--muted,#657580);
+  --hfy-ui-surface:var(--surface,#fff); --hfy-ui-info:#3075c8; --hfy-ui-success:#268369;
+  --hfy-ui-warning:#a7791c; --hfy-ui-danger:#c04651; --hfy-ui-purple:#9465c5; --hfy-ui-pink:#c864a1;
+  --hfy-ui-chart1:#448bca; --hfy-ui-chart2:#409d81; --hfy-ui-chart3:#bf8d3b;
+  --hfy-ui-chart4:#9974c0; --hfy-ui-chart5:#c76679; --hfy-ui-chart6:#6b8c96;
+  min-width:0; max-width:100%; overflow-wrap:anywhere; line-height:1.65; color:inherit;
+}
+.hfy-rich-message * { box-sizing:border-box; }
+.hfy-rich-message :is(p,ul,ol,blockquote,pre,table,figure) { margin:0 0 .75em; }
+.hfy-rich-message :is(h1,h2,h3,h4,h5,h6) { font-family:inherit; line-height:1.4; margin:1em 0 .4em; }
+.hfy-rich-message :is(h1,h2) { font-size:1.3em; }
+.hfy-rich-message :is(h3,h4,h5,h6) { font-size:1.1em; }
+.hfy-rich-message a { color:var(--accent,#276b9b); text-decoration:underline; text-underline-offset:3px; }
+.hfy-rich-message img { display:block; max-width:100%; max-height:420px; object-fit:contain; }
+.hfy-rich-message blockquote { border-left:3px solid var(--line,#dce3e5); padding-left:12px; color:var(--muted,#657580); }
+.hfy-rich-message blockquote cite { display:block; font-size:.9em; }
+.hfy-rich-message :is(ul,ol) { padding-left:1.5em; }
+.hfy-rich-message li + li { margin-top:3px; }
+.hfy-rich-message .task-list-item { list-style:none; }
+.hfy-rich-message .task-list-item input { margin-right:7px; }
+.hfy-rich-message :not(pre) > code { font: .9em var(--mono,monospace); background:var(--raised,#eef1f2); padding:2px 5px; border-radius:4px; }
+.hfy-rich-message .hfy-rich-code,.hfy-rich-fallback pre { max-width:100%; overflow:auto; white-space:pre; padding:12px; background:var(--paper,#f5f7f8); border-radius:6px; font:12px/1.65 var(--mono,monospace); }
+.hfy-rich-message .hfy-rich-code code { background:none; padding:0; color:inherit; font:inherit; }
+.hfy-rich-table { max-width:100%; overflow-x:auto; margin-bottom:.75em; }
+.hfy-rich-message .hfy-rich-table table { width:100%; border-collapse:collapse; font-size:.95em; margin:0; }
+.hfy-rich-table :is(th,td) { padding:7px 10px; text-align:left; border:1px solid var(--line,#dce3e5); white-space:normal; min-width:60px; }
+.hfy-rich-table th { font-weight:650; background:var(--raised,#eef1f2); }
+.hfy-rich-message .katex-display { overflow-x:auto; overflow-y:hidden; max-width:100%; padding:5px 0; }
+.hfy-rich-message :focus-visible { outline:2px solid var(--accent,#276b9b); outline-offset:2px; }
+.hfy-rich-plain { white-space:pre-wrap; }
+.hfy-rich-fallback { margin-top:10px; color:var(--muted,#657580); font-size:12px; }
+.hfy-rich-fallback summary { cursor:pointer; min-height:32px; }
+.hfy-ui-col,.hfy-ui-card,.hfy-ui-form { display:flex; flex-direction:column; min-width:0; gap:12px; }
+.hfy-ui-row { display:flex; align-items:center; min-width:0; gap:12px; }
+.hfy-ui-row > * { min-width:0; }
+.hfy-ui-grid { display:grid; min-width:0; gap:12px; }
+.hfy-ui-card { padding:16px; border:1px solid var(--line,#dce3e5); border-radius:10px; }
+.hfy-ui-soft { background:var(--raised,#eef1f2); }
+.hfy-ui-spacer { flex:1; }
+.hfy-ui-title { font-weight:650; line-height:1.4; }
+.hfy-ui-title-sm,.hfy-ui-text-sm { font-size:.9em; }
+.hfy-ui-text-xs { font-size:.8em; }
+.hfy-ui-title-lg,.hfy-ui-text-lg { font-size:1.15em; }
+.hfy-ui-title-xl { font-size:1.3em; }
+.hfy-ui-title-2xl { font-size:1.5em; }
+.hfy-ui-title-3xl { font-size:1.75em; }
+.hfy-ui-caption { font-size:.85em; color:var(--muted,#657580); }
+.hfy-ui-label { font-weight:550; font-size:.9em; }
+.hfy-ui-badge { display:inline-flex; width:fit-content; padding:2px 8px; background:var(--raised,#eef1f2); border-radius:12px; font-size:.85em; }
+.hfy-ui-list-none { list-style:none; padding-left:0!important; }
+.hfy-ui-field { display:flex; flex-direction:column; gap:5px; min-width:0; font-size:.95em; }
+.hfy-ui-field :is(input,select,textarea) { width:100%; min-height:40px; max-width:100%; border:1px solid var(--line,#dce3e5); border-radius:6px; padding:8px 10px; font:inherit; color:var(--ink,#172c39); background:var(--surface,#fff); }
+.hfy-ui-field textarea { resize:vertical; }
+.hfy-ui-checkbox { display:flex; align-items:center; gap:8px; min-height:40px; }
+.hfy-ui-checkbox input { width:18px; height:18px; }
+.hfy-ui-button { width:fit-content; min-height:40px; padding:8px 14px; border:1px solid var(--line,#dce3e5); border-radius:6px; color:var(--on-accent,#fff); background:var(--accent,#276b9b); font:inherit; font-weight:550; cursor:pointer; }
+.hfy-ui-button-outline,.hfy-ui-button-ghost { color:inherit; background:transparent; }
+.hfy-ui-button-soft { color:var(--on-accent-soft,#20587a); background:var(--accent-soft,#e2f0f5); }
+.hfy-ui-button-ghost { border-color:transparent; }
+.hfy-rich-message :disabled { opacity:.65; cursor:default; }
+.hfy-ui-chart { min-width:0; width:100%; margin:0; }
+.hfy-ui-chart svg { width:100%; height:auto; max-height:320px; }
+.hfy-ui-chart figcaption { font-size:12px; color:var(--muted,#657580); }
+.hfy-ui-chart summary { cursor:pointer; font-size:12px; padding:8px 0; }
+.hfy-rich-message .hljs-keyword,.hfy-rich-message .hljs-selector-tag,.hfy-rich-message .hljs-literal { color:var(--hfy-ui-purple); }
+.hfy-rich-message .hljs-string,.hfy-rich-message .hljs-attr { color:var(--hfy-ui-success); }
+.hfy-rich-message .hljs-number,.hfy-rich-message .hljs-built_in,.hfy-rich-message .hljs-title { color:var(--hfy-ui-info); }
+.hfy-rich-message .hljs-comment { color:var(--hfy-ui-muted); font-style:italic; }
+@media(max-width:600px) { .hfy-ui-row { flex-wrap:wrap; } .hfy-ui-card { padding:12px; } .hfy-ui-button { min-height:44px; } }
