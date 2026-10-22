@@ -1,0 +1,20 @@
+.brand .brand-mark {
+  overflow:visible;
+  transform:translate3d(var(--brand-x,0px),var(--brand-y,0px),0) rotate(var(--brand-turn,0deg));
+  transition:transform .55s cubic-bezier(.2,.9,.25,1.4);
+}
+.brand .brand-mark path {
+  transform-origin:20px 23px;
+  animation:brand-sail 5.5s ease-in-out infinite;
+  animation-play-state:paused;
+}
+[data-brand-motion="playing"] .brand[data-brand-visible="true"] .brand-mark path { animation-play-state:running; }
+.brand:focus-visible { --brand-y:-3px;--brand-turn:-8deg; }
+@keyframes brand-sail {
+  0%,100% { transform:translateY(0) rotate(-2deg); }
+  50% { transform:translateY(-1.7px) rotate(2deg); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .brand .brand-mark { transform:none;transition:none; }
+  .brand .brand-mark path { animation:none; }
+}

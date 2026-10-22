@@ -807,7 +807,7 @@ test('appearance control and workbench failures are bilingual and do not trap in
   const zh = app.header();
   assert.match(zh, /class="mode-options" role="group" aria-label="外观"/);
   assert.match(zh, /class="palette-options" role="group" aria-label="配色"/);
-  assert.equal((zh.match(/data-palette-choice=/g)||[]).length,5);
+  assert.equal((zh.match(/data-palette-choice=/g)||[]).length,6);
   for (const label of ['跟随系统', '浅色', '深色']) assert.ok(zh.includes(label));
   assert.match(app.requestErrorText('Invalid cursor or changed search filters; restart from the first page'), /第一页/);
   assert.match(app.requestErrorText('This job is no longer available for new matches; choose another job'), /新匹配/);
