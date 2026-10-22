@@ -56,7 +56,7 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
         .filter(|n| n.has_tag_name(("http://www.sitemaps.org/schemas/sitemap/0.9", "loc")))
         .map(|n| n.text().unwrap().to_owned())
         .collect();
-    assert_eq!(urls.len(), 7);
+    assert_eq!(urls.len(), 8);
     let mut titles = std::collections::BTreeSet::new();
     for url in urls {
         let path = url.strip_prefix("https://hireferry.example").unwrap();
@@ -128,4 +128,21 @@ async fn configured_language_and_actual_legal_document_are_in_initial_html() {
     assert!(home.contains("itemtype=\"https://schema.org/WebSite\""));
     assert!(home.contains("itemprop=\"url\" href=\"https://hireferry.example\""));
     assert!(home.contains("Free for job seekers"));
+}
+
+#[tokio::test]
+async fn downloads_are_public_and_release_links_are_crawlable_without_javascript() {
+    let app = app(true);
+    let (status, headers, html) = read(&app, "/downloads").await;
+    assert_eq!(status, 200);
+    assert!(!headers.contains_key("x-robots-tag"));
+    assert!(html.contains("<title>Software downloads and installation"));
+    assert!(html.contains("href=\"https://hireferry.example/downloads\""));
+    let catalog: serde_json::Value =
+        serde_json::from_str(include_str!("../static/downloads.json")).unwrap();
+    for asset in catalog["assets"].as_array().unwrap() {
+        assert!(html.contains(asset["url"].as_str().unwrap()));
+        assert!(html.contains(asset["name"].as_str().unwrap()));
+    }
+    assert!(html.contains("not formally released yet"));
 }
