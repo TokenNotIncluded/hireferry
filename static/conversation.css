@@ -54,7 +54,7 @@
 .chat-context-link svg { width:13px; height:13px; }
 .chat-context-link svg:last-child { width:12px; }
 .chat-workspace .chat-back { display:none; }
-.chat-workspace .inbox-restore { display:none; }
+.chat-workspace .inbox-restore { display:none; width:auto; gap:7px; padding:0 10px; font-size:12px; white-space:nowrap; }
 .chat-unselected .inbox-restore { position:absolute; left:20px; top:18px; }
 .chat-workspace .chat-privacy { display:flex; align-items:center; justify-content:center; padding:10px 24px; min-height:37px; background:transparent; color:var(--muted); font-size:10px; gap:6px; text-align:center; border-bottom:0; }
 .chat-workspace .chat-privacy svg { margin:0; width:11px; height:11px; }
@@ -120,7 +120,6 @@
   #root.workspace-inbox-collapsed .chat-workspace { grid-template-columns:minmax(0,1fr); }
   #root.workspace-inbox-collapsed .chat-workspace .conversation-sidebar { display:none; }
   #root.workspace-inbox-collapsed .chat-workspace .inbox-restore { display:inline-flex; }
-  #root.workspace-inbox-collapsed .inbox-restore svg { transform:rotate(180deg); }
 }
 @media(max-width:760px) {
   .chat-workspace [data-workspace-panel] { display:none; }

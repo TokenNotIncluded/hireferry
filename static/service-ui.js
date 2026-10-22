@@ -265,7 +265,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   function inboxToggle(restore = false) {
     const collapse = t('收起会话列表', 'Collapse conversations');
     const expand = t('展开会话列表', 'Expand conversations');
-    return `<button type="button" class="icon-button workspace-panel-toggle${restore ? ' inbox-restore' : ''}" data-workspace-panel="inbox" ${restore ? 'data-panel-restore' : ''} aria-controls="conversation-sidebar" aria-expanded="${!restore}" aria-label="${restore ? expand : collapse}" title="${restore ? expand : collapse}" data-label-collapse="${collapse}" data-label-expand="${expand}">${icon('back')}</button>`;
+    return `<button type="button" class="icon-button workspace-panel-toggle${restore ? ' inbox-restore' : ''}" data-workspace-panel="inbox" ${restore ? 'data-panel-restore' : ''} aria-controls="conversation-sidebar" aria-expanded="${!restore}" aria-label="${restore ? expand : collapse}" title="${restore ? expand : collapse}" data-label-collapse="${collapse}" data-label-expand="${expand}">${icon(restore ? 'message' : 'panel')}${restore ? `<span>${t('会话', 'Conversations')}</span>` : ''}</button>`;
   }
 
   function chatThread(current) {
