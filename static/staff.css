@@ -31,3 +31,62 @@
   .staff-row > button { margin-left: 51px; }
   .staff-invite-card { padding: 24px; }
 }
+
+/* One team workspace shares the existing palette, controls, and role boundaries. */
+.team-workspace [hidden], .team-add-dialog [hidden] { display: none !important; }
+.team-header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.team-overview { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; margin-bottom: 26px; }
+.team-overview > div { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 20px 24px; background: var(--surface); border-radius: 16px; }
+.team-overview svg { grid-column: 2; grid-row: 1; width: 19px; height: 19px; color: var(--muted); }
+.team-overview span { grid-column: 1; grid-row: 1; color: var(--muted); font-size: 12px; }
+.team-overview strong { grid-column: 1 / -1; font-size: 28px; font-weight: 550; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.team-role-filters { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 20px; padding: 4px; border-radius: 10px; background: var(--surface); width: fit-content; max-width: 100%; }
+.team-filter-button { display: inline-flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 13px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font: 13px var(--font); cursor: pointer; transition: background .15s, color .15s; }
+.team-filter-button > span { min-width: 17px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.team-filter-button:hover, .team-kind-choice:hover { background: var(--raised); color: var(--ink); }
+.team-filter-button[aria-pressed="true"], .team-kind-choice[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
+.team-filter-button:focus-visible, .team-kind-choice:focus-visible, .team-permission-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.team-roster-panel { margin-bottom: 20px; }
+.team-roster-panel .panel-header { align-items: flex-start; margin-bottom: 8px; }
+.team-roster-panel .panel-header h2 { display: flex; align-items: center; gap: 10px; }
+.team-roster-panel .panel-header p { font-size: 12px; line-height: 1.7; }
+.team-roster-panel .team-member { align-items: center; padding: 20px 0; border-top: 0; border-bottom: 1px solid var(--line); }
+.team-roster-panel .team-member:last-child { border-bottom: 0; padding-bottom: 0; }
+.team-role-label { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 5px; background: var(--raised); color: var(--ink); font-size: 11px; }
+.team-permission-details { border-top: 1px solid var(--line); margin-top: 26px; padding-top: 16px; color: var(--muted); font-size: 12px; }
+.team-permission-details > summary { display: flex; gap: 9px; align-items: center; cursor: pointer; list-style: none; padding: 8px 0; }
+.team-permission-details > summary::-webkit-details-marker { display: none; }
+.team-permission-details > summary svg { width: 17px; height: 17px; }
+.team-permission-details > summary::after { content: '+'; margin-left: auto; font-size: 18px; }
+.team-permission-details[open] > summary::after { content: '−'; }
+.team-permission-details > div { display: grid; gap: 8px; padding: 12px 0; line-height: 1.8; }
+.team-permission-details p { margin: 0; }
+.team-add-choices { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 22px 0; padding: 4px; background: var(--raised); border-radius: 12px; }
+.team-kind-choice { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; padding: 10px 8px; color: var(--muted); background: transparent; border: 0; border-radius: 8px; font: 13px var(--font); cursor: pointer; transition: background .15s, color .15s; }
+.team-kind-choice > svg { flex: none; width: 18px; height: 18px; }
+.team-add-form > h3 { font-size: 16px; margin-bottom: 9px; }
+.team-add-form > .help { margin-bottom: 18px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.team-add-form .field { margin-bottom: 18px; }
+.team-add-form .input { border-radius: 8px; }
+.team-add-form .form-actions { padding-top: 8px; margin-top: 14px; }
+.team-add-dialog .team-email-choice { margin-bottom: 8px; }
+@media (max-width: 1000px) {
+  .team-roster-panel .team-member { align-items: stretch; }
+}
+@media (max-width: 680px) {
+  .team-workspace .page-heading { gap: 20px; align-items: flex-start; }
+  .team-header-actions { width: 100%; }
+  .team-header-actions > .button { flex: 1; }
+  .team-overview { gap: 8px; }
+  .team-overview > div { padding: 15px 12px; border-radius: 12px; }
+  .team-overview svg { display: none; }
+  .team-overview span { grid-column: 1 / -1; font-size: 11px; }
+  .team-overview strong { font-size: 25px; }
+  .team-role-filters { width: 100%; gap: 2px; }
+  .team-filter-button { flex: 1; justify-content: center; gap: 5px; padding: 8px 6px; font-size: 11px; white-space: nowrap; }
+  .team-roster-panel .team-row-actions { gap: 8px; padding-left: 48px; }
+  .team-kind-choice { flex-direction: column; gap: 6px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .team-filter-button, .team-kind-choice { transition: none; }
+}

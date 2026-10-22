@@ -69,6 +69,7 @@ jobs:
           node "$RUNNER_TEMP/hfy-browser/node_modules/playwright/cli.js" install --with-deps chromium --only-shell
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-polish-browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/admin-browser.mjs
 
       - name: Build Linux release
         run: cargo build --locked --release --workspace

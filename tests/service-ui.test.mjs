@@ -21,6 +21,7 @@ const cliMotionSource = await readFile(new URL('../static/cli-motion.js', import
 const cliMotionHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliMotionSource).toString('base64'));
 const contentRefreshSource = await readFile(new URL('../static/content-refresh.js', import.meta.url), 'utf8');
 const contentRefreshHelpers = await import('data:text/javascript;base64,' + Buffer.from(contentRefreshSource).toString('base64'));
+const workspaceHelpers = Object.assign({}, ...await Promise.all(['controls.js','finance-ui.js','people-jobs-ui.js','staff-ui.js'].map(async name => import('data:text/javascript;base64,' + Buffer.from(await readFile(new URL('../static/' + name, import.meta.url), 'utf8')).toString('base64')))));
 // Page markup tests use a DOM sink; disclosure events have their own real controller tests.
 const createDisclosureUI = () => ({ sync() {}, reset() {}, dispose() {} });
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
@@ -350,8 +351,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), appSource + '\nreturn {state,registerWebMCP,chartSvg,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -583,21 +584,7 @@ test('active employers are not offered payment or reactivation for leftover acti
   assert.doesNotMatch(await app.paymentReturn(), /data-action="pay-order"|data-action="role-employer"/);
 });
 
-test('net-receipt chart retains refund-only negative values below an explicit zero baseline', () => {
-  const { app } = webmcp();
-  app.state.lang = 'en';
-  const html = app.chartSvg([{ date: '2026-10-20', revenue_cents: 60000 }, { date: '2026-10-21', revenue_cents: -45000 }]);
-  const zero = Number(html.match(/class="chart-grid chart-zero"[^>]*y1="([^"]+)"/)[1]);
-  const points = [...html.matchAll(/<circle[^>]*cy="([^"]+)"/g)].map(match => Number(match[1]));
-  assert.equal(points.length, 2);
-  assert.ok(points[0] < zero, 'payment day is above zero');
-  assert.ok(points[1] > zero, 'refund-only day is below zero');
-  assert.match(html, /Net -CNY\s*450\.00/);
-  assert.doesNotMatch(html, /NaN|Infinity/);
-  const negativeOnly = app.chartSvg([{ date: '2026-10-21', revenue_cents: -45000 }]);
-  assert.match(negativeOnly, /Net -CNY\s*450\.00/);
-  assert.doesNotMatch(negativeOnly, /NaN|Infinity/);
-});
+// Signed chart geometry and single-day refunds are covered in finance-ui.test.mjs.
 
 test('refund amounts and webhook management errors are localized without losing amounts', () => {
   const { app } = webmcp();
@@ -1312,14 +1299,14 @@ test('historical refunds and free return records never change to the site defaul
 
 test('admin reporting queries one currency and renders separate totals without a mixed sum', async () => {
   const report={currency:'JPY',currency_decimals:0,payment_mode:'live',stats:{users:3,revenue_cents:75000,gross_cents:100000,refund_cents:25000,paid_orders:1},series:[{date:'2026-10-21',revenue_cents:75000}],currency_totals:[{currency:'JPY',currency_decimals:0,gross_cents:100000,refund_cents:25000,revenue_cents:75000,paid_orders:1},{currency:'USD',currency_decimals:2,gross_cents:12345,refund_cents:0,revenue_cents:12345,paid_orders:1}],recent_orders:[]};
-  const {app,requests}=webmcp({admin:true,search:'?tab=overview&currency=JPY',responses:{'/api/admin/overview?currency=JPY':report}});
+  const {app,requests}=webmcp({admin:true,search:'?tab=overview&currency=JPY',responses:{'/api/admin/overview?currency=JPY&mode=live':report}});
   app.state.config=usdConfig();app.state.lang='en';
   const html=await app.adminOverview();
-  assert.equal(requests[0].path,'/api/admin/overview?currency=JPY');
+  assert.equal(requests[0].path,'/api/admin/overview?currency=JPY&mode=live');
   assert.match(html,/name="currency"/);
   assert.match(html,/JPY\s*75,000/);
   assert.match(html,/USD\s*123\.45/);
-  assert.match(html,/without conversion or a combined total/);
+  assert.match(html,/without conversion|not combined|never added|separately/);
   assert.doesNotMatch(html,/CNY|87,345|750\.00/);
 });
 

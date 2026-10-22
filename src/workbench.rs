@@ -62,6 +62,9 @@ pub struct MatchQuery {
     pub job_id: Option<String>,
     pub seeker_id: Option<String>,
     pub employer_id: Option<String>,
+    /// Comma-separated IDs of the currently visible graph nodes (at most 200).
+    pub seeker_ids: Option<String>,
+    pub job_ids: Option<String>,
     pub cursor: Option<String>,
     pub limit: Option<i64>,
 }
@@ -625,13 +628,32 @@ pub fn search_matches(s: &AppState, p: &Principal, q: &MatchQuery) -> AppResult<
     let job = clean(q.job_id.as_deref(), 80)?;
     let seeker = clean(q.seeker_id.as_deref(), 80)?;
     let employer = clean(q.employer_id.as_deref(), 80)?;
+    let seekers = graph_ids(q.seeker_ids.as_deref())?;
+    let jobs = graph_ids(q.job_ids.as_deref())?;
     let limit = limit(q.limit, s.cfg.limits.workbench_page_size)?;
-    let fingerprint = fingerprint("matches", json!([query, status, job, seeker, employer]));
+    let fingerprint = fingerprint(
+        "matches",
+        if seekers.is_none() && jobs.is_none() {
+            json!([query, status, job, seeker, employer])
+        } else {
+            json!([query, status, job, seeker, employer, seekers, jobs])
+        },
+    );
     let cursor = decode_cursor(q.cursor.as_deref(), &fingerprint)?;
     let mut f = Filter::default();
     f.exact("m.job_id", &job);
     f.exact("m.seeker_id", &seeker);
     f.exact("j.owner_id", &employer);
+    for (column, ids) in [("m.seeker_id", seekers), ("m.job_id", jobs)] {
+        if let Some(ids) = ids {
+            let placeholders = ids.into_iter().map(|id| f.bind(id)).collect::<Vec<_>>();
+            f.add(if placeholders.is_empty() {
+                "0=1".to_owned()
+            } else {
+                format!("{column} IN ({})", placeholders.join(","))
+            });
+        }
+    }
     for term in terms(&query)? {
         if term.chars().count() >= 3 {
             let full = f.bind(phrase(term));
@@ -666,4 +688,30 @@ pub fn search_matches(s: &AppState, p: &Principal, q: &MatchQuery) -> AppResult<
     let mut result = page(rows, total, limit, fingerprint, "updated_at")?;
     result["stage_counts"] = stage_counts;
     Ok(result)
+}
+
+/// An explicitly empty set must not widen a graph request to every match.
+/// Values are bound SQL parameters; sorting also makes cursor fingerprints
+/// independent of the order in which the browser rendered its nodes.
+fn graph_ids(raw: Option<&str>) -> AppResult<Option<Vec<String>>> {
+    let Some(raw) = raw else { return Ok(None) };
+    if raw.len() > 16_200 {
+        return Err(AppError::bad_request("Too many graph node IDs"));
+    }
+    if raw.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    let ids = raw.split(',').collect::<Vec<_>>();
+    if ids.len() > 200
+        || ids
+            .iter()
+            .any(|id| id.is_empty() || id.len() > 80 || id.chars().any(char::is_control))
+    {
+        return Err(AppError::bad_request("Invalid graph node IDs"));
+    }
+    let ids = ids
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    Ok(Some(ids.into_iter().collect()))
 }

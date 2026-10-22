@@ -14,54 +14,47 @@ export function createStaffUI({
           ? t('已发送','Sent')
           : t('等待接受','Pending');
 
-  async function adminPage() {
-    const data=await api('/api/admin/staff');
-    const active=(data.members||[]).filter(m=>m.active).length;
-    const members=(data.members||[]).map(m=>`<div class="staff-row">
-      <span class="staff-avatar">${icon('person')}</span>
-      <div class="staff-row-details"><strong>${esc(m.name||m.email)}</strong>
-        <span>${esc(m.email)} · ${t('经理','Manager')}</span>
-        <small>${m.active?t('在职','Active'):t('已停用','Disabled')} · ${t('加入','Joined')} ${date(m.joined_at)}</small>
+  const pending = item => !item.accepted_at && !item.revoked_at && item.expires_at > Date.now() / 1000;
+  const load = () => api('/api/admin/staff');
+
+  function memberRows(items = []) {
+    return items.map(member => `<article class="team-member" data-team-kind="manager">
+      <div class="team-person"><span class="team-kind-icon">${icon('briefcase')}</span>
+        <div><h3>${esc(member.name || member.email)}</h3><p>${esc(member.email)}</p>
+          <div class="list-meta"><span class="team-role-label">${t('招聘经理', 'Recruiting manager')}</span><span>${t('加入', 'Joined')} ${esc(date(member.joined_at))}</span></div>
+        </div>
       </div>
-      <button class="button secondary small" data-action="staff-toggle"
-        data-id="${esc(m.user_id)}" data-active="${m.active?'false':'true'}">
-        ${m.active?t('停用','Disable'):t('重新启用','Enable')}
-      </button>
-    </div>`).join('');
-    const invites=(data.invitations||[]).map(v=>`<div class="staff-row">
-      <span class="staff-avatar">${icon('mail')}</span>
-      <div class="staff-row-details"><strong>${esc(v.email)}</strong>
-        <span>${t('经理邀请','Manager invitation')} · ${status(v)}</span>
-        <small>${t('有效期至','Expires')} ${date(v.expires_at)}</small>
+      <div class="team-row-actions"><span class="status ${member.active ? 'active' : 'banned'}">${member.active ? t('已启用', 'Enabled') : t('已停用', 'Disabled')}</span>
+        <button type="button" class="button secondary small" data-action="staff-toggle" data-id="${esc(member.user_id)}" data-active="${member.active ? 'false' : 'true'}">${member.active ? t('停用', 'Disable') : t('重新启用', 'Enable')}</button>
       </div>
-      ${!v.accepted_at&&!v.revoked_at&&v.expires_at>Date.now()/1000
-        ?`<button class="button secondary small" data-action="staff-revoke" data-id="${esc(v.id)}">${t('撤销','Revoke')}</button>`
-        :''}
-    </div>`).join('');
-    const body=`${heading(t('团队经理','Team managers'),t('人类成员使用自己的邮箱账户工作，不共享超级管理员的通行密钥。','Human teammates sign in with their own email accounts. Administrator passkeys are never shared.'),'','OUR TEAM')}
-    <section class="panel staff-panel">
-      <div class="panel-header"><h2>${t('邀请新经理','Invite a manager')}</h2>
-        <p>${t('受邀者需要使用收件邮箱登录并确认加入；邀请七天内有效，只能接受一次。','Invitees must sign in with the invited email and accept within seven days. Each link works once.')}</p>
-      </div>
-      <form class="staff-invite-form" data-form="staff-invite">
-        <div class="field"><label for="staff-invite-email">${t('员工邮箱','Employee email')}</label>
-          <input id="staff-invite-email" class="input" name="email" type="email" autocomplete="off" maxlength="254" placeholder="employee@example.com" required></div>
-        <div class="field"><label for="staff-role">${t('角色','Role')}</label>
-          <select id="staff-role" class="input" name="role"><option value="manager">${t('团队经理 · 招聘业务','Manager · recruiting operations')}</option></select></div>
-        <label class="staff-mail-choice"><input type="checkbox" name="send_email" checked>
-          <span>${t('通过已配置的 SMTP 服务器发送邀请邮件','Send invitation using the configured SMTP server')}</span></label>
-        <div class="form-actions"><button class="button" type="submit">${icon('mail')}${t('创建邀请','Create invitation')}</button></div>
-      </form>
-      ${notice(t('若邮件服务器未配置，可取消勾选，只生成一次性邀请链接。经理可处理招聘匹配与沟通，不能修改财务、封禁、通行密钥或员工权限。','If SMTP is unavailable, uncheck sending to create a one-time link. Managers can handle matching and messages, but cannot modify finance, suspensions, passkeys or staff permissions.'))}
-    </section>
-    <section class="panel staff-panel"><div class="panel-header"><h2>${t('团队成员','Members')} · ${active}</h2></div>
-      <div class="staff-roster">${members||empty(t('还没有员工','No employees yet'),t('先创建一封团队邀请。','Start with an invitation.'),'','person')}</div>
-    </section>
-    <section class="panel staff-panel"><div class="panel-header"><h2>${t('邀请记录','Invitation history')}</h2></div>
-      <div class="staff-roster">${invites||empty(t('没有邀请记录','No invitations'),t('邀请会在过期后按保留策略清理。','Old invitations are automatically pruned.'),'','mail')}</div>
-    </section>`;
-    return shell(body,'staff',true);
+    </article>`).join('');
   }
+
+  function invitationRows(items = []) {
+    return items.map(invite => `<article class="team-member" data-team-kind="manager">
+      <div class="team-person"><span class="team-kind-icon">${icon('mail')}</span>
+        <div><h3>${esc(invite.email)}</h3><div class="list-meta"><span class="team-role-label">${t('招聘经理', 'Recruiting manager')}</span><span>${t('到期', 'Expires')} ${esc(date(invite.expires_at))}</span>${invite.sent_at ? `<span>${t('邮件已发送', 'Email sent')}</span>` : ''}</div></div>
+      </div>
+      <div class="team-row-actions"><span class="status ${invite.accepted_at ? 'active' : 'closed'}">${status(invite)}</span>
+        ${pending(invite) ? `<button type="button" class="button secondary small" data-action="staff-revoke" data-id="${esc(invite.id)}">${t('撤销', 'Revoke')}</button>` : ''}
+      </div>
+    </article>`).join('');
+  }
+
+  function invitationForm({ smtpEnabled = false } = {}) {
+    return `<form class="team-add-form" data-form="staff-invite">
+      <h3>${t('邀请招聘经理', 'Invite a recruiting manager')}</h3>
+      <p class="help">${t('经理负责候选人、岗位、匹配与沟通，不具备财务和团队管理权限。', 'Managers work with candidates, roles, matching, and messages, without finance or team management access.')}</p>
+      <div class="field"><label for="staff-invite-email">${t('工作邮箱', 'Email address')}</label><input id="staff-invite-email" class="input" name="email" type="email" autocomplete="off" maxlength="254" placeholder="colleague@example.com" required></div>
+      <label class="team-email-choice" for="staff-send-email"><input type="checkbox" id="staff-send-email" name="send_email" ${smtpEnabled ? 'checked' : 'disabled'}><span>${t('通过本站邮件服务器发送邀请', 'Send an invitation using this site’s mail server')}</span></label>
+      ${smtpEnabled ? '' : `<p class="help">${t('邮件服务未启用，可创建并复制邀请链接。', 'Email is not enabled. You can create and copy an invitation link.')}</p>`}
+      <p class="help">${t('邀请七天内有效，只能由受邀邮箱接受一次。', 'The invitation expires after seven days and can be accepted once by the invited email.')}</p>
+      <div class="form-actions"><button class="button" type="submit">${icon('mail')}${t('创建邀请', 'Create invitation')}</button></div>
+    </form>`;
+  }
+
+  // Old callers keep the same entry point while the roster lives in Team.
+  async function adminPage() { await go('/admin?tab=team'); return ''; }
 
   async function invitePage(token) {
     const item=await api('/api/staff/invitations/'+encodeURIComponent(token));
@@ -84,22 +77,29 @@ export function createStaffUI({
 
   async function submit(form,data) {
     if(form.dataset.form!=='staff-invite')return;
+    if(!state.super_admin)throw new Error(t('只有超级管理员可以管理团队。','Only the super administrator can manage the team.'));
+    const owner=state.csrf, version=state.render, path=location.href;
+    const current=()=>state.super_admin&&state.csrf===owner&&location.href===path;
     const result=await api('/api/admin/staff/invitations',{
       method:'POST',
       body:{email:String(data.get('email')||'').trim(),role:'manager',
         send_email:data.get('send_email')==='on'}
     });
+    if(!current()||version!==state.render)return;
+    let link;
+    try { link=new URL(result.invite_url,location.origin); } catch { /* Report the invalid response below. */ }
+    if(!link||link.origin!==location.origin||link.username||link.password||link.search||link.hash||!/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(link.pathname))throw new Error(t('服务器未返回有效的本站邀请链接。请刷新邀请记录。','The server did not return a valid invitation link for this site. Refresh the invitation list.'));
     await render();
-    openDialog(`<div class="eyebrow">TEAM INVITATION</div>
-      <h2 id="dialog-title">${result.sent?t('邀请邮件已发送','Invitation email sent'):t('邀请链接已创建','Invitation link created')}</h2>
-      <p class="dialog-intro">${t('此链接只会显示一次，请妥善处理。','This link is displayed once. Handle it securely.')}</p>
-      <div class="staff-link-box"><code>${esc(result.invite_url)}</code>
-        <button class="button secondary small" data-action="staff-copy" data-copy="${esc(result.invite_url)}">${icon('copy')}${t('复制链接','Copy link')}</button></div>
-      <div class="form-actions"><button class="button" data-action="close-dialog">${t('完成','Done')}</button></div>`);
+    if(!current())return;
+    openDialog(`<h2 id="dialog-title">${result.sent?t('邀请邮件已发送','Invitation email sent'):t('邀请链接已创建','Invitation link created')}</h2>
+      <p class="dialog-intro">${t('此链接只显示一次，仅受邀邮箱可以接受。','This link is shown once. Only the invited email can accept it.')}</p>
+      <div class="field"><label for="team-invitation-secret">${t('邀请链接','Invitation link')}</label><textarea id="team-invitation-secret" class="input team-secret" rows="3" readonly spellcheck="false">${esc(link.href)}</textarea></div>
+      <button class="button" type="button" data-action="team-copy-secret" data-field="team-invitation-secret">${icon('copy')}${t('复制邀请链接','Copy invitation link')}</button>`);
     notify(result.sent?t('邀请邮件已发送。','Invitation email sent.'):t('邀请已创建，请复制链接。','Invitation created. Copy the link.'));
   }
 
   async function action(name,button) {
+    if(['staff-revoke','staff-toggle'].includes(name)&&!state.super_admin)throw new Error(t('只有超级管理员可以管理团队。','Only the super administrator can manage the team.'));
     if(name==='staff-copy') {
       await navigator.clipboard.writeText(button.dataset.copy);
       notify(t('邀请链接已复制。','Invitation link copied.'));
@@ -120,9 +120,9 @@ export function createStaffUI({
     } else if(name==='staff-toggle') {
       const enable=button.dataset.active==='true';
       confirmDialog(enable?t('重新启用这位经理？','Enable this manager?'):t('停用这位经理？','Disable this manager?'),
-        enable?t('恢复经理权限。','Restore manager permissions.'):t('将立即停止其团队业务访问，个人账户仍可正常登录。','Team access ends immediately. Their personal account remains available.'),
+        enable?t('恢复经理权限。','Restore manager permissions.'):t('招聘经理权限将立即停用；其他角色权限与个人账户保留。','Recruiting manager access ends immediately. Other roles and the personal account remain available.'),
         async()=>{await api('/api/admin/staff/members/'+encodeURIComponent(button.dataset.id),{method:'PATCH',body:{active:enable}});await render();notify(enable?t('成员已启用。','Manager enabled.'):t('成员已停用。','Manager disabled.'));},{danger:!enable});
     }
   }
-  return {adminPage,invitePage,submit,action};
+  return {adminPage,invitePage,submit,action,load,memberRows,invitationRows,invitationForm,pending};
 }

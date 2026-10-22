@@ -64,6 +64,122 @@ fn ids(v: &Value) -> HashSet<String> {
 }
 
 #[test]
+fn graph_scope_is_the_intersection_of_visible_seekers_and_jobs() {
+    let s = state();
+    {
+        let db = s.conn().unwrap();
+        user(&db, "owner", "employer", "Owner", "");
+        for seeker in ["a", "b", "outside"] {
+            user(&db, seeker, "seeker", seeker, "");
+        }
+        for role in ["role-a", "role-b", "outside-role"] {
+            job(&db, role, "owner", role, Some("paid"));
+        }
+        introduction(&db, "a-a", "a", "role-a", "introduced");
+        introduction(&db, "b-b", "b", "role-b", "declined");
+        introduction(&db, "outside-person", "outside", "role-a", "hired");
+        introduction(&db, "outside-job", "a", "outside-role", "interview");
+    }
+    let q = MatchQuery {
+        seeker_ids: Some("b,a,a".into()),
+        job_ids: Some("role-b,role-a".into()),
+        limit: Some(1),
+        ..Default::default()
+    };
+    let first = workbench::search_matches(&s, &admin(), &q).unwrap();
+    assert_eq!(first["total"], 2);
+    assert_eq!(
+        first["stage_counts"],
+        json!({"introduced":1,"interview":0,"hired":0,"declined":1})
+    );
+    let second = workbench::search_matches(
+        &s,
+        &admin(),
+        &MatchQuery {
+            seeker_ids: Some("a,b".into()),
+            job_ids: Some("role-a,role-b".into()),
+            cursor: first["next_cursor"].as_str().map(str::to_owned),
+            ..q.clone()
+        },
+    )
+    .unwrap();
+    assert!(ids(&first).is_disjoint(&ids(&second)));
+    assert_eq!(
+        ids(&first)
+            .union(&ids(&second))
+            .cloned()
+            .collect::<HashSet<_>>(),
+        HashSet::from(["a-a".into(), "b-b".into()])
+    );
+    let changed = MatchQuery {
+        seeker_ids: Some("a".into()),
+        cursor: first["next_cursor"].as_str().map(str::to_owned),
+        ..q.clone()
+    };
+    assert!(workbench::search_matches(&s, &admin(), &changed).is_err());
+    let empty = workbench::search_matches(
+        &s,
+        &admin(),
+        &MatchQuery {
+            seeker_ids: Some(String::new()),
+            ..q.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(empty["total"], 0);
+    let status = workbench::search_matches(
+        &s,
+        &admin(),
+        &MatchQuery {
+            status: Some("declined".into()),
+            ..q
+        },
+    )
+    .unwrap();
+    assert_eq!(status["total"], 1);
+    assert_eq!(status["items"][0]["id"], "b-b");
+}
+
+#[test]
+fn graph_scope_is_bounded_parameterized_and_still_operator_only() {
+    let s = state();
+    for invalid in [
+        "a,,b".to_owned(),
+        "x".repeat(81),
+        "a\n".to_owned(),
+        vec!["a"; 201].join(","),
+    ] {
+        assert!(
+            workbench::search_matches(
+                &s,
+                &admin(),
+                &MatchQuery {
+                    seeker_ids: Some(invalid),
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+    }
+    let query = MatchQuery {
+        job_ids: Some("'); DROP TABLE jobs;--".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        workbench::search_matches(&s, &admin(), &query).unwrap()["total"],
+        0
+    );
+    assert!(s.conn().unwrap().prepare("SELECT id FROM jobs").is_ok());
+    let ordinary = Principal {
+        user_id: Some("customer".into()),
+        admin: false,
+        via_ai: false,
+        actor: "customer".into(),
+    };
+    assert!(workbench::search_matches(&s, &ordinary, &query).is_err());
+}
+
+#[test]
 fn workbench_default_capacity_is_configurable_and_query_limit_still_overrides_it() {
     let mut cfg = Config {
         development: true,
