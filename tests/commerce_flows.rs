@@ -112,6 +112,319 @@ fn stored_order(state: &AppState, id: &str) -> Order {
     models::load_order(&state.conn().unwrap(), id).unwrap()
 }
 
+fn elapsed_activation(f: &Fixture, uid: &str) -> Order {
+    let (_, order) = commerce::choose_role(&f.state, uid, "employer", Some("stripe")).unwrap();
+    let order = order.unwrap();
+    f.state.conn().unwrap().execute(
+        "UPDATE orders SET checkout_url='https://checkout.stripe.com/expired',provider_session=?2,checkout_started_at=?3,checkout_expires_at=?4 WHERE id=?1",
+        params![order.id, format!("cs_{}", order.id), hireferry::now()-86400, hireferry::now()-1],
+    ).unwrap();
+    stored_order(&f.state, &order.id)
+}
+
+#[tokio::test]
+async fn expired_activation_is_visible_and_can_be_replaced_without_reusing_its_url() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let expired = elapsed_activation(&f, &uid);
+    // Even a stale browser posting directly to checkout cannot retrieve the URL.
+    let error = commerce::checkout(&f.state, &uid, &expired.id)
+        .await
+        .unwrap_err();
+    assert_eq!(error.status, StatusCode::CONFLICT);
+    let old = api::user_order(&f.state, &uid, &expired.id).unwrap();
+    assert_eq!(old.status, "expired");
+    assert!(old.checkout_url.is_none());
+    assert_eq!(old.provider_session, expired.provider_session);
+
+    let (user, replacement) =
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    let replacement = replacement.unwrap();
+    assert!(!user.employer_paid);
+    assert_ne!(replacement.id, expired.id);
+    assert_eq!(replacement.status, "pending");
+    assert!(replacement.checkout_url.is_none());
+    assert!(replacement.checkout_expires_at.unwrap() > hireferry::now());
+    let (_, repeated) = commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    assert_eq!(repeated.unwrap().id, replacement.id);
+    let listed = api::user_orders(&f.state, &uid).unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(
+        listed
+            .iter()
+            .filter(|order| order.status == "pending")
+            .count(),
+        1
+    );
+    assert_eq!(count(&f.state, "ledger"), 0);
+}
+
+#[test]
+fn listing_expires_activation_and_concurrent_restarts_create_only_one_order() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let expired = elapsed_activation(&f, &uid);
+    let listed = api::user_orders(&f.state, &uid).unwrap();
+    assert_eq!(listed[0].status, "expired");
+    assert!(listed[0].checkout_url.is_none());
+    let states: Vec<_> = (0..8)
+        .map(|_| AppState::new((*f.state.cfg).clone()).unwrap())
+        .collect();
+    let barrier = Arc::new(std::sync::Barrier::new(states.len()));
+    let threads: Vec<_> = states
+        .into_iter()
+        .map(|state| {
+            let barrier = barrier.clone();
+            let uid = uid.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                commerce::choose_role(&state, &uid, "employer", Some("stripe"))
+                    .unwrap()
+                    .1
+                    .unwrap()
+                    .id
+            })
+        })
+        .collect();
+    let ids: std::collections::HashSet<_> = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 1);
+    assert!(!ids.contains(&expired.id));
+    assert_eq!(count(&f.state, "orders"), 2);
+}
+
+#[tokio::test]
+async fn late_payment_for_expired_activation_cancels_its_replacement_and_fulfills_once() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let old = elapsed_activation(&f, &uid);
+    let (_, replacement) =
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    let replacement = replacement.unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE orders SET checkout_url='https://checkout.stripe.com/replacement' WHERE id=?1",
+            [&replacement.id],
+        )
+        .unwrap();
+
+    commerce::settle_payment(&f.state, receipt(&old, "late"))
+        .await
+        .unwrap();
+    assert_eq!(stored_order(&f.state, &old.id).status, "paid");
+    let cancelled = api::user_order(&f.state, &uid, &replacement.id).unwrap();
+    assert_eq!(cancelled.status, "cancelled");
+    assert!(cancelled.checkout_url.is_none());
+    assert!(
+        commerce::checkout(&f.state, &uid, &replacement.id)
+            .await
+            .is_err()
+    );
+    let (user, no_order) =
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    assert!(user.employer_paid);
+    assert!(no_order.is_none());
+    assert_eq!(count(&f.state, "orders"), 2);
+
+    // The replacement may already have been open at the gateway. Its genuine
+    // receipt is recorded for refund review without a second entitlement.
+    commerce::settle_payment(&f.state, receipt(&replacement, "also_paid"))
+        .await
+        .unwrap();
+    commerce::settle_payment(&f.state, receipt(&replacement, "also_paid"))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored_order(&f.state, &replacement.id).status,
+        "paid_needs_review"
+    );
+    assert_eq!(count(&f.state, "ledger"), 2);
+    assert!(
+        models::load_user(&f.state.conn().unwrap(), &uid)
+            .unwrap()
+            .employer_paid
+    );
+}
+
+#[tokio::test]
+async fn late_old_activation_after_replacement_payment_is_retained_for_review() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let old = elapsed_activation(&f, &uid);
+    let (_, replacement) =
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    let replacement = replacement.unwrap();
+    commerce::settle_payment(&f.state, receipt(&replacement, "first"))
+        .await
+        .unwrap();
+    commerce::settle_payment(&f.state, receipt(&old, "late"))
+        .await
+        .unwrap();
+    assert_eq!(stored_order(&f.state, &replacement.id).status, "paid");
+    assert_eq!(stored_order(&f.state, &old.id).status, "paid_needs_review");
+    assert_eq!(count(&f.state, "ledger"), 2);
+    assert!(
+        models::load_user(&f.state.conn().unwrap(), &uid)
+            .unwrap()
+            .employer_paid
+    );
+}
+
+#[tokio::test]
+async fn unresolved_activation_payment_blocks_an_existing_replacement_checkout() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let old = elapsed_activation(&f, &uid);
+    let (_, replacement) =
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe")).unwrap();
+    let replacement = replacement.unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE orders SET checkout_url='https://checkout.stripe.com/replacement' WHERE id=?1",
+            [&replacement.id],
+        )
+        .unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=1 WHERE id=?1", [&uid])
+        .unwrap();
+    commerce::settle_payment(&f.state, receipt(&old, "during_suspension"))
+        .await
+        .unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=0 WHERE id=?1", [&uid])
+        .unwrap();
+    assert_eq!(stored_order(&f.state, &old.id).status, "paid_needs_review");
+    assert!(
+        api::user_order(&f.state, &uid, &replacement.id)
+            .unwrap()
+            .checkout_url
+            .is_none()
+    );
+    assert_eq!(
+        commerce::checkout(&f.state, &uid, &replacement.id)
+            .await
+            .unwrap_err()
+            .status,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe"))
+            .unwrap_err()
+            .status,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(count(&f.state, "orders"), 2);
+    assert!(
+        !models::load_user(&f.state.conn().unwrap(), &uid)
+            .unwrap()
+            .employer_paid
+    );
+}
+
+#[tokio::test]
+async fn activation_recovery_rechecks_owner_suspension_and_current_account_state() {
+    let f = Fixture::new();
+    let uid = f.user();
+    let old = elapsed_activation(&f, &uid);
+    let other = f.user();
+    assert_eq!(
+        api::user_order(&f.state, &other, &old.id)
+            .unwrap_err()
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        commerce::checkout(&f.state, &other, &old.id)
+            .await
+            .unwrap_err()
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(stored_order(&f.state, &old.id).status, "pending");
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=1 WHERE id=?1", [&uid])
+        .unwrap();
+    assert_eq!(
+        commerce::choose_role(&f.state, &uid, "employer", Some("stripe"))
+            .unwrap_err()
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        commerce::checkout(&f.state, &uid, &old.id)
+            .await
+            .unwrap_err()
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(count(&f.state, "orders"), 1);
+}
+
+#[test]
+fn old_activation_deadlines_are_backfilled_without_extending_existing_sessions() {
+    let f = Fixture::new();
+    let waffo_user = f.user();
+    let stripe_user = f.user();
+    let unstarted_user = f.user();
+    let (_, waffo) =
+        commerce::choose_role(&f.state, &waffo_user, "employer", Some("stripe")).unwrap();
+    let (_, stripe) =
+        commerce::choose_role(&f.state, &stripe_user, "employer", Some("stripe")).unwrap();
+    let (_, unstarted) =
+        commerce::choose_role(&f.state, &unstarted_user, "employer", Some("stripe")).unwrap();
+    let (waffo, stripe, unstarted) = (waffo.unwrap(), stripe.unwrap(), unstarted.unwrap());
+    {
+        let db = f.state.conn().unwrap();
+        db.execute_batch("ALTER TABLE orders DROP COLUMN checkout_expires_at;")
+            .unwrap();
+        db.execute("UPDATE orders SET provider='waffo',checkout_started_at=1000,checkout_url='https://checkout.waffo.ai/old' WHERE id=?1", [&waffo.id]).unwrap();
+        db.execute("UPDATE orders SET checkout_started_at=2000,checkout_url='https://checkout.stripe.com/old' WHERE id=?1", [&stripe.id]).unwrap();
+        db.execute(
+            "UPDATE orders SET created_at=3000 WHERE id=?1",
+            [&unstarted.id],
+        )
+        .unwrap();
+        commerce::migrate(&db).unwrap();
+        commerce::migrate(&db).unwrap();
+    }
+    assert_eq!(
+        stored_order(&f.state, &waffo.id).checkout_expires_at,
+        Some(2800)
+    );
+    assert_eq!(
+        stored_order(&f.state, &stripe.id).checkout_expires_at,
+        Some(2000 + 86400)
+    );
+    assert_eq!(
+        stored_order(&f.state, &unstarted.id).checkout_expires_at,
+        Some(3000 + 23 * 3600)
+    );
+    assert_eq!(
+        api::user_orders(&f.state, &waffo_user).unwrap()[0].status,
+        "expired"
+    );
+    assert_eq!(
+        api::user_orders(&f.state, &stripe_user).unwrap()[0].status,
+        "expired"
+    );
+    assert_eq!(
+        api::user_orders(&f.state, &unstarted_user).unwrap()[0].status,
+        "expired"
+    );
+}
+
 #[test]
 fn charges_are_exact_cents_with_checked_bounds() {
     assert_eq!(commerce::fee(300_000, 1000).unwrap(), 30_000);
@@ -730,8 +1043,11 @@ fn refund_total(state: &AppState, order_id: &str) -> i64 {
 fn refund_migration_adds_cached_total_without_losing_legacy_orders() {
     let db = rusqlite::Connection::open_in_memory().unwrap();
     db.execute_batch(
-        "CREATE TABLE orders(id TEXT PRIMARY KEY,amount_cents INTEGER NOT NULL);
-        INSERT INTO orders VALUES('old_order',10000);",
+        "CREATE TABLE orders(id TEXT PRIMARY KEY,amount_cents INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'onboarding',provider TEXT NOT NULL DEFAULT 'stripe',
+        status TEXT NOT NULL DEFAULT 'paid',checkout_started_at INTEGER,checkout_url TEXT,
+        provider_session TEXT,created_at INTEGER NOT NULL DEFAULT 1);
+        INSERT INTO orders(id,amount_cents) VALUES('old_order',10000);",
     )
     .unwrap();
     commerce::migrate(&db).unwrap();
@@ -1109,6 +1425,23 @@ async fn review_refunds_do_not_grant_access_or_revoke_a_different_paid_activatio
         .unwrap()
         .execute("UPDATE users SET banned=0 WHERE id=?1", [&uid])
         .unwrap();
+    // A recorded payment that has not been fully refunded must be resolved
+    // before an unpaid account is offered another activation purchase.
+    assert_eq!(
+        commerce::choose_role(&f.state, &uid, "employer", Some("waffo"))
+            .unwrap_err()
+            .status,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post_waffo(&f.state, &refund_event(&old, "REF_review_rest", 6000, true)).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        !models::load_user(&f.state.conn().unwrap(), &uid)
+            .unwrap()
+            .employer_paid
+    );
     let (_, replacement) =
         commerce::choose_role(&f.state, &uid, "employer", Some("waffo")).unwrap();
     commerce::settle_payment(&f.state, receipt(&replacement.unwrap(), "first"))
@@ -1119,6 +1452,7 @@ async fn review_refunds_do_not_grant_access_or_revoke_a_different_paid_activatio
             .unwrap()
             .employer_paid
     );
+    // Repeated delivery for the old, resolved refund cannot revoke the new grant.
     assert_eq!(
         post_waffo(&f.state, &refund_event(&old, "REF_review_rest", 6000, true)).await,
         StatusCode::NO_CONTENT

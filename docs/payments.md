@@ -29,6 +29,39 @@ payment may still appear `pending` until its authenticated webhook arrives.
 The server can also report `paid`, `paid_needs_review`, `partially_refunded` or
 `refunded`; only server state determines the displayed outcome and rights.
 
+## Expired employer activation / 开通订单过期后继续
+
+An unactivated employer can always reach activation from **Orders & payments**,
+**My roles**, or the workspace's activation link. The orders page keeps the
+current activation action visible; order IDs and older records can be folded.
+The payment return page also offers a restart for an expired activation order.
+
+`checkout_expires_at` is a nullable Unix timestamp in seconds. New, unstarted
+activation orders expire after 23 hours. Starting checkout records the hosted
+session deadline: Stripe's returned `expires_at`, or the first Waffo attempt plus
+its requested 1,800-second lifetime. Retrying does not extend that session.
+Existing pending activation records receive a conservative deadline during the
+idempotent migration. Reading one's orders, starting checkout, or choosing the
+employer role marks expired activation orders `expired` and removes their URL.
+
+`POST /api/role` with `role: "employer"`, a provider, and a configured currency
+creates a replacement after expiry, or reuses the existing valid activation
+order. The transaction serializes concurrent requests. An active account does
+not create another activation order. A still-valid order retains its original
+amount, currency, and provider; the replacement uses current configured prices
+shown for confirmation.
+
+A late verified payment is still recorded. If activation remains unpaid, the
+payment activates the account and cancels other pending activation orders. If
+another payment already activated it, the additional payment is kept as
+`paid_needs_review`. Unresolved received activation funds block a further
+activation purchase until reviewed and, when applicable, fully refunded.
+Neither an expired URL nor the browser return page is evidence that no money
+was charged. After a reported charge, refresh the verified order status first.
+
+This restart path is for employer activation. It does not automatically cancel
+or replace role-publication and description-update orders.
+
 ## Configurable charges and currency
 
 `[pricing]` selects `currency` and `allowed_currencies`. The default template

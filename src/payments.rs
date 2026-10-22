@@ -41,6 +41,11 @@ const WAFFO_TOLERANCE_MILLISECONDS: u64 = 45 * 60 * 1_000;
 pub struct Checkout {
     pub session_id: String,
     pub url: String,
+    pub expires_at: i64,
+}
+
+pub(crate) fn checkout_ttl_seconds(provider: &str) -> i64 {
+    if provider == "waffo" { 1800 } else { 24 * 3600 }
 }
 
 #[derive(Debug, Clone)]
@@ -213,8 +218,16 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
     }
     let session_id = required_string(&data, "id")?;
     let url = required_text(&data, "url", 8192)?;
+    let expires_at = data["expires_at"]
+        .as_i64()
+        .filter(|timestamp| *timestamp > 0)
+        .ok_or_else(|| AppError::unavailable("Stripe returned no checkout expiration"))?;
     validate_checkout_url(&url, "checkout.stripe.com")?;
-    Ok(Checkout { session_id, url })
+    Ok(Checkout {
+        session_id,
+        url,
+        expires_at,
+    })
 }
 
 async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResult<Checkout> {
@@ -292,7 +305,16 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
         parsed.query_pairs_mut().append_pair("test", "true");
         url = parsed.into();
     }
-    Ok(Checkout { session_id, url })
+    // A retried idempotent request may return the original session. Its lifetime
+    // must stay anchored to the first attempt, not to this HTTP response.
+    let expires_at = order
+        .checkout_expires_at
+        .ok_or_else(|| AppError::unavailable("Missing checkout expiration"))?;
+    Ok(Checkout {
+        session_id,
+        url,
+        expires_at,
+    })
 }
 
 fn waffo_checkout_body(state: &AppState, order: &Order, email: &str) -> AppResult<Value> {
@@ -311,7 +333,7 @@ fn waffo_checkout_body(state: &AppState, order: &Order, email: &str) -> AppResul
         "orderMerchantExternalId": order.id,
         "metadata": { "hireferry_order_id": order.id },
         "successUrl": return_url(&state.cfg.public_url, &order.id, "waffo", false)?,
-        "expiresInSeconds": 1800,
+        "expiresInSeconds": checkout_ttl_seconds("waffo"),
         "includePaymentMethods": region.payment_methods,
     }))
 }

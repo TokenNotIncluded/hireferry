@@ -10,6 +10,10 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 
+// Keep an unstarted order within the provider idempotency window. Once checkout
+// starts, its actual lifetime replaces this deadline; retries never extend it.
+const UNSTARTED_ORDER_TTL: i64 = 23 * 3600;
+
 /// Runs after the core orders/ledger tables, including for existing databases.
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let columns = {
@@ -22,6 +26,20 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         db.execute_batch("ALTER TABLE orders ADD COLUMN refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK(refunded_cents>=0);")?;
     }
     migrate_free_orders(db)?;
+    let has_checkout_expiry: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('orders') WHERE name='checkout_expires_at')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_checkout_expiry {
+        db.execute_batch("ALTER TABLE orders ADD COLUMN checkout_expires_at INTEGER;")?;
+    }
+    // Older versions cached hosted URLs forever. Preserve the old session for
+    // receipt matching, but reconstruct its deadline from the first known start.
+    db.execute(
+        "UPDATE orders SET checkout_expires_at=CASE WHEN checkout_started_at IS NOT NULL OR checkout_url IS NOT NULL OR provider_session IS NOT NULL THEN COALESCE(checkout_started_at,created_at)+CASE provider WHEN 'waffo' THEN ?1 ELSE ?2 END ELSE created_at+?3 END WHERE kind='onboarding' AND status='pending' AND checkout_expires_at IS NULL",
+        params![crate::payments::checkout_ttl_seconds("waffo"), crate::payments::checkout_ttl_seconds("stripe"), UNSTARTED_ORDER_TTL],
+    )?;
     db.execute_batch(r#"
  CREATE TABLE IF NOT EXISTS payment_refunds(
  provider TEXT NOT NULL,refund_id TEXT NOT NULL,order_id TEXT NOT NULL REFERENCES orders(id),
@@ -41,6 +59,23 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  PRIMARY KEY(provider,live_mode,event_id,event_type));
  "#)?;
     Ok(())
+}
+
+/// Expiration releases the unique pending activation slot without deleting its
+/// payment history. A signed, late receipt can still activate an unpaid account.
+pub(crate) fn expire_onboarding_orders(db: &Connection, uid: &str) -> AppResult<usize> {
+    Ok(db.execute(
+        "UPDATE orders SET status='expired',checkout_url=NULL WHERE user_id=?1 AND kind='onboarding' AND status='pending' AND checkout_expires_at<=?2",
+        params![uid, now()],
+    )?)
+}
+
+fn activation_payment_recorded(db: &Connection, uid: &str) -> AppResult<bool> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM orders WHERE user_id=?1 AND kind='onboarding' AND status IN ('paid','paid_needs_review','partially_refunded') AND amount_cents>refunded_cents)",
+        [uid],
+        |row| row.get(0),
+    )?)
 }
 
 fn migrate_free_orders(db: &Connection) -> AppResult<()> {
@@ -156,7 +191,9 @@ fn insert_order(
     snapshot: Value,
 ) -> AppResult<Order> {
     let id = uuid::Uuid::new_v4().to_string();
-    db.execute("INSERT INTO orders(id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,snapshot_json,status,created_at,paid_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",params![id,user,kind,job,amount,currency,if amount == 0 {"free"} else {provider},live_mode,snapshot.to_string(),if amount == 0 {"paid"} else {"pending"},now(),if amount == 0 {Some(now())} else {None}])?;
+    let timestamp = now();
+    let expires = (amount > 0 && kind == "onboarding").then_some(timestamp + UNSTARTED_ORDER_TTL);
+    db.execute("INSERT INTO orders(id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,snapshot_json,status,created_at,paid_at,checkout_expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![id,user,kind,job,amount,currency,if amount == 0 {"free"} else {provider},live_mode,snapshot.to_string(),if amount == 0 {"paid"} else {"pending"},timestamp,if amount == 0 {Some(timestamp)} else {None},expires])?;
     models::load_order(db, &id)
 }
 pub fn choose_role(
@@ -192,6 +229,12 @@ pub fn choose_role_with_currency(
         params![uid, role, now()],
     )?;
     let order = if role == "employer" && !user.employer_paid {
+        if activation_payment_recorded(&tx, uid)? {
+            return Err(AppError::conflict(
+                "An activation payment is already recorded. Please contact support to check it before paying again.",
+            ));
+        }
+        expire_onboarding_orders(&tx, uid)?;
         let existing = tx
             .query_row(
                 "SELECT * FROM orders WHERE user_id=?1 AND kind='onboarding' AND status='pending'",
@@ -715,6 +758,21 @@ pub async fn checkout_with_region(
         if user.banned {
             return Err(AppError::forbidden("Account is suspended"));
         }
+        if order.kind == "onboarding" {
+            if !user.employer_paid && activation_payment_recorded(&tx, uid)? {
+                return Err(AppError::conflict(
+                    "An activation payment is already recorded. Please contact support to check it before paying again.",
+                ));
+            }
+            expire_onboarding_orders(&tx, uid)?;
+            let current = models::load_order(&tx, id)?;
+            if current.status == "expired" {
+                tx.commit()?;
+                return Err(AppError::conflict(
+                    "This activation order expired. Create a new activation order from Orders.",
+                ));
+            }
+        }
         if order.status != "pending" {
             return Err(AppError::conflict("This order is not pending"));
         }
@@ -746,12 +804,14 @@ pub async fn checkout_with_region(
         if order.checkout_url.is_some() {
             return Ok(order);
         }
-        if now() - order.created_at > 23 * 3600 {
+        if order.kind != "onboarding" && now() - order.created_at > UNSTARTED_ORDER_TTL {
             return Err(AppError::conflict(
                 "This checkout is too old to retry safely. Please contact support.",
             ));
         }
-        let claimed=tx.execute("UPDATE orders SET checkout_started_at=?2,snapshot_json=?4 WHERE id=?1 AND (checkout_started_at IS NULL OR checkout_started_at<?3) AND status='pending'",params![id,now(),now()-30,snapshot.to_string()])?;
+        let timestamp = now();
+        let ttl = crate::payments::checkout_ttl_seconds(&order.provider);
+        let claimed=tx.execute("UPDATE orders SET checkout_expires_at=CASE WHEN checkout_started_at IS NULL THEN ?2+?5 ELSE COALESCE(checkout_expires_at,checkout_started_at+?5) END,checkout_started_at=?2,snapshot_json=?4 WHERE id=?1 AND (checkout_started_at IS NULL OR checkout_started_at<?3) AND status='pending'",params![id,timestamp,timestamp-30,snapshot.to_string(),ttl])?;
         if claimed != 1 {
             return Err(AppError::conflict(
                 "Checkout creation is still in progress. Wait 30 seconds before retrying this same order.",
@@ -775,9 +835,10 @@ pub async fn checkout_with_region(
     }
     ensure_checkout_job(&tx, &current)?;
     tx.execute(
-        "UPDATE orders SET provider_session=?2,checkout_url=?3 WHERE id=?1",
-        params![id, checkout.session_id, checkout.url],
+        "UPDATE orders SET provider_session=?2,checkout_url=?3,checkout_expires_at=?4 WHERE id=?1",
+        params![id, checkout.session_id, checkout.url, checkout.expires_at],
     )?;
+    expire_onboarding_orders(&tx, uid)?;
     let order = models::load_order(&tx, id)?;
     tx.commit()?;
     Ok(order)
@@ -786,7 +847,7 @@ pub async fn checkout_with_region(
 fn ensure_checkout_job(db: &Connection, order: &Order) -> AppResult<()> {
     if !job_checkout_available(db, order)? {
         return Err(AppError::conflict(
-            "This job payment can no longer be applied; refresh the order before continuing",
+            "This payment can no longer be applied; refresh the order before continuing",
         ));
     }
     Ok(())
@@ -797,6 +858,13 @@ fn ensure_checkout_job(db: &Connection, order: &Order) -> AppResult<()> {
 /// receipts continue through settle_payment even when this returns false.
 pub(crate) fn job_checkout_available(db: &Connection, order: &Order) -> AppResult<bool> {
     let Some(id) = &order.job_id else {
+        if order.kind == "onboarding" {
+            let user = models::load_user(db, &order.user_id)?;
+            return Ok(user.role == "employer"
+                && !user.banned
+                && !user.employer_paid
+                && !activation_payment_recorded(db, &user.id)?);
+        }
         return Ok(true);
     };
     let job = models::load_job(db, id)?;
@@ -865,7 +933,9 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
     }
     let user = models::load_user(&tx, &order.user_id)?;
     let snapshot: Value = serde_json::from_str(&order.snapshot_json)?;
-    let mut applicable = order.status == "pending" && !user.banned;
+    let mut applicable = (order.status == "pending"
+        || (order.kind == "onboarding" && order.status == "expired"))
+        && !user.banned;
     if applicable {
         match order.kind.as_str() {
             "onboarding" => {
@@ -874,6 +944,13 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
                     tx.execute(
                         "UPDATE users SET employer_paid=1,updated_at=?2 WHERE id=?1",
                         params![user.id, now()],
+                    )?;
+                    // A delayed receipt for an expired session may win the
+                    // race against its replacement. Remove every other payable
+                    // activation link; later duplicate money is kept for review.
+                    tx.execute(
+                        "UPDATE orders SET status='cancelled',checkout_url=NULL WHERE user_id=?1 AND kind='onboarding' AND status='pending' AND id<>?2",
+                        params![user.id, order.id],
                     )?;
                 }
             }
