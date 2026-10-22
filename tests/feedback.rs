@@ -167,7 +167,7 @@ async fn guest_and_identity_cli_can_submit_but_only_administrators_can_read() {
             .len(),
         2
     );
-    let (_, denied) = f
+    let (denied_status, denied) = f
         .request(
             "POST",
             "/mcp",
@@ -176,7 +176,8 @@ async fn guest_and_identity_cli_can_submit_but_only_administrators_can_read() {
             Some(rpc("admin_list_feedback", json!({}))),
         )
         .await;
-    assert!(denied["error"].is_object() || denied["result"]["isError"] == true);
+    assert_eq!(denied_status, StatusCode::FORBIDDEN);
+    assert!(denied["error"].is_string());
     let (_, resolved) = f
         .request(
             "POST",
@@ -260,11 +261,16 @@ async fn browser_csrf_validation_plain_text_bounds_and_rate_limit() {
         json!({"category":"bug","message":"valid","page":"/login?token=secret"}),
         json!({"category":"bug","message":"valid","extra":"unknown"}),
     ] {
+        let expected = if invalid.get("extra").is_some() {
+            StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            StatusCode::BAD_REQUEST
+        };
         assert_eq!(
             f.request("POST", "/api/feedback", None, None, Some(invalid))
                 .await
                 .0,
-            StatusCode::BAD_REQUEST
+            expected
         );
     }
 }
