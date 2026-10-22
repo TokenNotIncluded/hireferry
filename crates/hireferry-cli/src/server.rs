@@ -159,7 +159,7 @@ impl Server {
             .send()
             .await
             .map_err(Error::network)?;
-        decode(response).await
+        decode_feedback(response).await
     }
 
     pub async fn list_feedback(
@@ -168,6 +168,8 @@ impl Server {
         limit: Option<i64>,
         before_id: Option<i64>,
         status: Option<&str>,
+        category: Option<&str>,
+        source: Option<&str>,
     ) -> Result<Value> {
         let mut query = Vec::new();
         if let Some(limit) = limit {
@@ -179,6 +181,12 @@ impl Server {
         if let Some(status) = status {
             query.push(("status", status.to_owned()));
         }
+        if let Some(category) = category {
+            query.push(("category", category.to_owned()));
+        }
+        if let Some(source) = source {
+            query.push(("source", source.to_owned()));
+        }
         let response = self
             .client
             .get(self.endpoint("/api/admin/feedback"))
@@ -187,7 +195,18 @@ impl Server {
             .send()
             .await
             .map_err(Error::network)?;
-        decode(response).await
+        decode_feedback(response).await
+    }
+
+    pub async fn get_feedback(&self, token: &str, id: i64) -> Result<Value> {
+        let response = self
+            .client
+            .get(self.endpoint(&format!("/api/admin/feedback/{id}")))
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(Error::network)?;
+        decode_feedback(response).await
     }
 
     pub async fn update_feedback(&self, token: &str, id: i64, status: &str) -> Result<Value> {
@@ -199,8 +218,48 @@ impl Server {
             .send()
             .await
             .map_err(Error::network)?;
-        decode(response).await
+        decode_feedback(response).await
     }
+}
+
+// Feedback endpoints return application errors, not OAuth protocol errors.
+// Map HTTP status to fixed local text; never echo an untrusted response body.
+async fn decode_feedback(response: reqwest::Response) -> Result<Value> {
+    let status = response.status();
+    if status.is_success() || status.is_redirection() {
+        return decode(response).await;
+    }
+    Err(match status.as_u16() {
+        400 | 422 => Error::new(
+            "invalid_feedback",
+            "Check the feedback text, category, filters and record ID.",
+        ),
+        401 => Error::signed_out(),
+        403 => Error::new(
+            "access_denied",
+            "This account cannot access or update this feedback.",
+        ),
+        404 => Error::new(
+            "feedback_not_found",
+            "This feedback is unavailable or has expired.",
+        ),
+        409 => Error::new(
+            "feedback_duplicate",
+            "This feedback was already submitted. Wait before sending it again.",
+        ),
+        429 => Error::new(
+            "feedback_rate_limited",
+            "Too many feedback submissions. Try again later.",
+        ),
+        503 => Error::new(
+            "feedback_unavailable",
+            "Feedback is unavailable or at capacity. Try again later.",
+        ),
+        _ => Error::new(
+            "server_error",
+            "The server could not complete the feedback request.",
+        ),
+    })
 }
 
 fn invalid_server() -> Error {
@@ -402,6 +461,38 @@ mod tests {
                 .unwrap()
                 .contains("secret-token-value")
         );
+    }
+
+    #[tokio::test]
+    async fn feedback_failures_have_safe_application_specific_errors() {
+        for (status, code) in [
+            ("400 Bad Request", "invalid_feedback"),
+            ("401 Unauthorized", "not_authenticated"),
+            ("403 Forbidden", "access_denied"),
+            ("404 Not Found", "feedback_not_found"),
+            ("409 Conflict", "feedback_duplicate"),
+            ("422 Unprocessable Entity", "invalid_feedback"),
+            ("429 Too Many Requests", "feedback_rate_limited"),
+            ("503 Service Unavailable", "feedback_unavailable"),
+            ("500 Internal Server Error", "server_error"),
+        ] {
+            let server = mock_response(
+                status,
+                r#"{"error":"access_denied","error_description":"secret-access-token"}"#,
+                "",
+            )
+            .await;
+            let error = server
+                .submit_feedback("secret-access-token", "bug", "Test report")
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, code);
+            assert!(
+                !serde_json::to_string(&error)
+                    .unwrap()
+                    .contains("secret-access-token")
+            );
+        }
     }
 
     #[tokio::test]

@@ -90,6 +90,8 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const owner = ownerKey();
     if (chatOwner !== owner || (!state.user && !state.admin)) {
       chatDrafts.clear(); pendingMessages.clear();
+      outreachCache.clear(); mandateCache.clear(); webhookCache.clear();
+      workbenchPages.clear(); workbenchHistory.clear();
       conversationFilter = 'all'; conversationSearch = ''; chatOwner = owner;
     }
     return owner;
@@ -570,6 +572,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const body = String(data.get('body') || '').trim();
     if (!body) throw new Error(t('写一点内容再发送吧。', 'Write a message before sending.'));
     const previous = pendingMessages.get(current.id);
+    if (!previous && pendingMessages.size >= 50) throw new Error(t('请先重试已有的待发送消息。', 'Retry an existing pending message first.'));
     const client_id = previous?.body === body ? previous.id : createMessageId();
     pendingMessages.set(current.id, { id: client_id, body });
     let message;
@@ -638,6 +641,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function outreachList(items, admin = false, userId = '') {
+    outreachCache.clear();
     if (!items?.length) return empty(t('进展，会认真记在这里。', 'Every step will be recorded here.'), t('平台完成实际寻找或联系后，会更新机会与跟进情况。', 'The team will update opportunities and follow-ups after real research or contact.'), '', 'target');
     return `<div class="outreach-timeline">${items.map(record => {
       outreachCache.set(record.id, record);
@@ -689,7 +693,11 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   async function adminMandate(userId) {
+    const owner = syncChatOwner();
+    const view = workbenchGeneration;
+    mandateCache.clear(); outreachCache.clear();
     const [d, progress] = await Promise.all([api(`/api/admin/mandates/${encodeURIComponent(userId)}`), api(`/api/admin/outreach/${encodeURIComponent(userId)}`)]);
+    if (!state.admin || owner !== ownerKey() || view !== workbenchGeneration) return;
     const m = d.mandate;
     if (m) mandateCache.set(userId, m);
     if (!m) throw new Error(t('用户尚未提交委托。', 'This person has not submitted a search brief.'));
@@ -697,6 +705,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function outreachDialog(userId, id = '') {
+    syncChatOwner();
     const r = id ? outreachCache.get(id) : {};
     const mandate = mandateCache.get(userId);
     const allowed = !!(mandate?.allow_external && mandate.status === 'active' && !mandate.banned);
@@ -744,6 +753,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   async function workbenchList(kind, filters = {}, requestGeneration = workbenchGeneration) {
+    syncChatOwner();
     const requestedLimit=workbenchPageSize();
     const params = new URLSearchParams({ limit: String(requestedLimit) });
     for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
@@ -751,7 +761,9 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const cursor = query().get(kind + '_cursor') || '';
     if (cursor) params.set('cursor', cursor);
     let history = workbenchHistory.get(signature);
-    if (!history) { history = ['']; workbenchHistory.set(signature, history); }
+    if (!history) history = [''];
+    workbenchHistory.delete(signature); workbenchHistory.set(signature, history);
+    while (workbenchHistory.size > 50) workbenchHistory.delete(workbenchHistory.keys().next().value);
     const page = await api(`/api/admin/workbench/${kind}?${params}`);
     if (requestGeneration === workbenchGeneration) workbenchPages.set(kind, { signature, cursor, history, page });
     const responseLimit=Number(page.limit);
@@ -762,7 +774,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   function workbenchPager(kind, page) {
     const current = workbenchPages.get(kind);
     const index = current?.history.indexOf(current.cursor) ?? -1;
-    return `<nav class="wb-pagination" aria-label="${t('结果分页', 'Result pages')}"><span>${t(`本页 ${page.items.length} 条 · 共 ${page.total} 条`, `${page.items.length} on this page · ${page.total} total`)}</span><div><button class="icon-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="previous" aria-label="${t('上一页', 'Previous page')}" ${index > 0 ? '' : 'disabled'}>${icon('back')}</button><button class="icon-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="next" aria-label="${t('下一页', 'Next page')}" ${page.next_cursor ? '' : 'disabled'}>${icon('arrow')}</button>${current?.cursor && index < 0 ? `<button class="text-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="first">${t('首页', 'First page')}</button>` : ''}</div></nav>`;
+    return `<nav class="wb-pagination" aria-label="${t('结果分页', 'Result pages')}"><span>${t(`本页 ${page.items.length} 条 · 共 ${page.total} 条`, `${page.items.length} on this page · ${page.total} total`)}</span><div><button class="icon-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="previous" aria-label="${t('上一页', 'Previous page')}" ${index > 0 ? '' : 'disabled'}>${icon('back')}</button><button class="icon-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="next" aria-label="${t('下一页', 'Next page')}" ${page.next_cursor ? '' : 'disabled'}>${icon('arrow')}</button>${current?.cursor && (index < 0 || current.history[0] !== '') ? `<button class="text-button" type="button" data-action="workbench-page" data-list="${kind}" data-direction="first">${t('首页', 'First page')}</button>` : ''}</div></nav>`;
   }
 
   async function workbenchPage(kind, direction) {
@@ -775,6 +787,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       if (!cursor) return;
       const prefix = index >= 0 ? current.history.slice(0, index + 1) : [current.cursor];
       current.history.splice(0, current.history.length, ...prefix, cursor);
+      if (current.history.length > 100) current.history.splice(0, current.history.length - 100);
     } else if (direction === 'previous') {
       if (index <= 0) return;
       cursor = current.history[index - 1];

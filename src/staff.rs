@@ -15,7 +15,6 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 const INVITE_SECONDS: i64 = 7 * 86_400;
-const RETAIN_SECONDS: i64 = 30 * 86_400;
 const MAX_PENDING: i64 = 100;
 const MAX_MEMBERS: i64 = 100;
 const MAX_INVITES_PER_HOUR: i64 = 30;
@@ -105,17 +104,6 @@ fn token_hash(token: &str) -> AppResult<String> {
     Ok(auth::hash_token(token))
 }
 
-fn expire_old(db: &Connection, time: i64) -> AppResult<()> {
-    // Invites never accumulate indefinitely. Accepted/revoked/expired rows
-    // survive for a bounded audit window; the audit table records the action.
-    db.execute(
-        "DELETE FROM staff_invitations WHERE created_at<?1
-         AND (accepted_at IS NOT NULL OR revoked_at IS NOT NULL OR expires_at<=?2)",
-        params![time - RETAIN_SECONDS, time],
-    )?;
-    Ok(())
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InviteInput {
@@ -131,7 +119,6 @@ fn send_by_default() -> bool {
 fn create_record(db: &mut Connection, email: &str) -> AppResult<(String, String, i64)> {
     let time = now();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    expire_old(&tx, time)?;
     let exists: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM staff_members m
          JOIN users u ON u.id=m.user_id
@@ -329,7 +316,6 @@ async fn create_invitation(
 async fn list_staff(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     owner(&s, &h, false)?;
     let conn = s.conn()?;
-    expire_old(&conn, now())?;
     let members = conn
         .prepare(
             "SELECT m.user_id,u.email,u.name,m.role,m.active,m.joined_at,m.updated_at

@@ -2,7 +2,7 @@
    semantic colors and saved palette/mode as the main application. */
 body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-content [hidden] {display:none!important;}
-.cli-header {max-width:1180px;height:90px;margin:auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);}
+.cli-header {max-width:1180px;height:90px;margin:auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;}
 .cli-header .brand {display:flex;align-items:center;gap:10px;color:var(--accent);white-space:nowrap;font-size:21px;font-weight:650;}
 .cli-header .brand-mark {width:32px;height:32px;}
 .cli-header .brand-en {color:var(--ink);font-size:15px;letter-spacing:-.02em;}
@@ -17,10 +17,12 @@ body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-header .palette-swatch[aria-pressed="true"] .swatch-color {font-size:14px;}
 .cli-header .mode-options button {font-size:14px;font-weight:550;}
 .cli-content {width:min(760px,calc(100% - 48px));margin:64px auto 85px;}
-.cli-content h1 {font-size:clamp(32px,5vw,48px);letter-spacing:-.055em;line-height:1.15;margin:16px 0 17px;}
+.cli-content h1 {font-size:clamp(32px,5vw,48px);letter-spacing:-.055em;line-height:1.15;margin:0 0 17px;}
 .cli-content h2 {font-size:20px;margin-bottom:10px;}
 .cli-content .intro {font-size:14px;color:var(--muted);line-height:1.9;max-width:630px;margin-bottom:34px;}
-.cli-content .card {padding:34px 38px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);}
+.cli-content .card {padding:34px 38px;background:var(--surface);border:0;border-radius:var(--radius);}
+.cli-content #status:empty {display:none;}
+.cli-content #account {overflow-wrap:anywhere;}
 .cli-content #status {font-size:13px;line-height:1.8;color:var(--muted);margin:8px 0 19px;}
 .cli-content #error {margin:10px 0 18px;padding:13px 15px;background:var(--danger-soft);color:var(--md-on-error-container);border-radius:10px;font-size:13px;overflow-wrap:anywhere;}
 .cli-content .actions {display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:26px;}
@@ -42,7 +44,7 @@ body {min-height:100vh;background:var(--paper);color:var(--ink);}
 .cli-content .hint {display:inline-block;margin:12px 0;}
 .cli-content .complete {color:var(--accent)!important;font-weight:600;}
 .connection-list {display:grid;gap:10px;margin-top:16px;}
-.connection {border:1px solid var(--line);background:var(--raised);border-radius:13px;padding:20px;min-width:0;}
+.connection {border:0;background:var(--raised);border-radius:13px;padding:20px;min-width:0;}
 .connection-heading {display:flex;align-items:center;justify-content:space-between;gap:14px;}
 .connection h3 {font-size:16px;letter-spacing:-.025em;overflow-wrap:anywhere;}
 .connection-scope {font:12px/1.7 var(--mono);color:var(--muted);overflow-wrap:anywhere;margin:9px 0 13px;}

@@ -692,7 +692,7 @@ async function adminJobs() {
 async function editAdminJob(id) {
   const j=await api(`/api/admin/jobs/${encodeURIComponent(id)}`);
   if(!j)throw new Error(t('未找到岗位。','Role not found.'));
-  jobCache.set(j.id,j);
+  jobCache.clear();jobCache.set(j.id,j);
   const intro=`<div class="eyebrow">MANAGE OPPORTUNITY</div><h2 id="dialog-title">${esc(j.title||t('已永久删除的岗位','Permanently deleted role'))}</h2><p class="dialog-intro">${money(j.salary_cents,j)} / ${t('月底薪，标题与底薪不能修改。','month base. The title and salary cannot be changed.')}</p><div class="list-meta job-admin-meta">${jobBadge(j)}<span>${headcountText(j)}</span></div>`;
   if(!state.owner){openDialog(`${intro}<div class="field"><label>${t('岗位描述 · 只读','Job description · read only')}<textarea class="input code" rows="10" readonly>${esc(j.jd_md||'')}</textarea></label></div>`,{wide:true});return;}
   if(j.status==='deleted') {

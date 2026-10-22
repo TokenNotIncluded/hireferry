@@ -434,8 +434,10 @@ pub fn new_job_with_promo(
         provider_currency_enabled(state, provider, currency)?;
     }
     let count: i64 = tx.query_row(
-        "SELECT count(*) FROM orders WHERE user_id=?1 AND status='pending'",
-        [uid],
+        "SELECT count(*) FROM orders o WHERE o.user_id=?1 AND o.status='pending'
+         AND NOT EXISTS(SELECT 1 FROM promo_redemptions r WHERE r.order_id=o.id
+                        AND r.status='reserved' AND r.reserved_until<=?2)",
+        params![uid, now()],
         |r| r.get(0),
     )?;
     if amount > 0 && count >= state.cfg.limits.max_pending_orders_per_user {
@@ -569,8 +571,10 @@ pub fn edit_job(
     }
     if amount > 0 {
         let count: i64 = tx.query_row(
-            "SELECT count(*) FROM orders WHERE user_id=?1 AND status='pending'",
-            [uid],
+            "SELECT count(*) FROM orders o WHERE o.user_id=?1 AND o.status='pending'
+             AND NOT EXISTS(SELECT 1 FROM promo_redemptions r WHERE r.order_id=o.id
+                            AND r.status='reserved' AND r.reserved_until<=?2)",
+            params![uid, now()],
             |row| row.get(0),
         )?;
         if count >= state.cfg.limits.max_pending_orders_per_user {
@@ -831,7 +835,7 @@ pub async fn checkout_with_region(
     let (order, email) = {
         let mut db = state.conn()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        promos::expire_reservations(&tx)?;
+        promos::expire_order_reservation(&tx, id)?;
         let order = models::load_order(&tx, id)?;
         if order.user_id != uid {
             return Err(AppError::forbidden("This order belongs to another account"));
@@ -909,7 +913,7 @@ pub async fn checkout_with_region(
     // may have changed the local state while it was in flight.
     let mut db = state.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    promos::expire_reservations(&tx)?;
+    promos::expire_order_reservation(&tx, id)?;
     let current = models::load_order(&tx, id)?;
     if models::load_user(&tx, uid)?.banned {
         return Err(AppError::forbidden("Account is suspended"));
@@ -942,6 +946,15 @@ fn ensure_checkout_job(db: &Connection, order: &Order) -> AppResult<()> {
 /// check. An old hosted URL may still exist at the provider, so late verified
 /// receipts continue through settle_payment even when this returns false.
 pub(crate) fn job_checkout_available(db: &Connection, order: &Order) -> AppResult<bool> {
+    let reservation_expired: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM promo_redemptions WHERE order_id=?1
+                       AND status='reserved' AND reserved_until<=?2)",
+        params![order.id, now()],
+        |row| row.get(0),
+    )?;
+    if reservation_expired {
+        return Ok(false);
+    }
     let Some(id) = &order.job_id else {
         if order.kind == "onboarding" {
             let user = models::load_user(db, &order.user_id)?;
@@ -972,7 +985,7 @@ pub(crate) fn job_checkout_available(db: &Connection, order: &Order) -> AppResul
 pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppResult<()> {
     let mut db = state.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    promos::expire_reservations(&tx)?;
+    promos::expire_order_reservation(&tx, &receipt.order_id)?;
     let order = models::load_order(&tx, &receipt.order_id)?;
     if order.live_mode != receipt.live_mode
         || order.provider != receipt.provider

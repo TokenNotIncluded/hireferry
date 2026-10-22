@@ -808,6 +808,7 @@ test('appearance control and workbench failures are bilingual and do not trap in
   assert.match(zh, /class="mode-options" role="group" aria-label="外观"/);
   assert.match(zh, /class="palette-options" role="group" aria-label="配色"/);
   assert.equal((zh.match(/data-palette-choice=/g)||[]).length,6);
+  assert.match(zh, /data-palette-choice="neutral" aria-label="纸墨"/);
   for (const label of ['跟随系统', '浅色', '深色']) assert.ok(zh.includes(label));
   assert.match(app.requestErrorText('Invalid cursor or changed search filters; restart from the first page'), /第一页/);
   assert.match(app.requestErrorText('This job is no longer available for new matches; choose another job'), /新匹配/);
@@ -2040,4 +2041,115 @@ test('real go and browser-history render use the chat hook, while expired sessio
     assert.ok(harness.network.slice(afterMutation).some(request => request.path === '/api/session'));
     assert.ok(harness.mounts.length > mounts);
   } finally { harness.dispose(); dom.restore(); }
+});
+
+test('reviewing another search brief releases the previous private outreach records', async () => {
+  const dialogs = [];
+  const owner = { id: 'admin-session', role: 'seeker' };
+  const service = ui(async path => {
+    const id = path.split('/').at(-1);
+    if (path.includes('/mandates/')) return { mandate: { user_id: id, user_name: id, target_roles: 'Engineer', status: 'active', allow_external: true } };
+    return { items: [{ id: `record-${id}`, channel: 'Direct', opportunity: `private-${id}`, stage: 'contacted', note: `notes-${id}` }] };
+  }, { admin: true, state: { user: owner }, hooks: { openDialog: html => dialogs.push(html) } });
+  await service.adminMandate('first');
+  service.outreachDialog('first', 'record-first');
+  assert.match(dialogs.at(-1), /notes-first/);
+  await service.adminMandate('second');
+  assert.throws(() => service.outreachDialog('first', 'record-first'), /Refresh this brief/);
+  service.outreachDialog('second', 'record-second');
+  assert.match(dialogs.at(-1), /notes-second/);
+  owner.id = 'new-identity';
+  service.stopChat();
+  assert.throws(() => service.outreachDialog('second', 'record-second'), /Refresh this brief/);
+});
+
+test('a late search brief cannot refill private caches after the view changes', async () => {
+  let finish;
+  const delayed = new Promise(resolve => { finish = resolve; });
+  const dialogs = [];
+  const service = ui(async path => path.includes('/mandates/') ? delayed : { items: [{ id: 'old-record', note: 'old-private-data' }] },
+    { admin: true, hooks: { openDialog: html => dialogs.push(html) } });
+  const pending = service.adminMandate('old');
+  service.stopChat();
+  finish({ mandate: { user_id: 'old', user_name: 'Old', target_roles: 'Engineer', status: 'active', allow_external: true } });
+  await pending;
+  assert.equal(dialogs.length, 0);
+  assert.throws(() => service.outreachDialog('old', 'old-record'), /Refresh this brief/);
+});
+
+test('old search cursor caches expire without losing the first-page recovery control', async () => {
+  const service = ui(async () => ({ ...workbenchResult([workbenchRole], 'page-two'), total: 100 }),
+    { admin: true, search: '?tab=matches&job_q=original', hooks: { go: browserNavigate } });
+  await service.matchesPage(true);
+  await service.workbenchPage('jobs', 'next');
+  const second = await service.matchesPage(true);
+  assert.doesNotMatch(second.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  for (let i = 0; i < 51; i++) {
+    globalThis.location.search = `?tab=matches&job_q=query-${i}`;
+    await service.matchesPage(true);
+  }
+  globalThis.location.search = '?tab=matches&job_q=original&jobs_cursor=page-two';
+  const restored = await service.matchesPage(true);
+  assert.match(restored.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  assert.match(restored, /data-direction="first"/);
+  await service.workbenchPage('jobs', 'first');
+  assert.equal(new URLSearchParams(globalThis.location.search).has('jobs_cursor'), false);
+});
+
+test('long cursor browsing keeps a bounded back history and a path to the first page', async () => {
+  const service = ui(async path => {
+    const cursor = new URL(path, 'https://hireferry.test').searchParams.get('cursor');
+    return { ...workbenchResult([workbenchRole], String(Number(cursor || 0) + 1)), total: 10000 };
+  }, { admin: true, search: '?tab=matches', hooks: { go: browserNavigate } });
+  await service.matchesPage(true);
+  for (let i = 0; i < 105; i++) {
+    await service.workbenchPage('jobs', 'next');
+    await service.matchesPage(true);
+  }
+  let html;
+  for (let i = 0; i < 99; i++) {
+    await service.workbenchPage('jobs', 'previous');
+    html = await service.matchesPage(true);
+  }
+  assert.equal(new URLSearchParams(globalThis.location.search).get('jobs_cursor'), '6');
+  assert.match(html.match(/<button[^>]*data-direction="previous"[^>]*>/)[0], /disabled/);
+  assert.match(html, /data-direction="first"/);
+  await service.workbenchPage('jobs', 'first');
+  assert.equal(new URLSearchParams(globalThis.location.search).has('jobs_cursor'), false);
+});
+
+test('pending message capacity preserves earlier idempotency keys and rejects new sends safely', async () => {
+  const attempts = [];
+  const rooms = Array.from({ length: 51 }, (_, i) => chatRoom(`match_pending_${i}`));
+  const service = ui(async (path, options) => {
+    if (path === '/api/chat/conversations') return { items: rooms };
+    if (options?.method === 'POST' && path.endsWith('/messages')) {
+      attempts.push({ path, ...options.body });
+      throw new Error('Network uncertain');
+    }
+    if (path.includes('/messages?')) return historyPage([]);
+    return {};
+  });
+  const dom = chatDom();
+  try {
+    const data = new FormData(); data.set('body', 'Preserve this retry');
+    const form = { querySelector: () => dom.nodes['#chat-body'] };
+    for (let i = 0; i < 50; i++) {
+      service.stopChat();
+      globalThis.location.search = `?tab=messages&conversation=match_pending_${i}`;
+      await service.messagesPage(); await service.mountChat();
+      await assert.rejects(service.sendMessage(form, data), /Network uncertain/);
+    }
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_pending_50';
+    await service.messagesPage(); await service.mountChat();
+    await assert.rejects(service.sendMessage(form, data), /Retry an existing pending message/);
+    assert.equal(attempts.length, 50, 'capacity failure must not start another network send');
+    service.stopChat();
+    globalThis.location.search = '?tab=messages&conversation=match_pending_0';
+    await service.messagesPage(); await service.mountChat();
+    await assert.rejects(service.sendMessage(form, data), /Network uncertain/);
+    assert.equal(attempts.at(-1).client_id, attempts[0].client_id, 'the oldest uncertain send must keep its original idempotency key');
+    service.stopChat();
+  } finally { dom.restore(); }
 });

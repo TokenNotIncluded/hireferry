@@ -88,6 +88,15 @@ pub enum FeedbackCommand {
         before_id: Option<i64>,
         #[arg(long, value_parser = ["open", "resolved"])]
         status: Option<String>,
+        #[arg(long, value_parser = ["bug", "idea", "other"])]
+        category: Option<String>,
+        #[arg(long, value_parser = ["web", "cli"])]
+        source: Option<String>,
+    },
+    /// Read one report (requires --scope admin).
+    Get {
+        #[arg(value_parser = clap::value_parser!(i64).range(1..))]
+        id: i64,
     },
     /// Mark a report resolved (or reopen it with --reopen); administrator only.
     Resolve {
@@ -244,9 +253,21 @@ pub async fn run(cli: Cli) -> Result<Value> {
             let _guard = store.lock().await?;
             let mut credential = store.load()?.ok_or_else(Error::signed_out)?;
             let (identity, _) = verified_identity(&server, &store, &mut credential, false).await?;
+            if !matches!(&command, FeedbackCommand::Send { .. })
+                && (!identity.admin || !identity.capabilities.admin)
+            {
+                return Err(Error::new(
+                    "admin_required",
+                    "Run hfy --scope admin auth login before reviewing feedback.",
+                ));
+            }
             let data = match command {
                 FeedbackCommand::Send { message, category } => {
-                    if !(2..=2000).contains(&message.trim().chars().count()) || message.len() > 8000
+                    if !(2..=2000).contains(&message.trim().chars().count())
+                        || message.len() > 8000
+                        || message
+                            .chars()
+                            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
                     {
                         return Err(Error::new(
                             "invalid_feedback",
@@ -261,29 +282,24 @@ pub async fn run(cli: Cli) -> Result<Value> {
                     limit,
                     before_id,
                     status,
+                    category,
+                    source,
                 } => {
-                    if !identity.admin || !identity.capabilities.admin {
-                        return Err(Error::new(
-                            "admin_required",
-                            "Run hfy --scope admin auth login before viewing feedback.",
-                        ));
-                    }
                     server
                         .list_feedback(
                             &credential.access_token,
                             limit,
                             before_id,
                             status.as_deref(),
+                            category.as_deref(),
+                            source.as_deref(),
                         )
                         .await?
                 }
+                FeedbackCommand::Get { id } => {
+                    server.get_feedback(&credential.access_token, id).await?
+                }
                 FeedbackCommand::Resolve { id, reopen } => {
-                    if !identity.admin || !identity.capabilities.admin {
-                        return Err(Error::new(
-                            "admin_required",
-                            "Run hfy --scope admin auth login before updating feedback.",
-                        ));
-                    }
                     server
                         .update_feedback(
                             &credential.access_token,
