@@ -13,11 +13,9 @@ export function storyPosition(offset, travel, count) {
 
 /** Native scrolling owns touch momentum, zoom, keyboard scrolling and escape.
  * The spring only follows the document; it never cancels a wheel/touch event. */
-export function mountHomeStory(section, { onPosition, captions }) {
+export function mountHomeStory(section, { onPosition }) {
   const hero = section.querySelector('.hero');
   const slides = [...section.querySelectorAll('[data-story-slide]')];
-  const buttons = [...section.querySelectorAll('[data-scene]')];
-  const caption = section.querySelector('#scene-caption');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let start = 0, travel = 1, target = 0, position = 0, velocity = 0;
   let frame = null, previous = 0, active = -1, disposed = false;
@@ -34,8 +32,6 @@ export function mountHomeStory(section, { onPosition, captions }) {
     active = current;
     section.dataset.chapter = String(current);
     slides.forEach((slide, index) => slide.setAttribute('aria-hidden', String(index !== current)));
-    buttons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === current)));
-    caption.textContent = captions[current];
   }
   function render(now) {
     frame = null;
@@ -68,28 +64,13 @@ export function mountHomeStory(section, { onPosition, captions }) {
     travel = Math.max(1, section.offsetHeight - hero.offsetHeight);
     update();
   }
-  function select(index) {
-    const chapter = clamp(index, 0, slides.length - 1);
-    const offset = chapter === 0 ? 0 : (chapter - .12) / (slides.length - .6) * travel;
-    window.scrollTo({ top: start + offset, behavior: reduced.matches ? 'instant' : 'smooth' });
-  }
-  function keydown(event) {
-    if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (!event.target.closest('[data-scene]')) return;
-    event.preventDefault();
-    const next = clamp(active + (event.key === 'ArrowRight' ? 1 : -1), 0, slides.length - 1);
-    buttons[next].focus({ preventScroll: true });
-    select(next);
-  }
   const resize = new ResizeObserver(measure);
   resize.observe(section); resize.observe(hero);
   window.addEventListener('scroll', update, { passive: true });
   window.addEventListener('resize', measure, { passive: true });
   reduced.addEventListener('change', update);
-  section.addEventListener('keydown', keydown);
   measure(); position = reduced.matches ? Math.round(target) : target; paint();
   return {
-    select,
     dispose() {
       disposed = true;
       if (frame !== null) cancelAnimationFrame(frame);
@@ -97,7 +78,6 @@ export function mountHomeStory(section, { onPosition, captions }) {
       window.removeEventListener('scroll', update);
       window.removeEventListener('resize', measure);
       reduced.removeEventListener('change', update);
-      section.removeEventListener('keydown', keydown);
     },
   };
 }

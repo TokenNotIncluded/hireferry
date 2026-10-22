@@ -14,20 +14,22 @@ const pack = (r        , g        , b        ) =>
   0
 /** Coverage and trails blend with the actual ground, never a black matte. */
 
-export function posterPalette(background, materials = null) {
+export function posterPalette(background, materials = null, transparent = false) {
   const light = background[0] + background[1] + background[2] > 384
-  const coverage = (pixel        , alpha        ) =>
-    pack(
+  const coverage = (pixel        , alpha        ) => transparent
+    ? ((Math.round(alpha * 255) << 24) | (pixel & 0xffffff)) >>> 0
+    : pack(
       lerp(background[0], pixel & 255, alpha),
       lerp(background[1], (pixel >>> 8) & 255, alpha),
       lerp(background[2], (pixel >>> 16) & 255, alpha)
     )
   return {
     light,
-    background: pack(...background),
+    background: transparent ? 0 : pack(...background),
     coverage,
-    ink: (color      ) => {
+    ink: (color, role) => {
       if (materials) {
+        if (role && materials[role]) return pack(...materials[role]);
         const pale = (color[0] + color[1] + color[2]) / 3 > 130;
         const target = color[0] > color[1] + 20 ? materials.tertiary : pale ? materials.secondary : materials.primary;
         const shade = light ? .72 + Math.min(.28, (color[0]+color[1]+color[2])/1800) : .82 + Math.min(.18,(color[0]+color[1]+color[2])/2400);
@@ -53,14 +55,15 @@ export function posterPalette(background, materials = null) {
 export function createRenderer(
   canvas                   ,
   timeline,
-  onReady = () => {}
+  onReady = () => {},
+  options = {}
 ) {
-  const context = canvas.getContext('2d', { alpha: false })
+  const context = canvas.getContext('2d', { alpha: Boolean(options.flat) })
   if (!context) return null
   let alive = true,
     ready = false
   // Keep the fine-point lattice, sample budgets and brush springs.
-  const count = canvas.clientWidth < 680 ? 22000 : 60000
+  const count = options.maxPoints ?? (canvas.clientWidth < 680 ? 22000 : 60000)
   const offsets = new Float32Array(count * 4)
   const scatter = Float32Array.from(
     { length: count * 2 },
@@ -79,7 +82,7 @@ export function createRenderer(
   let palette = posterPalette([7, 7, 7])
   let themeKey
   const refreshTheme = () => {
-    const key = `${document.documentElement.className}:${document.documentElement.dataset.palette}`
+    const key = `${document.documentElement.className}:${document.documentElement.dataset.theme}:${document.documentElement.dataset.palette}`
     if (key === themeKey) return
     themeKey = key
     const style = getComputedStyle(canvas)
@@ -88,14 +91,14 @@ export function createRenderer(
     const color = hex ? Number.parseInt(hex[1], 16) : 0x070707
     const material = role => {
       const hex = style.getPropertyValue(role).trim();
-      const value = /^#[a-f\d]{6}$/i.test(hex) ? Number.parseInt(hex.slice(1),16) : 0x005bc0;
+      const value = /^#[a-f\d]{6}$/i.test(hex) ? Number.parseInt(hex.slice(1),16) : 0x242321;
       return [(value>>>16)&255,(value>>>8)&255,value&255];
     }
     palette = posterPalette([
       (color >>> 16) & 255,
       (color >>> 8) & 255,
       color & 255,
-    ], {primary:material('--md-primary'),secondary:material('--md-secondary'),tertiary:material('--md-tertiary')})
+    ], {primary:material('--md-primary'),secondary:material('--md-secondary'),tertiary:material('--md-tertiary'),ink:material('--md-on-surface')}, Boolean(options.flat))
     colors = new WeakMap()
   }
   const paintFor = (points         , fringe        ) => {
@@ -108,7 +111,7 @@ export function createRenderer(
         trail: new Uint32Array(points.length),
       }
       for (let i = 0; i < points.length; i++) {
-        const pixel = palette.ink(points[i].color)
+        const pixel = palette.ink(points[i].color, points[i].material)
         paint.solid[i] = pixel
         paint.edge[i] = palette.coverage(pixel, fringe)
         paint.corner[i] = palette.coverage(pixel, fringe * fringe)
@@ -140,8 +143,8 @@ export function createRenderer(
       const seconds = still ? 0 : Math.min(0.08, Math.max(0, Number.isFinite(delta) ? delta : 0))
       const left = timeline.at(time, selected)
       canvas.dataset.sculpture = left.mix < 0.5 ? left.from.id : left.to.id
-      const grid = w < 680 ? 1.7 : 2.7,
-        diameter = grid * (palette.light ? 0.96 : 0.83) * ratio
+      const grid = options.grid ?? (w < 680 ? 1.7 : 2.7),
+        diameter = grid * (options.flat ? .8 : palette.light ? 0.96 : 0.83) * ratio
       const fullSize = Math.floor(diameter)
       const fringe = diameter - fullSize > 0.1 ? diameter - fullSize : 0
       const size = Math.max(1, fullSize + (fringe ? 1 : 0))
@@ -179,6 +182,7 @@ export function createRenderer(
       const radius = Math.min(w, h) * (0.22 + speed / 22000)
       const recovery = Math.exp(-20 * seconds)
       let maxOffset = 0
+      if (still) offsets.fill(0)
       for (let i = 0; i < n; i++) {
         let x = 0,
           y = 0,
@@ -223,8 +227,8 @@ export function createRenderer(
         y += (scatter[i * 2 + 1] * 1.25 + 0.16) * spread
         z += scatter[i * 2] * spread * 0.45
         const perspective = 3.9 / (3.9 - z * 0.42)
-        const px = Math.round((centerX + x * scale * perspective) / grid) * grid
-        const py = Math.round((centerY - y * scale * perspective) / grid) * grid
+        const px = options.flat ? x * w : Math.round((centerX + x * scale * perspective) / grid) * grid
+        const py = options.flat ? y * h : Math.round((centerY - y * scale * perspective) / grid) * grid
         const index = i * 4
         let fx = 0,
           fy = 0
@@ -258,6 +262,7 @@ export function createRenderer(
           }
         }
         // Closed-form critical damping: return time does not depend on fps.
+        if (options.flat) { fx *= .16; fy *= .16; }
         const gapX = offsets[index] - fx,
           gapY = offsets[index + 1] - fy
         const springX = offsets[index + 2] + 20 * gapX,

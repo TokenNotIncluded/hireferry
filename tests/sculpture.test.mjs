@@ -2,8 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeScenes } from '../static/scenes.js';
 import { createTimeline } from '../static/runtime/timeline.js';
+import { posterPalette } from '../static/runtime/renderer.js';
 
 const scenes = makeScenes();
+test('particle text retains its theme foreground and transparent antialiased edges', () => {
+  for (const [background, ink, primary] of [
+    [[249, 248, 244], [37, 36, 32], [37, 36, 32]],
+    [[24, 23, 21], [242, 238, 229], [242, 238, 229]],
+  ]) {
+    const palette = posterPalette(background, { ink, primary }, true);
+    const pixel = palette.ink([32, 32, 32], 'ink');
+    assert.equal(palette.background, 0);
+    assert.deepEqual([pixel & 255, (pixel >>> 8) & 255, (pixel >>> 16) & 255], ink);
+    assert.equal(pixel >>> 24, 255);
+    const edge = palette.coverage(pixel, .5);
+    assert.equal(edge >>> 24, 128);
+    assert.equal(edge & 0xffffff, pixel & 0xffffff);
+    assert.equal(palette.coverage(pixel, 0) >>> 24, 0);
+  }
+});
+
 test('each scene is a finite, three-dimensional sculpture within the phone budget', () => {
   assert.deepEqual(scenes.map(s => s.id), ['ferry', 'bridge', 'compass']);
   for (const scene of scenes) {
