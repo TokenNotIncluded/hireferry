@@ -380,7 +380,7 @@ fn cleanup_bounds_feedback_and_ephemeral_state_without_touching_business_records
         assert_eq!(
             db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
     }
 }
@@ -887,7 +887,7 @@ fn version_eleven_upgrade_preserves_reports_and_rolls_back_failed_abuse_schema()
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     assert_eq!(
         db.query_row("SELECT id FROM feedback", [], |r| r.get::<_, i64>(0))

@@ -486,7 +486,23 @@ async fn mcp_counts_remain_free_and_recovery_tools_keep_roles_versions_and_ai_el
     let admin_token = f.token(&admin());
     let member_tools = rpc(&f, &token, "tools/list", json!({})).await;
     let tools = member_tools["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 32);
+    assert_eq!(tools.len(), 39);
+    let names = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(names.len(), tools.len(), "Tool names must be unique");
+    for name in [
+        "get_chat_capabilities",
+        "get_conversation",
+        "get_chat_events",
+        "begin_message",
+        "append_message",
+        "finish_message",
+        "cancel_message",
+    ] {
+        assert!(names.contains(name), "Missing shared chat tool: {name}");
+    }
     let site_config = call(&f, &token, "get_site_config", json!({})).await;
     assert_eq!(ok(&site_config)["pricing"]["currency"], "CNY");
     assert_eq!(ok(&site_config)["pricing"]["currency_decimals"], 2);
@@ -515,7 +531,7 @@ async fn mcp_counts_remain_free_and_recovery_tools_keep_roles_versions_and_ai_el
         );
     }
     let admin_tools = rpc(&f, &admin_token, "tools/list", json!({})).await;
-    assert_eq!(admin_tools["result"]["tools"].as_array().unwrap().len(), 35);
+    assert_eq!(admin_tools["result"]["tools"].as_array().unwrap().len(), 42);
     let admin_config = call(&f, &admin_token, "get_site_config", json!({})).await;
     assert_eq!(ok(&admin_config), ok(&site_config));
     assert!(

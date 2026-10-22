@@ -33,13 +33,17 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let streaming_stdout = cli.streams_stdout();
+    let mcp_stdio = cli.mcp_stdio();
     let result = tokio::select! {
         result = hireferry_cli::run(cli) => result,
         _ = tokio::signal::ctrl_c() => Err(Error::new("cancelled", "Command cancelled.")),
     };
     match result {
         Ok(result) => {
-            if json_mode {
+            if streaming_stdout {
+                return ExitCode::SUCCESS;
+            } else if json_mode {
                 println!("{result}");
             } else {
                 println!(
@@ -50,7 +54,7 @@ async fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            output_error(error, json_mode);
+            output_error(error, json_mode && !mcp_stdio);
             ExitCode::FAILURE
         }
     }

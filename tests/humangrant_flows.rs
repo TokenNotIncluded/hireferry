@@ -804,6 +804,58 @@ async fn exact_conversation_permission_cannot_read_collections_or_other_threads(
         .await;
     own.ok();
     assert_eq!(own.value["result"]["isError"], false, "{}", own.text);
+    for name in ["get_conversation", "get_chat_events"] {
+        let scoped = actor
+            .tool(&app, token, name, json!({"conversation_id":own_thread}))
+            .await;
+        scoped.ok();
+        assert_eq!(scoped.value["result"]["isError"], false, "{}", scoped.text);
+        actor
+            .tool(
+                &app,
+                token,
+                name,
+                json!({"conversation_id":"platform_unrelated"}),
+            )
+            .await
+            .tool_denied();
+    }
+    actor
+        .tool(&app, token, "get_chat_events", json!({}))
+        .await
+        .tool_denied();
+    actor
+        .tool(
+            &app,
+            token,
+            "get_chat_events",
+            json!({"conversation_id":null}),
+        )
+        .await
+        .tool_denied();
+    let discovery = actor
+        .send(
+            &app,
+            "POST",
+            "/mcp",
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+            token,
+        )
+        .await;
+    let events = discovery.value["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "get_chat_events")
+        .unwrap();
+    assert_eq!(
+        events["inputSchema"]["required"],
+        json!(["conversation_id"])
+    );
+    assert_eq!(
+        events["inputSchema"]["properties"]["conversation_id"]["enum"],
+        json!([own_thread])
+    );
     actor
         .tool(&app, token, "list_conversations", json!({}))
         .await
@@ -830,6 +882,96 @@ async fn exact_conversation_permission_cannot_read_collections_or_other_threads(
         )
         .await
         .tool_denied();
+}
+
+#[tokio::test]
+async fn scoped_chat_writer_streams_without_reading_history_or_another_actors_message() {
+    let app = hireferry::app(state());
+    let mut browser = Browser::new(&app);
+    let uid = browser.seeker("stream-writer@example.invalid").await;
+    let room = format!("platform_{uid}");
+    let private = browser
+        .request(
+            "POST",
+            &format!("/api/chat/conversations/{room}/streams"),
+            json!({"body":"private-human-draft","client_id":"human-stream"}),
+            None,
+        )
+        .await;
+    private.ok();
+    let actor = Agent::new();
+    let (_, claim) = actor
+        .granted(&app, &mut browser, json!([permission("chat.write", &room)]))
+        .await;
+    let token = claim["access_token"].as_str().unwrap();
+    let capabilities = actor
+        .tool(&app, token, "get_chat_capabilities", json!({}))
+        .await;
+    capabilities.ok();
+    assert_eq!(
+        capabilities.value["result"]["isError"], false,
+        "{}",
+        capabilities.text
+    );
+    assert!(!capabilities.text.contains("private-human-draft"));
+    for name in ["get_messages", "get_conversation", "get_chat_events"] {
+        actor
+            .tool(&app, token, name, json!({"conversation_id":room}))
+            .await
+            .tool_denied();
+    }
+    actor.tool(&app, token, "append_message", json!({"conversation_id":room,"message_id":private.value["id"],"sequence":1,"delta":"steal"})).await.tool_denied();
+    let started = actor.tool(&app, token, "begin_message", json!({"conversation_id":room,"client_id":"agent-stream","format":"markdown","body":"## Hello"})).await;
+    started.ok();
+    assert_eq!(
+        started.value["result"]["isError"], false,
+        "{}",
+        started.text
+    );
+    assert!(
+        started.value["result"]["structuredContent"]
+            .get("body")
+            .is_none()
+    );
+    let id = started.value["result"]["structuredContent"]["id"].clone();
+    for _ in 0..2 {
+        let appended = actor.tool(&app, token, "append_message", json!({"conversation_id":room,"message_id":id,"sequence":1,"delta":"\n\nStreaming reply"})).await;
+        appended.ok();
+        assert_eq!(
+            appended.value["result"]["isError"], false,
+            "{}",
+            appended.text
+        );
+        assert!(!appended.text.contains("private-human-draft"));
+    }
+    actor.tool(&app, token, "append_message", json!({"conversation_id":room,"message_id":id,"sequence":1,"delta":"conflicting retry"})).await.tool_denied();
+    let finished = actor
+        .tool(
+            &app,
+            token,
+            "finish_message",
+            json!({"conversation_id":room,"message_id":id,"sequence":2}),
+        )
+        .await;
+    finished.ok();
+    assert_eq!(
+        finished.value["result"]["structuredContent"]["status"],
+        "complete"
+    );
+    let messages = browser
+        .request(
+            "GET",
+            &format!("/api/chat/conversations/{room}/messages"),
+            Value::Null,
+            None,
+        )
+        .await;
+    let messages = messages.value["items"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    let message = messages.iter().find(|message| message["id"] == id).unwrap();
+    assert_eq!(message["body"], "## Hello\n\nStreaming reply");
+    assert_eq!(message["format"], "markdown");
+    assert_eq!(message["via_ai"], true);
 }
 
 #[tokio::test]

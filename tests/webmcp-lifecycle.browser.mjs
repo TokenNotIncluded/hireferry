@@ -44,7 +44,15 @@ const server = createServer(async (request, response) => {
   } catch (error) { errors.push(error.message);response.writeHead(500);response.end('Synthetic fixture error'); }
 });
 const toolNames = () => page.evaluate(async () => (await document.modelContext.getTools()).map(tool => tool.name).sort());
-const waitTools = count => page.waitForFunction(async count_ => (await document.modelContext.getTools()).filter(tool => tool.name.startsWith('hireferry_')).length === count_, count);
+const waitTools = async count => {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const names = await toolNames();
+    if (names.filter(name => name.startsWith('hireferry_')).length === count) return names;
+    await page.waitForTimeout(25);
+  }
+  assert.fail(`Expected ${count} workspace tools; found ${JSON.stringify(await toolNames())}`);
+};
 const frames = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
 async function navigate(path) {
   await page.evaluate(path_ => { history.pushState({}, '', path_);window.dispatchEvent(new PopStateEvent('popstate')); }, path);
@@ -79,8 +87,8 @@ try {
   await page.goto(origin + '/');
   assert.equal(await page.evaluate(() => typeof document.modelContext?.getTools), 'function', 'This gate requires real WebMCP support; enable the WebMCP Blink feature in Chrome.');
   await page.waitForFunction(() => document.querySelector('#root')?.dataset.navigationState === 'ready');
-  await waitTools(31);await frames();
-  const original = await toolNames(), registrations = await page.evaluate(() => window.fixtureRegistrations);
+  await waitTools(38);await frames();
+  const original = await waitTools(38), registrations = await page.evaluate(() => window.fixtureRegistrations);
   stage = 'homepage language and feedback sequence';
   for (let i = 0; i < 8; i++) {
     if (i === 1) await page.locator('#feedback-launch').click();
@@ -89,9 +97,9 @@ try {
     await page.waitForFunction(language => document.documentElement.lang === language, i % 2 ? 'zh-CN' : 'en');
     await frames();assert.deepEqual(await toolNames(), original);
   }
-  for (const path of ['/cli', '/contact', '/']) { await navigate(path);await waitTools(31);assert.deepEqual(await toolNames(), original); }
+  for (const path of ['/cli', '/contact', '/']) { await navigate(path);await waitTools(38);assert.deepEqual(await toolNames(), original); }
   assert.equal(await page.evaluate(() => window.fixtureRegistrations), registrations, 'Presentation-only changes must not churn tool registrations');
-  process.stdout.write('ok - real WebMCP: 31 tools survive eight language changes, feedback and SPA routes without re-registration\n');
+  process.stdout.write('ok - real WebMCP: 38 tools survive eight language changes, feedback and SPA routes without re-registration\n');
 
   stage = 'identity change while an actual native tool is running';
   const gate = hold();heldEligibility = gate;
@@ -110,18 +118,18 @@ try {
   const before = requests.length;
   assert.equal((await page.evaluate(() => window.fixtureRetainedAdmin({}))).isError, true);
   assert.equal(requests.length, before);assert.equal(requests.some(request => request.path === '/api/admin/audit'), false);
-  await refreshIdentity({ ...manager, admin: true, staff: { id: 'synthetic-employee' } });await waitTools(31);
+  await refreshIdentity({ ...manager, admin: true, staff: { id: 'synthetic-employee' } });await waitTools(38);
   await refreshIdentity(manager);await waitTools(0);
   process.stdout.write('ok - pending native execution is revoked; employee grant removal leaves a manager with no business tools\n');
 
   stage = 'ordinary role and eligibility changes';
-  await refreshIdentity({ ...guest, user: { ...member }, csrf: 'synthetic-member-session' });await waitTools(18);
+  await refreshIdentity({ ...guest, user: { ...member }, csrf: 'synthetic-member-session' });await waitTools(25);
   assert.equal((await toolNames()).some(name => name.startsWith('hireferry_admin_')), false);
-  await refreshIdentity({ ...guest, user: { ...member, role: 'employer' }, csrf: 'synthetic-member-session' });await waitTools(24);
+  await refreshIdentity({ ...guest, user: { ...member, role: 'employer' }, csrf: 'synthetic-member-session' });await waitTools(31);
   await page.waitForFunction(async () => (await document.modelContext.getTools()).some(tool => tool.name === 'hireferry_create_job'));
   assert.equal((await toolNames()).includes('hireferry_get_mandate'), false);assert.ok((await toolNames()).includes('hireferry_create_job'));
   eligible = false;await page.evaluate(() => window.dispatchEvent(new Event('online')));await waitTools(0);
-  eligible = true;await page.evaluate(() => window.dispatchEvent(new Event('online')));await waitTools(24);
+  eligible = true;await page.evaluate(() => window.dispatchEvent(new Event('online')));await waitTools(31);
   process.stdout.write('ok - same-account role changes refresh schemas and fresh eligibility removes/restores the user catalog\n');
 
   stage = 'independent owners and immediate logout';
@@ -135,7 +143,7 @@ try {
     window.fixtureOtherOwner = createWebMCPOwner();
     await window.fixtureOtherOwner.sync({ scope: 'synthetic-independent', tools: [{ name: 'hf_test_relation_probe', description: 'Synthetic owner probe', inputSchema: { type: 'object', properties: {} }, execute: async () => 'probe' }] });
   });
-  await navigate('/app?tab=profile');await waitTools(24);
+  await navigate('/app?tab=profile');await waitTools(31);
   const logout = hold();heldLogout = logout;
   await page.locator('[data-action="logout"]').last().click();await logout.started.promise;await waitTools(0);
   assert.deepEqual(await toolNames(), ['hf_test_relation_probe']);
