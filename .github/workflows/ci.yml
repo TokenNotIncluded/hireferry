@@ -60,7 +60,10 @@ jobs:
           for suite in tests/*.test.mjs; do node "$suite"; done
 
       - name: Verify isolated skill installation and packaging scripts
-        run: python3 tests/cli-scripts.test.py
+        run: |
+          python3 tests/cli-scripts.test.py
+          python3 tests/release.test.py
+          python3 scripts/release.py docs --check
 
       - name: Verify real browser and CLI authentication
         run: |

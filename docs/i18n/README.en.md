@@ -24,7 +24,7 @@
 <p align="center">
   <a href="https://hireferry.lmm.best">Website</a> ·
   <a href="../README.md">Documentation</a> ·
-  <a href="https://github.com/TokenNotIncluded/hireferry/releases/latest">Download CLI</a> ·
+  <a href="../downloads.md">Desktop / CLI downloads</a> ·
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">Report an issue</a>
 </p>
 
@@ -95,6 +95,12 @@ cargo run --locked -- --config config.toml serve
 Open **http://localhost:3000**. The development configuration listens only on the local machine and displays email codes on the page. Configure Google, SMTP and payment gateways as needed.
 
 Use [config.example.toml](../../config.example.toml) for production. The [self-hosting guide](../self-hosting.md) covers systemd, Caddy, Docker, administrator setup and backups.
+
+## Desktop downloads
+
+The Tauri 2 desktop client uses the system WebView and connects to the official or a self-hosted HireFerry site. Windows, macOS and Linux packages cover x64 and ARM64; the `hfy` CLI remains independently installable. Linux packaging includes deb, rpm, AppImage and Flatpak.
+
+[Generated download matrix](../downloads.md) · [Desktop installation and release guide](../desktop.md). The matrix shows configured targets until the first complete desktop release, then verified asset links and actual sizes.
 
 <a id="cli-and-ai"></a>
 

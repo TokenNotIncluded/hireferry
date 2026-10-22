@@ -16,10 +16,12 @@
 | [优惠码](promo-codes.md) | 申请、审批、免费开通、发布减免与次数预占 |
 | [公开政策](legal-policies.md) | 中英文条款与隐私模板、政策变量及自定义文本 |
 
-## 使用 CLI 与 AI
+## 使用桌面版、CLI 与 AI
 
 | 文档 | 内容 |
 | --- | --- |
+| [桌面版与 CLI 下载矩阵](downloads.md) | 自动生成的系统、软件包、架构、大小和下载链接 |
+| [桌面安装与发布](desktop.md) | Tauri 2、Linux 兼容范围、签名与 Release 流程 |
 | [命令行客户端 `hfy`](cli.md) | 安装、登录、JSON、连接管理、升级与卸载 |
 | [Agent Skill](../skills/hireferry/SKILL.md) | AI 使用 CLI 的操作约定 |
 | [API 与 MCP](api.md) | HTTP、远程 MCP、WebMCP、字段、权限及分页 |
@@ -38,6 +40,7 @@
 | [生产配置模板](../config.example.toml) | 服务与业务配置字段 |
 | [开发配置模板](../config.development.toml) | 仅回环访问的本机环境 |
 | [CI 工作流](../.github/workflows/ci.yml) | Rust、网页资源和 CLI 的验证步骤 |
+| [桌面发布工作流](../.github/workflows/desktop-release.yml) | 桌面版与 CLI 完整发布、校验与矩阵更新 |
 | [CLI 发布工作流](../.github/workflows/cli-release.yml) | 六平台构建及版本发布 |
 
 ## 验收记录与进展

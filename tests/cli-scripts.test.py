@@ -178,6 +178,9 @@ class CliReleaseAssembly(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
         shutil.copy2(REPO / "scripts/assemble-cli-release.py", self.root / "scripts")
+        (self.root / "release").mkdir()
+        shutil.copy2(REPO / "release/targets.json", self.root / "release/targets.json")
+        self.output = self.root / "assembled"
         manifest = self.root / "crates/hireferry-cli/Cargo.toml"
         manifest.parent.mkdir(parents=True)
         manifest.write_text('version = "1.2.3"\n')
@@ -199,13 +202,13 @@ class CliReleaseAssembly(unittest.TestCase):
 
     def assemble(self):
         return subprocess.run(["python3", str(self.root / "scripts/assemble-cli-release.py"),
-                               str(self.packages), str(self.root / "release")],
+                               str(self.packages), str(self.output)],
                               capture_output=True, text=True, timeout=15)
 
     def test_native_text_and_binary_checksum_formats_publish_one_canonical_manifest(self):
         result = self.assemble()
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = self.root / "release"
+        output = self.output
         self.assertEqual((output / "VERSION").read_text(), "1.2.3\n")
         lines = (output / "SHA256SUMS").read_text().splitlines()
         self.assertEqual(len(lines), 6)
@@ -219,8 +222,8 @@ class CliReleaseAssembly(unittest.TestCase):
         result = self.assemble()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Invalid checksums", result.stderr)
-        self.assertFalse((self.root / "release/VERSION").exists())
-        self.assertFalse((self.root / "release/SHA256SUMS").exists())
+        self.assertFalse((self.output / "VERSION").exists())
+        self.assertFalse((self.output / "SHA256SUMS").exists())
 
 
 if __name__ == "__main__":

@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Publish only a complete, checksum-verified set of CLI packages."""
 import hashlib
+import json
 from pathlib import Path
 import re
 import shutil
 import sys
 
-TARGETS = (
-    'x86_64-unknown-linux-musl', 'aarch64-unknown-linux-musl',
-    'x86_64-apple-darwin', 'aarch64-apple-darwin',
-    'x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc',
-)
+ROOT = Path(__file__).resolve().parents[1]
+TARGETS = tuple(row['target'] for row in
+                json.loads((ROOT/'release/targets.json').read_text())['cli'])
 
 def assemble(source, destination):
-    root = Path(__file__).resolve().parents[1]
+    root = ROOT
     version = re.search(r'^version = "([^"]+)"$', (root/'crates/hireferry-cli/Cargo.toml').read_text(), re.M)[1]
     destination.mkdir(parents=True, exist_ok=False)
     lines = []
@@ -32,7 +31,7 @@ def assemble(source, destination):
         lines.append(actual+'  '+name)
     (destination/'SHA256SUMS').write_text('\n'.join(sorted(lines))+'\n')
     (destination/'VERSION').write_text(version+'\n')
-    print(f'Verified six platforms for hfy {version}')
+    print(f'Verified {len(TARGETS)} platforms for hfy {version}')
 
 if __name__ == '__main__':
     assemble(Path(sys.argv[1]), Path(sys.argv[2]))

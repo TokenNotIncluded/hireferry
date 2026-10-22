@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "repository": "TokenNotIncluded/hireferry",
+  "desktop": [
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "bundles": "deb,rpm,appimage",
+      "formats": [
+        "deb",
+        "rpm",
+        "AppImage"
+      ],
+      "runner": "ubuntu-22.04"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-gnu",
+      "bundles": "deb,rpm,appimage",
+      "formats": [
+        "deb",
+        "rpm",
+        "AppImage"
+      ],
+      "runner": "ubuntu-22.04-arm"
+    },
+    {
+      "platform": "macOS",
+      "architecture": "x86_64",
+      "target": "x86_64-apple-darwin",
+      "bundles": "dmg,app",
+      "formats": [
+        "dmg",
+        "app.tar.gz"
+      ],
+      "runner": "macos-15-intel"
+    },
+    {
+      "platform": "macOS",
+      "architecture": "aarch64",
+      "target": "aarch64-apple-darwin",
+      "bundles": "dmg,app",
+      "formats": [
+        "dmg",
+        "app.tar.gz"
+      ],
+      "runner": "macos-14"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "target": "x86_64-pc-windows-msvc",
+      "bundles": "nsis,msi",
+      "formats": [
+        "exe",
+        "msi"
+      ],
+      "runner": "windows-2022"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "aarch64",
+      "target": "aarch64-pc-windows-msvc",
+      "bundles": "nsis",
+      "formats": [
+        "exe"
+      ],
+      "runner": "windows-11-arm"
+    }
+  ],
+  "flatpak": [
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "formats": [
+        "flatpak"
+      ],
+      "runner": "ubuntu-24.04",
+      "arch": "x86_64"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-gnu",
+      "formats": [
+        "flatpak"
+      ],
+      "runner": "ubuntu-24.04-arm",
+      "arch": "aarch64"
+    }
+  ],
+  "cli": [
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-musl",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "ubuntu-24.04"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-musl",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "ubuntu-24.04-arm"
+    },
+    {
+      "platform": "macOS",
+      "architecture": "x86_64",
+      "target": "x86_64-apple-darwin",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "macos-15-intel"
+    },
+    {
+      "platform": "macOS",
+      "architecture": "aarch64",
+      "target": "aarch64-apple-darwin",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "macos-14"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "target": "x86_64-pc-windows-msvc",
+      "formats": [
+        "zip"
+      ],
+      "runner": "windows-2022"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "aarch64",
+      "target": "aarch64-pc-windows-msvc",
+      "formats": [
+        "zip"
+      ],
+      "runner": "windows-11-arm"
+    }
+  ]
+}

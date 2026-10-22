@@ -24,7 +24,7 @@
 <p align="center">
   <a href="https://hireferry.lmm.best">官網</a> ·
   <a href="../README.md">文件</a> ·
-  <a href="https://github.com/TokenNotIncluded/hireferry/releases/latest">下載 CLI</a> ·
+  <a href="../downloads.md">下載桌面版 / CLI</a> ·
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">問題回報</a>
 </p>
 
@@ -95,6 +95,12 @@ cargo run --locked -- --config config.toml serve
 開啟 **http://localhost:3000**。開發設定僅監聽本機，電子郵件驗證碼顯示在頁面中。Google、SMTP 和支付閘道依需求設定。
 
 正式部署使用 [config.example.toml](../../config.example.toml)。systemd、Caddy、Docker、管理員初始化與備份請見[自行架設指南](../self-hosting.md)。
+
+## 桌面版下載
+
+Tauri 2 桌面版使用系統 WebView，連接官方或自架的 HireFerry 站點。Windows、macOS 和 Linux 提供 x64 與 ARM64 套件，`hfy` 使用者 CLI 可獨立安裝。Linux 提供 deb、rpm、AppImage 與 Flatpak。
+
+[自動產生的下載矩陣](../downloads.md) · [桌面安裝與發布說明](../desktop.md)。首次完整桌面 Release 前顯示建置目標，發布成功後顯示實際下載連結與檔案大小。
 
 <a id="cli-and-ai"></a>
 

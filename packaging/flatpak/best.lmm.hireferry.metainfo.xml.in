@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>best.lmm.hireferry</id>
+  <name>HireFerry</name>
+  <summary>Connect with people and opportunities</summary>
+  <summary xml:lang="zh_CN">连接人才与机会</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <developer id="best.lmm">
+    <name>HireFerry contributors</name>
+  </developer>
+  <description>
+    <p>HireFerry brings your recruitment workspace to the desktop. Browse people
+    and jobs, manage conversations and work with your team through a lightweight
+    application connected to your HireFerry service.</p>
+    <p>The desktop application needs an internet connection or access to a
+    self-hosted HireFerry server. It does not include a local server.</p>
+  </description>
+  <launchable type="desktop-id">best.lmm.hireferry.desktop</launchable>
+  <url type="homepage">https://hireferry.lmm.best</url>
+  <url type="bugtracker">https://github.com/TokenNotIncluded/hireferry/issues</url>
+  <url type="vcs-browser">https://github.com/TokenNotIncluded/hireferry</url>
+  <provides><binary>hireferry-desktop</binary></provides>
+  <requires><internet>always</internet></requires>
+  <releases><release version="@VERSION@" date="@DATE@"/></releases>
+</component>

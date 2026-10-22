@@ -4,6 +4,7 @@ on:
   push:
     tags: ['cli-v*']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -17,25 +18,22 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - id: matrix
+        run: echo "value=$(python3 scripts/release.py matrix cli)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: targets
     name: Package ${{ matrix.target }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-          - os: macos-14
-            target: aarch64-apple-darwin
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-    runs-on: ${{ matrix.os }}
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:
       run:
@@ -72,7 +70,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' crates/hireferry-cli/Cargo.toml | head -n 1)
-          if [[ "$REF_TYPE" == tag ]]; then test "$REF_NAME" = "cli-v$version"; fi
+          if [[ "$REF_TYPE" == tag && "$REF_NAME" == cli-v* ]]; then test "$REF_NAME" = "cli-v$version"; fi
 
       - name: Build and test native client
         env:
@@ -105,7 +103,7 @@ jobs:
   publish:
     name: Publish complete CLI release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/cli-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/cli-v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
