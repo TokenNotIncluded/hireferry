@@ -289,7 +289,7 @@ active 委托允许内部匹配。allow_external=true 单独记录外部寻找/�
 
 | 方法与路径 | 输入 | 返回 |
 | --- | --- | --- |
-| GET `/api/admin/overview` | query from?、to?、mode?=live/test、currency? | {stats,series,revenue_by_kind,recent_orders,currency,currency_decimals,currency_totals,bucket,timezone,development,payment_mode} |
+| GET `/api/admin/overview` | query from?、to?、mode?=live/test、currency? | {stats,series,revenue_by_kind,recent_orders,growth,currency,currency_decimals,currency_totals,bucket,timezone,development,payment_mode} |
 | GET `/api/admin/users` | query q?、role?、page? | {items:User[],total} |
 | GET `/api/admin/users/{id}` | 无 | User，含登录邮箱与完整业务资料 |
 | PATCH `/api/admin/users/{id}` | {name?,public_email?,resume_md?,banned?,ban_reason?,visible?} | User；visible 固定 false，ban_reason 只与 banned 一起提交 |
