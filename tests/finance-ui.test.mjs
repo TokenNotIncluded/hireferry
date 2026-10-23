@@ -138,3 +138,19 @@ test('a superseded request and a destroyed unmounted report are discarded', asyn
   ui.destroy();
   assert.doesNotThrow(() => ui.bind({ querySelector: () => ({ dataset: { financeReport: '2' }, querySelector: () => { throw new Error('destroyed report was retained'); } }) })());
 });
+
+test('only the owner sees the environment switch and incomplete production stays disabled', async () => {
+  const owner = { owner: true, config: { development: false }, lang: 'en' };
+  const page = async settings => fixture(async path => path === '/api/admin/payments/waffo' ? settings : report(), '', owner).overviewPage();
+  const ready = await page({ mode: 'test', production_ready: true, test_ready: true });
+  assert.match(ready, /Test mode · No real charges/);
+  assert.match(ready, /Switch to production/);
+  assert.doesNotMatch(ready, /data-mode="test" disabled/);
+  const missing = await page({ mode: 'test', production_ready: false, test_ready: true });
+  assert.match(missing, /data-mode="test" disabled/);
+  assert.match(missing, /Production configuration is not ready/);
+  const live = await page({ mode: 'prod', production_ready: true, test_ready: true });
+  assert.match(live, /Production · New orders use real payments/);
+  assert.match(live, /Switch to test/);
+  assert.doesNotMatch(await fixture(async () => report()).overviewPage(), /data-waffo-switch/);
+});

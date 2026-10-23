@@ -37,6 +37,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         ));
     }
     db.execute_batch(r#"
+ CREATE TABLE IF NOT EXISTS payment_settings(provider TEXT PRIMARY KEY,mode TEXT NOT NULL CHECK(mode IN ('test','prod')));
  CREATE TABLE IF NOT EXISTS users(
  id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
  employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);

@@ -166,13 +166,14 @@ pub fn provider_currency_enabled(
     }
     Ok(())
 }
-fn provider_live(state: &AppState, provider: &str) -> bool {
-    match provider {
+fn provider_live(state: &AppState, db: &Connection, provider: &str) -> AppResult<bool> {
+    Ok(match provider {
         "stripe" => state.cfg.payments.stripe.live_mode,
-        "waffo" => state.cfg.payments.waffo.mode == "prod",
+        "waffo" => crate::payments::waffo_mode(state, db)? == "prod",
         _ => false,
-    }
+    })
 }
+
 fn employer(db: &Connection, id: &str) -> AppResult<User> {
     let u = models::load_user(db, id)?;
     if u.banned || u.role != "employer" || !u.employer_paid {
@@ -286,7 +287,7 @@ pub fn choose_role_with_promo(
                 None,
                 amount,
                 provider,
-                provider_live(state, provider),
+                provider_live(state, &tx, provider)?,
                 currency,
                 json!({}),
             )?)
@@ -456,7 +457,7 @@ pub fn new_job_with_promo(
         Some(&id),
         amount,
         provider,
-        provider_live(state, provider),
+        provider_live(state, &tx, provider)?,
         currency,
         snapshot,
     )?;
@@ -588,7 +589,7 @@ pub fn edit_job(
         Some(id),
         amount,
         provider,
-        provider_live(state, provider),
+        provider_live(state, &tx, provider)?,
         &job.currency,
         json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_fixed_minor":terms["edit_fixed_minor"],"currency":job.currency}),
     )?;
