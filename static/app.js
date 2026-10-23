@@ -478,7 +478,7 @@ function home() {
       <div class="hero page-width">
         <div class="hero-copy">
           <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description" data-refresh-key="home-story-${i}">${story.description}</p></article>`).join('')}</div>
-          <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer" data-nav class="button secondary">${t('找人才','Find people')}${icon('arrow')}</a></div>
+          <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew" data-nav class="button secondary">${t('免费创建岗位','Create a free role')}${icon('arrow')}</a></div>
           ${openSourceBadge()}
         </div>
         <div class="sculpture-panel">
