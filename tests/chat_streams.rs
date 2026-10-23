@@ -719,7 +719,8 @@ fn schema_14_upgrade_preserves_history_and_rolls_back_on_failure() {
     let db = f.state.conn().unwrap();
     // Restore the previous real chat schema, retaining a historical row.
     db.execute_batch(
-        "DROP TABLE chat_stream_chunks; DROP TABLE chat_events; DROP TABLE chat_event_retention;
+        "DROP TRIGGER email_message_insert; DROP TRIGGER email_message_complete;
+        DROP TABLE chat_stream_chunks; DROP TABLE chat_events; DROP TABLE chat_event_retention;
         DROP INDEX chat_stream_expiry; DROP INDEX chat_stream_owners;
         ALTER TABLE chat_messages DROP COLUMN format;
         ALTER TABLE chat_messages DROP COLUMN status;
@@ -745,7 +746,7 @@ fn schema_14_upgrade_preserves_history_and_rolls_back_on_failure() {
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
     let row: (String, String, String, i64) = db
         .query_row(
             "SELECT body,format,status,sequence FROM chat_messages",

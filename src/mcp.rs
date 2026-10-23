@@ -3,7 +3,7 @@ use crate::{
     AppError, AppResult, AppState,
     access::{self, Principal},
     admin, api, chat, chat_capabilities, chat_stream, commerce, feedback, humangrant,
-    humangrant_access, models, relation_views, workbench,
+    humangrant_access, models, notifications, relation_views, workbench,
 };
 use axum::{
     Json, Router,
@@ -689,6 +689,10 @@ pub fn admin_tools() -> Vec<Value> {
         ),
     ];
     result.extend(conversation_tools(true));
+    result.extend([
+        tool("admin_send_email_notification", "Queue a service email to one active platform user using their stored login email and the platform SMTP server. Requires human authorization for the intended recipient and message. Respect user notification preferences. Never use for marketing or arbitrary external recipients. Reuse request_key only for retries of identical content. pending means queued; accepted means SMTP accepted, not inbox delivery.", json!({"user_id":{"type":"string"},"subject":{"type":"string","minLength":1,"maxLength":160},"body":{"type":"string","minLength":1,"maxLength":5000},"request_key":{"type":"string","minLength":8,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"}}), &["user_id","subject","body","request_key"], false, false),
+        tool("admin_list_email_notifications", "Read up to 100 recent platform email delivery records. accepted means SMTP accepted; it does not prove inbox delivery or reading. Optional user_id limits results to that recipient.", json!({"user_id":{"type":"string"}}), &[], true, false),
+    ]);
     result.extend(relation_views::tools());
     result
 }
@@ -854,6 +858,8 @@ pub async fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> A
     }
     if p.admin {
         match name {
+            "admin_send_email_notification" => notifications::enqueue(s, p, parse(args)?),
+            "admin_list_email_notifications" => notifications::list(s, p, parse(args)?),
             "admin_overview" => admin::overview_data(s, p, &parse(args)?),
             "admin_list_users" => admin::list_users(s, p, &parse(args)?),
             "admin_get_user" => Ok(serde_json::to_value(admin::get_user(

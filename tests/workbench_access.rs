@@ -582,7 +582,7 @@ async fn admin_mcp_searches_are_bounded_strict_and_separate_from_member_and_lega
     let member_token = f.token(&seekers[0]);
     let catalog = rpc(&f, &admin_token, "tools/list", json!({})).await;
     let tools = catalog.value["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 42 + hireferry::relation_views::tools().len());
+    assert_eq!(tools.len(), 44 + hireferry::relation_views::tools().len());
     let member_catalog = rpc(&f, &member_token, "tools/list", json!({})).await;
     assert_eq!(
         member_catalog.value["result"]["tools"]

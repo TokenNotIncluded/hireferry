@@ -526,6 +526,16 @@ pub(crate) async fn send_mail(
     subject: &str,
     body: String,
 ) -> AppResult<()> {
+    send_notification_mail(state, to, subject, body, "").await
+}
+
+pub(crate) async fn send_notification_mail(
+    state: &AppState,
+    to: &str,
+    subject: &str,
+    body: String,
+    id: &str,
+) -> AppResult<()> {
     let mailer = state
         .auth
         .mailer
@@ -546,6 +556,14 @@ pub(crate) async fn send_mail(
                 .parse()
                 .map_err(AppError::internal)?,
         );
+    }
+    if !id.is_empty() {
+        let origin = url::Url::parse(&state.cfg.public_url).map_err(AppError::internal)?;
+        message = message.message_id(Some(format!(
+            "<{}@{}>",
+            id,
+            origin.host_str().unwrap_or("localhost")
+        )));
     }
     let message = message.body(body).map_err(AppError::internal)?;
     mailer

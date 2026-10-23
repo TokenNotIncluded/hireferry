@@ -20,6 +20,7 @@ pub mod legal;
 pub mod maintenance;
 pub mod mcp;
 pub mod models;
+pub mod notifications;
 pub mod payments;
 pub mod promos;
 pub mod relation_views;
@@ -64,6 +65,7 @@ impl AppState {
             .ascii_serialization();
         let db = db::open(&cfg.database)?;
         webhooks::configure(&db, &cfg.webhooks)?;
+        notifications::configure(&db, cfg.smtp.enabled)?;
         let auth = auth::AuthService::new(&cfg)?;
         Ok(Self {
             cfg: Arc::new(cfg),
@@ -142,6 +144,7 @@ pub fn app(state: AppState) -> Router {
         .merge(promos::routes())
         .merge(mcp::routes())
         .merge(webhooks::routes())
+        .merge(notifications::routes())
         .merge(workbench::routes())
         .merge(relations::routes())
         .merge(relation_views::routes())

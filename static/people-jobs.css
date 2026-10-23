@@ -114,3 +114,14 @@
 @media (max-width:540px) { .pj-page-header{align-items:flex-start}.pj-page-header p{max-width:210px;font-size:11px}.pj-filter-row{grid-template-columns:minmax(0,1fr)}.pj-board-actions{gap:10px}.pj-stage{display:flex;flex-direction:column;gap:16px}.pj-connections{display:none}.pj-nodes{height:300px}.pj-node-select strong{font-size:12px}.pj-row-actions{max-width:110px}.pj-stage-button span{display:inline}.pj-column-heading>span{display:block}.pj-grouping label{flex:1}.workspace-layout .pj-grouping .input{min-width:0;width:100%}.pj-column-heading h2{font-size:12px}.pj-totals{font-size:11px}.pj-statuses{gap:9px}.pj-statuses .text-button{font-size:10px}.pj-focus-summary{font-size:11px;padding:12px}.pj-board-footer{padding:12px}.people-jobs-workspace.is-immersive,.people-jobs-workspace:fullscreen{padding:12px}.people-jobs-workspace:fullscreen .pj-nodes,.people-jobs-workspace.is-immersive .pj-nodes{height:300px} }
 @media (pointer:coarse) { .pj-modes button,.pj-board-actions .text-button,.pj-statuses .text-button,.pj-portal{min-height:40px}.pj-row-actions .text-button{min-height:28px}.workspace-layout .pj-search-input .input{font-size:16px;min-height:44px} }
 @media (prefers-reduced-motion:reduce) { .people-jobs-workspace *{scroll-behavior:auto!important} }
+
+/* Keep the everyday directory compact; graph controls remain available on demand. */
+.pj-advanced>summary,.pj-filter-extra>summary{cursor:pointer;color:var(--muted);font-size:12px;padding:10px 18px}
+.pj-advanced{border-bottom:1px solid var(--line)}
+.pj-filter-extra>summary{padding:8px 0}
+.pj-board[data-mode="list"] .pj-stage{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+.pj-board[data-mode="list"] .pj-column:last-child{grid-column:2}
+.pj-board[data-mode="list"] .pj-connections,.pj-board[data-mode="list"] .pj-portal,.pj-board[data-mode="list"] .pj-projection-summary,.pj-board[data-mode="list"] .pj-board-footer{display:none}
+.pj-board[data-mode="list"] .pj-nodes{height:clamp(160px,40vh,360px)}
+.pj-ai-state:empty,.pj-scope-note:empty{display:none}
+@media(max-width:540px){.pj-board[data-mode="list"] .pj-stage{grid-template-columns:minmax(0,1fr);gap:16px}.pj-board[data-mode="list"] .pj-column:last-child{grid-column:1}.pj-board[data-mode="list"] .pj-nodes{height:216px}}
