@@ -129,19 +129,21 @@ const contactMailto = subject => `mailto:${encodeURIComponent(contactEmail())}${
 const billingReturnKey = 'hireferry-billing-return';
 const staffReturnKey = 'hireferry-staff-return';
 const jobReturnKey = 'hireferry-job-return';
+const profileReturnKey = 'hireferry-profile-return';
 function billingReturnPath(orderId='') {return '/billing/return'+(orderId?'?'+new URLSearchParams({order_id:orderId}):'');}
 function safeBillingReturn(value) {
   if(!value)return '';
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
 function safeJobReturn(value) {try{const url=new URL(value,location.origin);const template=url.searchParams.get('template')||'';return url.origin===location.origin&&url.pathname==='/app/jobs/new'&&template==='ai_uiux'?`/app/jobs/new?template=${template}`:'';}catch{return '';}}
-function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}const job=safeJobReturn(qs().get('return_to'));if(job)try{sessionStorage.setItem(jobReturnKey,job);}catch{}}
+function safeProfileReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&url.pathname==='/app'&&url.searchParams.get('tab')==='profile'?'/app?tab=profile':'';}catch{return '';}}
+function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}const job=safeJobReturn(qs().get('return_to'));if(job)try{sessionStorage.setItem(jobReturnKey,job);}catch{}const profile=safeProfileReturn(qs().get('return_to'));if(profile)try{sessionStorage.setItem(profileReturnKey,profile);}catch{}}
 function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
 function afterSignIn() {
-  let saved='',staffSaved='',jobSaved='';
-  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);jobSaved=sessionStorage.getItem(jobReturnKey)||'';sessionStorage.removeItem(jobReturnKey);}catch{}
+  let saved='',staffSaved='',jobSaved='',profileSaved='';
+  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);jobSaved=sessionStorage.getItem(jobReturnKey)||'';sessionStorage.removeItem(jobReturnKey);profileSaved=sessionStorage.getItem(profileReturnKey)||'';sessionStorage.removeItem(profileReturnKey);}catch{}
   const review=state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app';
-  return safeJobReturn(qs().get('return_to'))||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeJobReturn(jobSaved)||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
+  return safeJobReturn(qs().get('return_to'))||safeProfileReturn(qs().get('return_to'))||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeJobReturn(jobSaved)||safeProfileReturn(profileSaved)||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
 }
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {
@@ -478,7 +480,7 @@ function home() {
       <div class="hero page-width">
         <div class="hero-copy">
           <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description" data-refresh-key="home-story-${i}">${story.description}</p></article>`).join('')}</div>
-          <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew" data-nav class="button secondary">${t('免费创建岗位','Create a free role')}${icon('arrow')}</a></div>
+          <div class="hero-actions"><a href="/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile" data-nav class="button">${t('抢注个人主页','Claim your homepage')}${icon('arrow')}</a><a href="/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew" data-nav class="button secondary">${t('免费创建岗位','Create a free role')}${icon('arrow')}</a></div>
           ${openSourceBadge()}
         </div>
         <div class="sculpture-panel">
@@ -630,7 +632,7 @@ async function publicProfilePage(handle) {
   const data = await api(`/api/public-profiles/${encodeURIComponent(handle)}`);
   const p = data.profile;
   const links = Object.entries(p.ai_profile_links || {}).map(([name,url]) => `<a class="button secondary small" href="${esc(url)}" rel="me noopener" target="_blank">${esc(name)}</a>`).join('');
-  const claimHref = `/login?role=seeker&ref=profile_${encodeURIComponent(p.handle)}`;
+  const claimHref = `/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile&ref=profile_${encodeURIComponent(p.handle)}`;
   return `<main id="main" class="page-width public-profile"><section class="panel profile-hero">${avatar(p,'large')}<p class="eyebrow">@${esc(p.handle)}</p><h1>${esc(p.name || p.handle)}</h1>${p.public_email ? `<a class="contact-email" href="mailto:${encodeURIComponent(p.public_email)}">${esc(p.public_email)}</a>` : ''}${links ? `<div class="profile-links">${links}</div>` : ''}<div class="profile-claim"><p>${t('也想拥有自己的独立 AI 身份？抢注一个独一无二的名字，创建你的个人主页。','Want your own independent AI identity? Claim a unique name and create your personal homepage.')}</p><a class="button" href="${claimHref}" data-nav>${t('抢注我的名字','Claim my name')}${icon('arrow')}</a></div></section><section class="panel markdown"><h2>${t('个人介绍','About')}</h2>${p.resume_html || `<p class="help">${t('这个人还没有填写公开介绍。','This person has not added a public introduction yet.')}</p>`}</section></main>`;
 }
 async function profilePage() {
