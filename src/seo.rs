@@ -46,6 +46,7 @@ pub(crate) fn sitemap(cfg: &Config) -> String {
 
 pub(crate) fn known_page(path: &str) -> bool {
     PUBLIC_PAGES.contains(&path)
+        || is_public_profile_path(path)
         || matches!(
             path,
             "/login"
@@ -66,6 +67,16 @@ pub(crate) fn known_page(path: &str) -> bool {
                 path.strip_prefix(prefix)
                     .is_some_and(|id| !id.is_empty() && !id.contains('/'))
             })
+}
+
+pub(crate) fn is_public_profile_path(path: &str) -> bool {
+    let Some(handle) = path.strip_prefix("/u/") else {
+        return false;
+    };
+    matches!(handle.len(), 3..=32)
+        && handle.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+        })
 }
 
 fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
@@ -148,7 +159,7 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
 pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String> {
     let en = cfg.site.default_language == "en";
     let t = |zh, english| if en { english } else { zh };
-    let public = PUBLIC_PAGES.contains(&path);
+    let public = PUBLIC_PAGES.contains(&path) || is_public_profile_path(path);
     let (title, description) = metadata(path, en);
     let title = escape(&format!("{title} · {}", cfg.site.name));
     let description = escape(description);
