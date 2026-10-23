@@ -498,6 +498,22 @@ async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppRe
 #[serde(deny_unknown_fields)]
 struct EmailStart {
     email: String,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+fn signup_source(value: Option<&str>) -> String {
+    let value = value.unwrap_or("direct").trim();
+    if value.is_empty() {
+        return "direct".into();
+    }
+    let mut out = String::with_capacity(value.len().min(120));
+    for ch in value.chars().take(120) {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | ':' | '/') {
+            out.push(ch.to_ascii_lowercase());
+        }
+    }
+    if out.is_empty() { "direct".into() } else { out }
 }
 
 pub(crate) fn normalized_email(value: &str) -> AppResult<String> {
@@ -580,6 +596,7 @@ async fn email_start(
 ) -> AppResult<Response> {
     origin_check(&state, &headers)?;
     let email = normalized_email(&body.email)?;
+    let source = signup_source(body.source.as_deref());
     if !state.cfg.development && state.auth.mailer.is_none() {
         return Err(AppError::unavailable("Email sign-in is not configured"));
     }
@@ -616,8 +633,8 @@ async fn email_start(
             );
         }
         db.execute(
-            "INSERT INTO auth_challenges(id,kind,subject,secret_hash,expires_at) VALUES(?1,'email',?2,?3,?4)",
-            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),now()+EMAIL_TTL],
+            "INSERT INTO auth_challenges(id,kind,subject,secret_hash,payload,expires_at) VALUES(?1,'email',?2,?3,?4,?5)",
+            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),json!({"source":source}).to_string(),now()+EMAIL_TTL],
         )?;
     }
     if state.auth.mailer.is_some()
@@ -684,10 +701,10 @@ async fn email_verify(
             300,
         )?;
         let row = db.query_row(
-            "SELECT secret_hash,attempts FROM auth_challenges WHERE id=?1 AND kind='email' AND subject=?2 AND expires_at>?3",
-            params![hash_token(&id),email,now()], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?)),
+            "SELECT secret_hash,attempts,payload FROM auth_challenges WHERE id=?1 AND kind='email' AND subject=?2 AND expires_at>?3",
+            params![hash_token(&id),email,now()], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)),
         ).optional()?;
-        let (expected, attempts) =
+        let (expected, attempts, payload) =
             row.ok_or_else(|| AppError::unauthorized("The code is invalid or expired"))?;
         if attempts >= 5 {
             return Err(AppError::unauthorized("Request a new sign-in code"));
@@ -700,6 +717,14 @@ async fn email_verify(
         if !equal_hash(&expected, &hash_token(&format!("{id}:{}", body.code))) {
             return Err(AppError::unauthorized("The code is invalid or expired"));
         }
+        let source = serde_json::from_str::<Value>(&payload)
+            .ok()
+            .and_then(|v| {
+                v.get("source")
+                    .and_then(Value::as_str)
+                    .map(|s| signup_source(Some(s)))
+            })
+            .unwrap_or_else(|| "direct".into());
         let tx = db.transaction()?;
         tx.execute("DELETE FROM auth_challenges WHERE id=?1", [hash_token(&id)])?;
         let existing = tx
@@ -718,6 +743,7 @@ async fn email_verify(
             None => {
                 let uid = Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'',?4,'unassigned',?3,?3)",params![uid,email,now(),format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>())])?;
+                crate::db::audit(&tx, "system", "signup_source", &uid, &source)?;
                 uid
             }
         };
@@ -741,6 +767,12 @@ struct GooglePending {
     verifier: String,
     #[serde(default)]
     access_generation: i64,
+    #[serde(default = "default_signup_source")]
+    source: String,
+}
+
+fn default_signup_source() -> String {
+    "direct".into()
 }
 
 fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> AppResult<()> {
@@ -757,12 +789,21 @@ fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> A
     Ok(())
 }
 
-async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
+#[derive(Deserialize, Default)]
+struct GoogleStart {
+    source: Option<String>,
+}
+
+async fn google_start(
+    State(state): State<AppState>,
+    Query(query): Query<GoogleStart>,
+) -> AppResult<Response> {
     if !state.cfg.google.enabled {
         return Err(AppError::unavailable("Google sign-in is not configured"));
     }
     let id = random_token();
     let verifier = random_token();
+    let source = signup_source(query.source.as_deref());
     let pkce = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     {
         let db = state
@@ -777,7 +818,7 @@ async fn google_start(State(state): State<AppState>) -> AppResult<Response> {
             |row| row.get(0),
         )?;
         db.execute("INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'google','',?2,?3)",
-            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation})?,now()+CHALLENGE_TTL])?;
+            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,source})?,now()+CHALLENGE_TTL])?;
     }
     let callback = format!(
         "{}/auth/google/callback",
@@ -934,6 +975,7 @@ async fn google_callback(
                 let display = identity.name.chars().take(80).collect::<String>();
                 tx.execute("INSERT INTO users(id,email,google_sub,name,handle,role,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'unassigned',?6,?6)",
                     params![uid,email,identity.sub,display,format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>()),now()])?;
+                crate::db::audit(&tx, "system", "signup_source", &uid, &pending.source)?;
                 uid
             }
         };
