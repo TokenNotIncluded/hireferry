@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 15 {
+    if version > 16 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
