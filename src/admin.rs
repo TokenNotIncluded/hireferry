@@ -170,6 +170,12 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
         .prepare("SELECT * FROM orders WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?4 AND (?5='' OR status=?5) ORDER BY created_at DESC,id LIMIT 8")?
         .query_map(params![from, to, live, currency, status], models::order_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let signup_sources = db
+        .prepare("SELECT detail,count(*) FROM audit WHERE action='signup_source' AND created_at>=?1 AND created_at<?2 GROUP BY detail ORDER BY count(*) DESC,detail")?
+        .query_map(params![from, to], |r| {
+            Ok(json!({"source":r.get::<_,String>(0)?,"signups":r.get::<_,i64>(1)?}))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({
         "stats":{
             "users":count("SELECT count(*) FROM users")?,
@@ -184,6 +190,7 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             "review_orders":count("SELECT count(*) FROM orders WHERE status='paid_needs_review'")?
         },
         "series":series,"revenue_by_kind":by_kind,"recent_orders":recent,
+        "growth":{"signup_sources":signup_sources},
         "currency":currency,"currency_decimals":currency_decimals,"currency_totals":currency_totals,
         "bucket":if monthly{"month"}else{"day"},
         "timezone":"UTC","development":s.cfg.development,
