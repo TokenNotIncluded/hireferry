@@ -20,6 +20,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/config", get(config))
         .route("/api/ai/eligibility", get(ai_eligibility))
         .route("/api/profile", get(profile).put(update_profile))
+        .route("/api/public-profiles/{handle}", get(public_profile))
         .route("/api/profile/avatar", post(upload_avatar).put(svg_avatar))
         .route("/api/avatars/{id}", get(avatar))
         .route("/api/role", post(role))
@@ -66,13 +67,29 @@ async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Valu
 #[serde(deny_unknown_fields)]
 pub struct ProfileInput {
     pub name: String,
+    #[serde(default)]
+    pub handle: String,
     pub public_email: String,
     pub resume_md: String,
     #[serde(default)]
     pub visible: bool,
+    #[serde(default)]
+    pub public_profile: bool,
+    #[serde(default)]
+    pub ai_profile_links: std::collections::BTreeMap<String, String>,
 }
 pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<User> {
     safety::bounded_text(&input.name, 120, "Name")?;
+    let handle = input.handle.trim().to_lowercase();
+    if !matches!(handle.len(), 3..=32)
+        || !handle
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    {
+        return Err(AppError::bad_request(
+            "Username must be 3–32 lowercase letters, numbers, hyphens or underscores",
+        ));
+    }
     safety::bounded_text(&input.resume_md, 80_000, "Resume")?;
     let email = if input.public_email.trim().is_empty() {
         String::new()
@@ -90,14 +107,70 @@ pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<Us
     if user.role != "seeker" && !input.resume_md.is_empty() {
         return Err(AppError::bad_request("Only seekers have a resume"));
     }
+    let links = input
+        .ai_profile_links
+        .iter()
+        .filter(|(_, url)| !url.trim().is_empty())
+        .map(|(name, url)| {
+            if name.len() > 32
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+            {
+                return Err(AppError::bad_request("AI profile link names are invalid"));
+            }
+            let parsed = url::Url::parse(url.trim())
+                .map_err(|_| AppError::bad_request("AI profile links must be valid HTTPS URLs"))?;
+            if parsed.scheme() != "https"
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+            {
+                return Err(AppError::bad_request(
+                    "AI profile links must be public HTTPS URLs",
+                ));
+            }
+            Ok((name.clone(), url.trim().to_owned()))
+        })
+        .collect::<AppResult<std::collections::BTreeMap<_, _>>>()?;
+    if links.len() > 12 {
+        return Err(AppError::bad_request(
+            "At most 12 AI profile links are allowed",
+        ));
+    }
+    let handle_taken: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE handle=?1 COLLATE NOCASE AND id<>?2)",
+        params![handle, id],
+        |r| r.get(0),
+    )?;
+    if handle_taken {
+        return Err(AppError::conflict("That username is already taken"));
+    }
     // Retain the legacy input field for compatibility, but it never grants
     // discovery access. Only the platform and explicit matches see a profile.
     db.execute(
-        "UPDATE users SET name=?2,public_email=?3,resume_md=?4,visible=0,updated_at=?5 WHERE id=?1",
-        params![id, input.name.trim(), email, input.resume_md, now()],
+        "UPDATE users SET name=?2,handle=?3,public_email=?4,resume_md=?5,visible=0,public_profile=?6,ai_profile_links=?7,updated_at=?8 WHERE id=?1",
+        params![id, input.name.trim(), handle, email, input.resume_md, input.public_profile, serde_json::to_string(&links).map_err(AppError::internal)?, now()],
     )?;
     crate::db::audit(&db, id, "profile_update", id, "")?;
     models::load_user(&db, id)
+}
+async fn public_profile(
+    State(s): State<AppState>,
+    Path(handle): Path<String>,
+) -> AppResult<Json<Value>> {
+    let db = s.conn()?;
+    let user = db
+        .query_row(
+            "SELECT * FROM users WHERE handle=?1 COLLATE NOCASE AND banned=0 AND public_profile=1",
+            [handle],
+            models::user_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public profile not found"))?;
+    Ok(Json(
+        json!({"profile":{"id":user.id,"name":user.name,"handle":user.handle,"avatar":user.avatar,"public_email":user.public_email,"resume_html":safety::markdown(&user.resume_md),"ai_profile_links":user.ai_profile_links,"created_at":user.created_at},"url":format!("{}/u/{}",s.cfg.public_url,user.handle)}),
+    ))
 }
 async fn update_profile(
     State(s): State<AppState>,

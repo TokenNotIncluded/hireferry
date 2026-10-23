@@ -717,7 +717,7 @@ async fn email_verify(
             Some((id, false)) => id,
             None => {
                 let uid = Uuid::new_v4().to_string();
-                tx.execute("INSERT INTO users(id,email,name,role,created_at,updated_at) VALUES(?1,?2,'','unassigned',?3,?3)",params![uid,email,now()])?;
+                tx.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'',?4,'unassigned',?3,?3)",params![uid,email,now(),format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>())])?;
                 uid
             }
         };
@@ -932,8 +932,8 @@ async fn google_callback(
                 }
                 let uid = Uuid::new_v4().to_string();
                 let display = identity.name.chars().take(80).collect::<String>();
-                tx.execute("INSERT INTO users(id,email,google_sub,name,role,created_at,updated_at) VALUES(?1,?2,?3,?4,'unassigned',?5,?5)",
-                    params![uid,email,identity.sub,display,now()])?;
+                tx.execute("INSERT INTO users(id,email,google_sub,name,handle,role,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'unassigned',?6,?6)",
+                    params![uid,email,identity.sub,display,format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>()),now()])?;
                 uid
             }
         };

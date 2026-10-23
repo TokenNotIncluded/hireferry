@@ -9,12 +9,15 @@ pub struct User {
     #[serde(skip_serializing)]
     pub google_sub: Option<String>,
     pub name: String,
+    pub handle: String,
     pub role: String,
     pub employer_paid: bool,
     pub avatar: String,
     pub public_email: String,
     pub resume_md: String,
     pub visible: bool,
+    pub public_profile: bool,
+    pub ai_profile_links: std::collections::BTreeMap<String, String>,
     pub banned: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -27,17 +30,22 @@ pub fn user_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
     } else {
         format!("/api/avatars/{id}")
     };
+    let links_raw: String = r.get("ai_profile_links").unwrap_or_else(|_| "{}".into());
+    let ai_profile_links = serde_json::from_str(&links_raw).unwrap_or_default();
     Ok(User {
         id,
         email: r.get("email")?,
         google_sub: r.get("google_sub")?,
         name: r.get("name")?,
+        handle: r.get("handle").unwrap_or_default(),
         role: r.get("role")?,
         employer_paid: r.get("employer_paid")?,
         avatar,
         public_email: r.get("public_email")?,
         resume_md: r.get("resume_md")?,
         visible: r.get("visible")?,
+        public_profile: r.get("public_profile").unwrap_or(false),
+        ai_profile_links,
         banned: r.get("banned")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,

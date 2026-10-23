@@ -39,8 +39,8 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     db.execute_batch(r#"
  CREATE TABLE IF NOT EXISTS payment_settings(provider TEXT PRIMARY KEY,mode TEXT NOT NULL CHECK(mode IN ('test','prod')));
  CREATE TABLE IF NOT EXISTS users(
- id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
- employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+ id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',handle TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
+ employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,public_profile INTEGER NOT NULL DEFAULT 0,ai_profile_links TEXT NOT NULL DEFAULT '{}',banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,jd_md TEXT NOT NULL,salary_cents INTEGER NOT NULL CHECK(salary_cents>0),headcount INTEGER NOT NULL DEFAULT 1 CHECK(headcount>=0 AND headcount<=1000000),status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','closed','deleted')),delete_count INTEGER NOT NULL DEFAULT 0 CHECK(delete_count>=0 AND delete_count<=2),deleted_from_status TEXT CHECK(deleted_from_status IN ('draft','published','closed')),deleted_headcount INTEGER CHECK(deleted_headcount>=0 AND deleted_headcount<=1000000),edits_used INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner_id,created_at);
  CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
@@ -181,6 +181,35 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 15)?;
         tx.commit()?;
     }
+    if version < 16 {
+        let tx = db.unchecked_transaction()?;
+        let columns = {
+            let mut q = tx.prepare("PRAGMA table_info(users)")?;
+            q.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if !columns.iter().any(|c| c == "handle") {
+            tx.execute_batch("ALTER TABLE users ADD COLUMN handle TEXT NOT NULL DEFAULT ''")?;
+        }
+        if !columns.iter().any(|c| c == "public_profile") {
+            tx.execute_batch(
+                "ALTER TABLE users ADD COLUMN public_profile INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        if !columns.iter().any(|c| c == "ai_profile_links") {
+            tx.execute_batch(
+                "ALTER TABLE users ADD COLUMN ai_profile_links TEXT NOT NULL DEFAULT '{}'",
+            )?;
+        }
+        tx.execute(
+            "UPDATE users SET handle='user_'||substr(replace(id,'-',''),1,16) WHERE handle=''",
+            [],
+        )?;
+        tx.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; CREATE TRIGGER IF NOT EXISTS users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,16) WHERE id=NEW.id; END;")?;
+        tx.pragma_update(None, "user_version", 16)?;
+        tx.commit()?;
+    }
+    db.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; CREATE TRIGGER IF NOT EXISTS users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,16) WHERE id=NEW.id; END;")?;
     // Additive graph indexes/revision and presentation state, like the workbench
     // indexes above, do not change the authoritative business record format.
     crate::relations::migrate(db)?;
