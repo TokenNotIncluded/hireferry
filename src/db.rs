@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 16 {
+    if version > 17 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -209,6 +209,16 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 16)?;
         tx.commit()?;
     }
+    // Schema 17 adds stable member invitation codes and signup attribution.
+    if version < 17 {
+        let tx = db.unchecked_transaction()?;
+        crate::referrals::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 17)?;
+        tx.commit()?;
+    }
+    // Keep this idempotent for databases created by tests or older imports that
+    // inserted users after the versioned migration ran.
+    crate::referrals::migrate(db)?;
     db.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; CREATE TRIGGER IF NOT EXISTS users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,16) WHERE id=NEW.id; END;")?;
     // Additive graph indexes/revision and presentation state, like the workbench
     // indexes above, do not change the authoritative business record format.

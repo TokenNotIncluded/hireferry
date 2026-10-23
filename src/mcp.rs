@@ -995,7 +995,12 @@ pub async fn call(s: &AppState, p: &Principal, name: &str, mut args: Value) -> A
 }
 async fn user_call(s: &AppState, uid: &str, name: &str, args: Value) -> AppResult<Value> {
     match name {
-        "get_profile" => Ok(serde_json::to_value(models::load_user(&*s.conn()?, uid)?)?),
+        "get_profile" => {
+            let db = s.conn()?;
+            let mut profile = serde_json::to_value(models::load_user(&db, uid)?)?;
+            profile["referral"] = crate::referrals::profile_data(&db, uid, &s.cfg.public_url)?;
+            Ok(profile)
+        }
         "update_profile" => Ok(serde_json::to_value(api::save_profile(
             s,
             uid,

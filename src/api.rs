@@ -58,8 +58,13 @@ pub fn public_config(s: &AppState) -> Value {
 }
 async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let id = user_id(&s, &h, false)?;
-    let mut user =
-        serde_json::to_value(models::load_user(&*s.conn()?, &id)?).map_err(AppError::internal)?;
+    let mut user = {
+        let db = s.conn()?;
+        let mut user =
+            serde_json::to_value(models::load_user(&db, &id)?).map_err(AppError::internal)?;
+        user["referral"] = crate::referrals::profile_data(&db, &id, &s.cfg.public_url)?;
+        user
+    };
     user["email_notifications"] = crate::notifications::settings(&s, &id)?;
     Ok(Json(user))
 }
