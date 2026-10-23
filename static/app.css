@@ -445,4 +445,7 @@
 @media(max-width:560px){.open-source-badge{margin-top:14px;min-height:36px;padding:7px 10px;font-size:11px;gap:8px}}
 .profile-claim { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .profile-claim p { margin: 0; color: var(--muted); max-width: 42rem; }
+.profile-share { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 0 24px; padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.profile-share .help { margin:0; overflow-wrap:anywhere; }
 @media (max-width: 640px) { .profile-claim { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 640px) { .profile-share { align-items:flex-start; flex-direction:column; } }
