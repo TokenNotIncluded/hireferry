@@ -24,6 +24,7 @@ pub mod models;
 pub mod notifications;
 pub mod payments;
 pub mod promos;
+pub mod referrals;
 pub mod relation_views;
 pub mod relations;
 pub mod safety;

@@ -500,6 +500,8 @@ struct EmailStart {
     email: String,
     #[serde(default)]
     source: Option<String>,
+    #[serde(default, alias = "ref")]
+    referral_code: Option<String>,
 }
 
 fn signup_source(value: Option<&str>) -> String {
@@ -597,6 +599,7 @@ async fn email_start(
     origin_check(&state, &headers)?;
     let email = normalized_email(&body.email)?;
     let source = signup_source(body.source.as_deref());
+    let referral_code = crate::referrals::normalize_code(body.referral_code.as_deref());
     if !state.cfg.development && state.auth.mailer.is_none() {
         return Err(AppError::unavailable("Email sign-in is not configured"));
     }
@@ -634,7 +637,7 @@ async fn email_start(
         }
         db.execute(
             "INSERT INTO auth_challenges(id,kind,subject,secret_hash,payload,expires_at) VALUES(?1,'email',?2,?3,?4,?5)",
-            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),json!({"source":source}).to_string(),now()+EMAIL_TTL],
+            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),json!({"source":source,"referral_code":referral_code}).to_string(),now()+EMAIL_TTL],
         )?;
     }
     if state.auth.mailer.is_some()
@@ -725,6 +728,14 @@ async fn email_verify(
                     .map(|s| signup_source(Some(s)))
             })
             .unwrap_or_else(|| "direct".into());
+        let referral_code = serde_json::from_str::<Value>(&payload)
+            .ok()
+            .and_then(|v| {
+                v.get("referral_code")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .and_then(|value| crate::referrals::normalize_code(Some(&value)));
         let tx = db.transaction()?;
         tx.execute("DELETE FROM auth_challenges WHERE id=?1", [hash_token(&id)])?;
         let existing = tx
@@ -743,6 +754,8 @@ async fn email_verify(
             None => {
                 let uid = Uuid::new_v4().to_string();
                 tx.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'',?4,'unassigned',?3,?3)",params![uid,email,now(),format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>())])?;
+                crate::referrals::ensure_code(&tx, &uid, now())?;
+                crate::referrals::record_signup(&tx, &uid, referral_code.as_deref(), now())?;
                 crate::db::audit(&tx, "system", "signup_source", &uid, &source)?;
                 uid
             }
@@ -769,6 +782,8 @@ struct GooglePending {
     access_generation: i64,
     #[serde(default = "default_signup_source")]
     source: String,
+    #[serde(default)]
+    referral_code: String,
 }
 
 fn default_signup_source() -> String {
@@ -792,6 +807,8 @@ fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> A
 #[derive(Deserialize, Default)]
 struct GoogleStart {
     source: Option<String>,
+    #[serde(alias = "ref")]
+    referral_code: Option<String>,
 }
 
 async fn google_start(
@@ -804,6 +821,8 @@ async fn google_start(
     let id = random_token();
     let verifier = random_token();
     let source = signup_source(query.source.as_deref());
+    let referral_code =
+        crate::referrals::normalize_code(query.referral_code.as_deref()).unwrap_or_default();
     let pkce = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     {
         let db = state
@@ -818,7 +837,7 @@ async fn google_start(
             |row| row.get(0),
         )?;
         db.execute("INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'google','',?2,?3)",
-            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,source})?,now()+CHALLENGE_TTL])?;
+            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,source,referral_code})?,now()+CHALLENGE_TTL])?;
     }
     let callback = format!(
         "{}/auth/google/callback",
@@ -975,6 +994,8 @@ async fn google_callback(
                 let display = identity.name.chars().take(80).collect::<String>();
                 tx.execute("INSERT INTO users(id,email,google_sub,name,handle,role,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'unassigned',?6,?6)",
                     params![uid,email,identity.sub,display,format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>()),now()])?;
+                crate::referrals::ensure_code(&tx, &uid, now())?;
+                crate::referrals::record_signup(&tx, &uid, Some(&pending.referral_code), now())?;
                 crate::db::audit(&tx, "system", "signup_source", &uid, &pending.source)?;
                 uid
             }
