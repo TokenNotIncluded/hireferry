@@ -115,3 +115,16 @@ test('leaving while requests are pending suppresses the stale page', async () =>
   let release;const pending = new Promise(resolve => { release = resolve; });const { ui } = fixture({ beforeRequest: () => pending });
   const first = ui.page();ui.destroy();release();assert.equal(await first, '');
 });
+
+test('SMTP email actions survive public configuration caching and stay absent when disabled', async () => {
+  const cacheSource=await readFile(new URL('../static/browser-cache.js',import.meta.url),'utf8');
+  const {createPublicConfigCache}=await import('data:text/javascript;base64,'+Buffer.from(cacheSource).toString('base64'));
+  for(const enabled of [true,false]){
+    const disk=new Map();const storage={getItem:key=>disk.get(key)||null,setItem:(key,value)=>disk.set(key,value),removeItem:key=>disk.delete(key)};
+    const cache=createPublicConfigCache(async()=>({name:'HireFerry',email_notifications_enabled:enabled}),{storage});
+    await cache.refresh();
+    const config=createPublicConfigCache(()=>{}, {storage}).peek();
+    const {ui}=fixture({changes:{config}});const html=await ui.page();
+    assert.equal(html.includes('data-action="admin-email-user"'),enabled);
+  }
+});

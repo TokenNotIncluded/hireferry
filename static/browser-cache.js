@@ -5,7 +5,7 @@ const schema = 1;
 // Four localized welcome screens and their bounded Markdown can exceed 64 KiB.
 const maxLength = 512 * 1024;
 const strings = ['name', 'public_origin', 'default_language', 'support_email', 'source_url'];
-const flags = ['google_enabled', 'humangrant_enabled', 'email_enabled', 'development'];
+const flags = ['google_enabled', 'humangrant_enabled', 'email_enabled', 'email_notifications_enabled', 'development'];
 const maps = ['payment_currencies', 'payment_modes', 'waffo_regions', 'cli_distribution', 'pricing', 'limits', 'chat'];
 const fields = [...strings, ...flags, ...maps, 'providers'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
