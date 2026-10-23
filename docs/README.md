@@ -26,6 +26,7 @@
 | [命令行客户端 `hfy`](cli.md) | 安装、登录、JSON、连接管理、升级与卸载 |
 | [Agent Skill](../skills/hireferry/SKILL.md) | AI 使用 CLI 的操作约定 |
 | [API 与 MCP](api.md) | HTTP、远程 MCP、WebMCP、字段、权限及分页 |
+| [邮件通知](email-notifications.md) | 原生 SMTP 通知、用户开关、后台和 AI 主动发信、队列与重试 |
 | [消息与 Agent 接入](chat-agents.md) | 原生 SSE/NDJSON、流式消息、Markdown/OpenUI、MCP 工具与 CLI |
 | [HumanGrant](humangrant.md) | 用户逐项授权、独立 AI 凭据、签名与撤销 |
 | [HumanGrant 视觉资源](humangrant-assets.md) | 按钮、图标与确认页资源 |

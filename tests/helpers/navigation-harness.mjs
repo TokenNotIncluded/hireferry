@@ -52,7 +52,8 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
     if(overrides.has(path)){const value=overrides.get(path);return typeof value==='function'?value(options):value;}
     if(path==='/api/config')return fixtureConfig;
     if(path==='/api/session')return {user:currentUser,admin:false,bootstrap:false,csrf:currentUser?'fixture-csrf':null};
-    if(path==='/api/profile')return fixtureUser;
+    if(path==='/api/profile')return {...fixtureUser,email_notifications:{enabled:false,preferences:{messages:true,matches:true,orders:true,platform:true}}};
+    if(path==='/api/notifications/email')return {enabled:false,preferences:{messages:true,matches:true,orders:true,platform:true}};
     if(path==='/api/mandate')return {mandate:{user_id:'fixture-user',target_roles:'QA_MANDATE_READY',target_industry:'Software',status:'active',salary_currency:'CNY',salary_min_cents:2000000,salary_max_cents:3000000,allow_external:false,preferences:'Synthetic fixture'}};
     if(path==='/api/outreach')return {items:[]};
     if(path==='/api/chat/platform'||path==='/api/chat/conversations/platform_fixture-user')return conversation;

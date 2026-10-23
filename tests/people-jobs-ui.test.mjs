@@ -47,12 +47,12 @@ test('selection preview remains distinct from a saved relation and rejects unava
   assert.equal(graphPreview([people[0], { ...people[1], banned: true }], jobs, [], 'seeker', 'job'), null);
   for (const job of [{ ...jobs[0], headcount: 0 }, { ...jobs[0], status: 'closed' }, { ...jobs[0], status: 'draft' }]) assert.equal(graphPreview(people, [job], [], 'seeker', 'job'), null);
 });
-test('default overview comes from the complete collection, not the two directory pages', async () => {
+test('default directory keeps collection totals and folds advanced graph controls', async () => {
   const { ui, calls } = fixture();const html = await ui.page();
   assert.equal(calls.length, 3);assert.deepEqual(calls.map(([, o]) => o.body.mode), ['overview', 'nodes', 'nodes']);
   assert.equal(calls.every(([, o]) => o.method === 'POST'), true);
   assert.equal(calls.some(([, o]) => 'seeker_ids' in o.body || 'job_ids' in o.body), false);
-  assert.match(html, /5,000/);assert.match(html, /data-pj-mode="overview" aria-pressed="true"/);assert.match(html, /data-pj-group="role:employer"/);
+  assert.match(html, /5,000/);assert.match(html, /data-pj-mode="list" aria-pressed="true"/);assert.match(html, /<details class="pj-advanced" >.*Advanced views & filters/);assert.match(html, /data-graph-node="person:employer"/);
   assert.match(html, /view=search/);assert.match(html, /view=followups/);assert.doesNotMatch(html, /compatibility|\d+%/i);
 });
 test('directory preserves account and job actions, including employers', async () => {

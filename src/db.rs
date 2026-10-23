@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 14 {
+    if version > 15 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -172,6 +172,12 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         let tx = db.unchecked_transaction()?;
         crate::chat_stream::migrate(&tx)?;
         tx.pragma_update(None, "user_version", 14)?;
+        tx.commit()?;
+    }
+    if version < 15 {
+        let tx = db.unchecked_transaction()?;
+        crate::notifications::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 15)?;
         tx.commit()?;
     }
     // Additive graph indexes/revision and presentation state, like the workbench
