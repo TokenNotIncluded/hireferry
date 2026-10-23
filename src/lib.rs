@@ -4,6 +4,7 @@ pub mod admin_ai;
 pub mod api;
 mod assets;
 pub mod auth;
+pub mod badges;
 pub mod chat;
 pub mod chat_capabilities;
 pub mod chat_stream;
@@ -144,6 +145,7 @@ pub fn app(state: AppState) -> Router {
         .merge(cli_auth::routes())
         .merge(cli_distribution::routes())
         .merge(api::routes())
+        .merge(badges::routes())
         .merge(feedback::routes())
         .merge(legal::routes())
         .merge(admin::routes())
