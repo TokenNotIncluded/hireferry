@@ -429,6 +429,15 @@ def _smoke_android(args):
         screenshot = subprocess.run([str(x) for x in command] + ["exec-out", "screencap", "-p"], check=True, capture_output=True)
         (output / f"android-{name}.png").write_bytes(screenshot.stdout)
 
+    def login_return():
+        result = run(command + [
+            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+            "-c", "android.intent.category.BROWSABLE", "-d", "hireferry://login-return",
+            "-n", f"{package}/best.lmm.hireferry.MainActivity",
+        ], capture=True)
+        if "Status: ok" not in result:
+            raise MobileError("Android login return did not report a successful launch")
+
     root, layout = wait_ui(launcher, "render the connection screen")
     evidence("launch", layout)
     with smoke_service() as (service, state):
@@ -466,14 +475,14 @@ def _smoke_android(args):
             # External browser return must foreground the existing WebView,
             # without navigating away or importing a server/code/session.
             run(command + ["shell", "input", "keyevent", "KEYCODE_HOME"])
-            run(command + ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", "hireferry://login-return", "-p", package], capture=True)
+            login_return()
             root, layout = wait_ui(lambda r: node_with(r, "Remote IPC denied") is not None, "preserve the remote page after a login return")
             evidence("warm-return", layout)
             tap(node_with(root, "Return to HireFerry", "返回聘渡"))
             root, layout = wait_ui(launcher, "return to the local connection screen")
             evidence("settings-return", layout)
             run(command + ["shell", "am", "force-stop", package])
-            run(command + ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", "hireferry://login-return", "-p", package], capture=True)
+            login_return()
             root, layout = wait_ui(launcher, "keep a cold login return on the local launcher")
             evidence("cold-return", layout)
         finally:
