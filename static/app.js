@@ -128,18 +128,20 @@ const contactEmail = () => state.config?.support_email?.trim() || state.config?.
 const contactMailto = subject => `mailto:${encodeURIComponent(contactEmail())}${subject?'?subject='+encodeURIComponent(subject):''}`;
 const billingReturnKey = 'hireferry-billing-return';
 const staffReturnKey = 'hireferry-staff-return';
+const jobReturnKey = 'hireferry-job-return';
 function billingReturnPath(orderId='') {return '/billing/return'+(orderId?'?'+new URLSearchParams({order_id:orderId}):'');}
 function safeBillingReturn(value) {
   if(!value)return '';
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
-function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}}
+function safeJobReturn(value) {try{const url=new URL(value,location.origin);const template=url.searchParams.get('template')||'';return url.origin===location.origin&&url.pathname==='/app/jobs/new'&&template==='ai_uiux'?`/app/jobs/new?template=${template}`:'';}catch{return '';}}
+function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}const job=safeJobReturn(qs().get('return_to'));if(job)try{sessionStorage.setItem(jobReturnKey,job);}catch{}}
 function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
 function afterSignIn() {
-  let saved='',staffSaved='';
-  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);}catch{}
+  let saved='',staffSaved='',jobSaved='';
+  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);jobSaved=sessionStorage.getItem(jobReturnKey)||'';sessionStorage.removeItem(jobReturnKey);}catch{}
   const review=state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app';
-  return safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
+  return safeJobReturn(qs().get('return_to'))||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeJobReturn(jobSaved)||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
 }
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {
@@ -784,7 +786,7 @@ async function render({navigation=false}={}) {
     else if(path==='/refunds')body=refundsPage();
     else if(path==='/contact')body=contactPage();
     else if(path==='/app'||path.startsWith('/app/')) {
-      await session(version);if(version!==state.render)return;if(!state.user){go('/login');return;}
+      await session(version);if(version!==state.render)return;if(!state.user){const returnTo=path==='/app/jobs/new'?`${path}${location.search}`:'';go(returnTo?`/login?return_to=${encodeURIComponent(returnTo)}`:'/login');return;}
       if(path==='/app'&&!tab&&!qs().has('order')){const returnTo=afterSignIn();if(returnTo!=='/app'){go(returnTo);return;}}
       if(path==='/app/jobs/new')body=await jobEditor();
       else if(/^\/app\/jobs\/[^/]+\/edit$/.test(path))body=await jobEditor(decodeURIComponent(path.split('/')[3]));
@@ -925,7 +927,7 @@ document.addEventListener('submit',async event=>{
     else if(kind.startsWith('team-'))await team().submit(form,data);
     else if(kind.startsWith('staff-'))await staffUI().submit(form,data);
     else if(kind.startsWith('promo-'))await promos().submit(form,data);
-    else if(kind==='email-start'){const email=String(data.get('email')).trim();const source=acquisitionSource();const r=await api('/api/auth/email/start',{method:'POST',body:{email,...(source?{source}: {})}});emailCode(email,r.dev_code);}
+    else if(kind==='email-start'){rememberBillingReturn();const email=String(data.get('email')).trim();const source=acquisitionSource();const r=await api('/api/auth/email/start',{method:'POST',body:{email,...(source?{source}: {})}});emailCode(email,r.dev_code);}
     else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();if(!resumeCliLogin(true))go(afterSignIn());}
     else if(kind==='profile'){const links={};for(const input of document.querySelectorAll('[name^="ai_"]')){const value=String(input.value||'').trim();if(value)links[input.name.slice(3)]=value;}state.user=await api('/api/profile',{method:'PUT',body:{name:data.get('name'),handle:document.querySelector('[name="handle"]')?.value||state.user.handle,public_email:data.get('public_email'),resume_md:data.get('resume_md')||'',public_profile:!!document.querySelector('[name="public_profile"]')?.checked,ai_profile_links:links,visible:false}});notify(t('资料和个人主页设置已保存。','Profile and homepage settings saved.'));}
     else if(kind==='svg-avatar'){state.user=await api('/api/profile/avatar',{method:'PUT',body:{svg:data.get('svg')}});closeDialog();await render();notify(t('头像已更新。','Avatar updated.'));}
