@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 fn config(path: &str) -> Config {
-    let key = RsaPrivateKey::new(&mut rand::thread_rng(), 1024).unwrap();
+    let key = RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
     let private = key.to_pkcs8_pem(LineEnding::LF).unwrap().to_string();
     let public = key
         .to_public_key()
@@ -35,7 +35,7 @@ fn config(path: &str) -> Config {
     w.tax_category = "saas".into();
     w.private_key_pem = private.clone();
     w.webhook_public_key_pem = public.clone();
-    let prod_key = RsaPrivateKey::new(&mut rand::thread_rng(), 1024).unwrap();
+    let prod_key = RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
     w.production = Some(WaffoProduction {
         merchant_id: "MER_prod".into(),
         store_id: "STO_prod".into(),
