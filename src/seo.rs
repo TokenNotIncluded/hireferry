@@ -207,7 +207,7 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     .to_owned()
             }
             "/" => format!(
-                "<div itemscope itemtype=\"https://schema.org/WebSite\"><meta itemprop=\"name\" content=\"HireFerry\"><meta itemprop=\"alternateName\" content=\"聘渡\"><link itemprop=\"url\" href=\"{}\"><h1>{}</h1><p>{description}</p><h2>{}</h2><p>{}</p><h2>{}</h2><p>{}</p><a class=\"button\" href=\"/login?role=seeker\">{}</a> <a class=\"button secondary\" href=\"/login?role=employer\">{}</a></div>",
+                "<div itemscope itemtype=\"https://schema.org/WebSite\"><meta itemprop=\"name\" content=\"HireFerry\"><meta itemprop=\"alternateName\" content=\"聘渡\"><link itemprop=\"url\" href=\"{}\"><h1>{}</h1><p>{description}</p><h2>{}</h2><p>{}</p><h2>{}</h2><p>{}</p><a class=\"button\" href=\"/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile\">{}</a> <a class=\"button secondary\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a></div>",
                 escape(&cfg.public_url),
                 t(
                     "聘渡 HireFerry · AI 简历初筛与人才匹配",
@@ -223,8 +223,8 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     "先与平台私聊。匹配后共享资料并开始交流，在工作台查看匹配与沟通进展。",
                     "Start with a private conversation. Share profiles after a match and track introductions and conversations in your workspace."
                 ),
-                t("找工作", "Find work"),
-                t("找人才", "Find people")
+                t("抢注个人主页", "Claim your homepage"),
+                t("免费创建岗位", "Create a free role")
             ),
             "/cli" => format!(
                 "<h1>{title}</h1><p>{description}</p><h2>{}</h2><p>Linux / macOS / Windows</p><p><a href=\"/install.sh\">install.sh</a> · <a href=\"/install.ps1\">install.ps1</a></p><h2>{}</h2><pre><code>hfy --server {} auth login --oauth\nhfy --server {} whoami\nhfy --server {} capabilities</code></pre>",
