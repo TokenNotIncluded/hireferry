@@ -168,7 +168,7 @@ fn version_three_jobs_gain_openings_without_reopening_archives() {
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
     for status in ["draft", "published", "closed", "deleted"] {
         let job = models::load_job(&db, status).unwrap();
         assert_eq!(job.status, status);
