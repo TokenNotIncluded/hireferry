@@ -1,6 +1,7 @@
 //! All paid changes pass through this module, from both the website and MCP.
 use crate::{
     AppState,
+    config::Pricing,
     db::audit,
     error::{AppError, AppResult},
     models::{self, Job, Order, User},
@@ -364,11 +365,20 @@ pub(crate) fn publication_amount(state: &AppState, salary: i64, currency: &str) 
     if !pricing.permits_currency(currency) {
         return Err(AppError::bad_request("Choose an enabled salary currency"));
     }
-    configured_fee(
+    let amounts = pricing.amounts(currency)?;
+    let original = configured_fee(
         salary,
         &pricing.publish_mode,
         pricing.publish_bps,
-        pricing.amounts(currency)?.publish_fixed_minor,
+        amounts.publish_fixed_minor,
+    )?;
+    Pricing::discount_amount(
+        original,
+        if currency == pricing.currency {
+            pricing.publish_discount_percent
+        } else {
+            amounts.publish_discount_percent
+        },
     )
 }
 
@@ -545,11 +555,15 @@ pub fn edit_job(
     let max_edits = terms["max_edits"].as_i64().unwrap_or(3);
     let edit_bps = terms["edit_bps"].as_i64().unwrap_or(100);
     let edit_mode = terms["edit_mode"].as_str().unwrap_or("salary_percent");
-    let amount = configured_fee(
+    let original_amount = configured_fee(
         job.salary_cents,
         edit_mode,
         edit_bps,
         terms["edit_fixed_minor"].as_i64().unwrap_or(0),
+    )?;
+    let amount = Pricing::discount_amount(
+        original_amount,
+        terms["edit_discount_percent"].as_i64().unwrap_or(0),
     )?;
     if amount > 0 {
         provider_currency_enabled(state, provider, &job.currency)?;
@@ -591,7 +605,7 @@ pub fn edit_job(
         provider,
         provider_live(state, &tx, provider)?,
         &job.currency,
-        json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_fixed_minor":terms["edit_fixed_minor"],"currency":job.currency}),
+        json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_discount_percent":terms["edit_discount_percent"],"edit_fixed_minor":terms["edit_fixed_minor"],"original_amount_cents":original_amount,"currency":job.currency}),
     )?;
     if amount == 0 {
         tx.execute("UPDATE jobs SET jd_md=?2,edits_used=edits_used+1,version=version+1,updated_at=?3 WHERE id=?1",params![id,jd,now()])?;

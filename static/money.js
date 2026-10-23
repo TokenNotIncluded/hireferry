@@ -54,7 +54,7 @@ export function formatMinor(value, meta, locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency: meta.currency, currencyDisplay: 'code', minimumFractionDigits: meta.currency_decimals, maximumFractionDigits: meta.currency_decimals }).format(amount);
 }
 
-export function calculateFee(salaryMinor, { mode, bps = 0, fixed_minor = 0 }) {
+export function calculateFee(salaryMinor, { mode, bps = 0, fixed_minor = 0, discount_percent = 0 }) {
   const salary = integerAmount(salaryMinor);
   if (salary < 0n) throw new RangeError('Salary must not be negative');
   let result;
@@ -62,7 +62,11 @@ export function calculateFee(salaryMinor, { mode, bps = 0, fixed_minor = 0 }) {
   else if (mode === 'fixed') result = integerAmount(fixed_minor);
   else if (mode === 'salary_percent') result = (salary * integerAmount(bps) + 5000n) / 10000n;
   else throw new TypeError('Unknown fee mode');
-  if (mode !== 'free' && result === 0n) throw new RangeError('Fee below one minor unit');
+  const discount = integerAmount(discount_percent);
+  if (discount < 0n || discount > 100n) throw new RangeError('Invalid discount percent');
+  if (discount === 100n) result = 0n;
+  else if (discount > 0n) result = (result * (100n - discount) + 50n) / 100n;
+  if (mode !== 'free' && discount !== 100n && result === 0n) throw new RangeError('Fee below one minor unit');
   if (result < 0n || result > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('Fee is outside the allowed range');
   return Number(result);
 }

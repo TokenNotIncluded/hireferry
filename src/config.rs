@@ -474,11 +474,14 @@ pub struct Pricing {
     pub currency: String,
     pub allowed_currencies: Vec<String>,
     pub onboarding_cents: i64,
+    pub onboarding_discount_percent: i64,
     pub onboarding_amounts: BTreeMap<String, i64>,
     pub publish_mode: String,
     pub edit_mode: String,
     pub publish_bps: i64,
+    pub publish_discount_percent: i64,
     pub edit_bps: i64,
+    pub edit_discount_percent: i64,
     pub publish_fixed_minor: i64,
     pub edit_fixed_minor: i64,
     pub employer_ai_min_salary_minor: i64,
@@ -491,11 +494,14 @@ impl Default for Pricing {
             currency: "CNY".into(),
             allowed_currencies: Vec::new(),
             onboarding_cents: 10000,
+            onboarding_discount_percent: 0,
             onboarding_amounts: BTreeMap::new(),
             publish_mode: "salary_percent".into(),
             edit_mode: "salary_percent".into(),
             publish_bps: 1000,
+            publish_discount_percent: 0,
             edit_bps: 100,
+            edit_discount_percent: 0,
             publish_fixed_minor: 30000,
             edit_fixed_minor: 3000,
             employer_ai_min_salary_minor: 300000,
@@ -509,7 +515,9 @@ impl Default for Pricing {
 #[serde(deny_unknown_fields)]
 pub struct CurrencyAmounts {
     pub publish_fixed_minor: i64,
+    pub publish_discount_percent: i64,
     pub edit_fixed_minor: i64,
+    pub edit_discount_percent: i64,
     pub employer_ai_min_salary_minor: i64,
 }
 
@@ -588,7 +596,7 @@ pub fn currency_decimals(currency: &str) -> Option<u32> {
 }
 
 impl Pricing {
-    pub fn onboarding_amount(&self, currency: &str) -> AppResult<i64> {
+    pub fn onboarding_original_amount(&self, currency: &str) -> AppResult<i64> {
         if currency == self.currency {
             return Ok(self.onboarding_cents);
         }
@@ -596,6 +604,33 @@ impl Pricing {
             .get(currency)
             .copied()
             .ok_or_else(|| AppError::bad_request("Choose a configured activation currency"))
+    }
+    pub fn discount_amount(original: i64, percent: i64) -> AppResult<i64> {
+        if !(0..=100).contains(&percent) || original < 0 {
+            return Err(AppError::bad_request(
+                "Discount percent must be between 0 and 100",
+            ));
+        }
+        if percent == 100 {
+            return Ok(0);
+        }
+        let value = original
+            .checked_mul(100 - percent)
+            .and_then(|v| v.checked_add(50))
+            .map(|v| v / 100)
+            .ok_or_else(|| AppError::bad_request("Discounted amount is too large"))?;
+        if original > 0 && value == 0 {
+            return Err(AppError::bad_request(
+                "Discounted amount must be at least one minor unit unless discount is 100%",
+            ));
+        }
+        Ok(value)
+    }
+    pub fn onboarding_amount(&self, currency: &str) -> AppResult<i64> {
+        Self::discount_amount(
+            self.onboarding_original_amount(currency)?,
+            self.onboarding_discount_percent,
+        )
     }
 
     pub fn currencies(&self) -> Vec<String> {
@@ -613,7 +648,9 @@ impl Pricing {
         if currency == self.currency {
             return Ok(CurrencyAmounts {
                 publish_fixed_minor: self.publish_fixed_minor,
+                publish_discount_percent: self.publish_discount_percent,
                 edit_fixed_minor: self.edit_fixed_minor,
+                edit_discount_percent: self.edit_discount_percent,
                 employer_ai_min_salary_minor: self.employer_ai_min_salary_minor,
             });
         }
@@ -625,15 +662,21 @@ impl Pricing {
         let mut value = serde_json::to_value(self).expect("pricing serialization");
         value["allowed_currencies"] = serde_json::json!(self.currencies());
         value["currency_decimals"] = serde_json::json!(currency_decimals(&self.currency));
+        value["onboarding_original_minor"] = serde_json::json!(self.onboarding_cents);
+        value["onboarding_minor"] = serde_json::json!(
+            self.onboarding_amount(&self.currency)
+                .unwrap_or(self.onboarding_cents)
+        );
+        value["onboarding_discount_percent"] = serde_json::json!(self.onboarding_discount_percent);
         let mut activation = vec![
-            serde_json::json!({"currency": self.currency, "currency_decimals": currency_decimals(&self.currency), "onboarding_minor": self.onboarding_cents}),
+            serde_json::json!({"currency": self.currency, "currency_decimals": currency_decimals(&self.currency), "onboarding_minor": self.onboarding_amount(&self.currency).unwrap_or(self.onboarding_cents), "onboarding_original_minor": self.onboarding_cents, "onboarding_discount_percent": self.onboarding_discount_percent}),
         ];
-        activation.extend(self.onboarding_amounts.iter().map(|(currency, amount)| serde_json::json!({"currency": currency, "currency_decimals": currency_decimals(currency), "onboarding_minor": amount})));
+        activation.extend(self.onboarding_amounts.iter().map(|(currency, amount)| serde_json::json!({"currency": currency, "currency_decimals": currency_decimals(currency), "onboarding_minor": self.onboarding_amount(currency).ok(), "onboarding_original_minor": amount, "onboarding_discount_percent": self.onboarding_discount_percent})));
         value["activation_currency_options"] = serde_json::json!(activation);
         value["currency_options"] = serde_json::json!(self.currencies().iter().filter_map(|currency| {
             let amounts = self.amounts(currency).ok()?;
             Some(serde_json::json!({"currency":currency,"currency_decimals":currency_decimals(currency),
-                "publish_fixed_minor":amounts.publish_fixed_minor,"edit_fixed_minor":amounts.edit_fixed_minor,
+                "publish_fixed_minor":amounts.publish_fixed_minor,"publish_discount_percent":amounts.publish_discount_percent,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,
                 "employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor}))
         }).collect::<Vec<_>>());
         value
@@ -982,7 +1025,10 @@ impl Config {
         }
         if !(0..=100000000).contains(&self.pricing.onboarding_cents)
             || !(0..=10000).contains(&self.pricing.publish_bps)
+            || !(0..=100).contains(&self.pricing.onboarding_discount_percent)
+            || !(0..=100).contains(&self.pricing.publish_discount_percent)
             || !(0..=10000).contains(&self.pricing.edit_bps)
+            || !(0..=100).contains(&self.pricing.edit_discount_percent)
             || !(0..=100).contains(&self.pricing.max_edits)
         {
             return Err(AppError::bad_request("Invalid pricing configuration"));
@@ -992,6 +1038,7 @@ impl Config {
             || !matches!(p.publish_mode.as_str(), "salary_percent" | "fixed" | "free")
             || !matches!(p.edit_mode.as_str(), "salary_percent" | "fixed" | "free")
             || (p.publish_mode == "salary_percent" && p.publish_bps == 0)
+            || (p.publish_discount_percent > 0 && p.publish_mode == "free")
             || (p.edit_mode == "salary_percent" && p.edit_bps == 0)
         {
             return Err(AppError::bad_request(
@@ -1014,6 +1061,8 @@ impl Config {
             let amounts = p.amounts(currency)?;
             if !(0..=100_000_000).contains(&amounts.publish_fixed_minor)
                 || !(0..=100_000_000).contains(&amounts.edit_fixed_minor)
+                || !(0..=100).contains(&amounts.publish_discount_percent)
+                || !(0..=100).contains(&amounts.edit_discount_percent)
                 || !(0..=1_000_000_000).contains(&amounts.employer_ai_min_salary_minor)
                 || (p.publish_mode == "fixed" && amounts.publish_fixed_minor == 0)
                 || (p.edit_mode == "fixed" && amounts.edit_fixed_minor == 0)
