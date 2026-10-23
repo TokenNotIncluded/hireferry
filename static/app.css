@@ -214,7 +214,7 @@
 .legal-document h1{margin-top:18px}.legal-document .legal-meta{font-size:11px;color:var(--muted)}.legal-toc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 24px;margin:28px 0 40px;font-size:12px;line-height:1.7}.legal-toc a{color:var(--accent)}.legal-document h2[id]{scroll-margin-top:110px}.legal-document li{margin:10px 0;line-height:1.9}.legal-document ul{padding-left:22px}.legal-document strong{color:var(--ink)}@media(max-width:560px){.legal-toc{grid-template-columns:1fr;font-size:12px;gap:8px}.legal-document .legal-meta{font-size:10px}.legal-document li{font-size:13px}}
 
 /* HumanGrant: an explicit decision, with a separate identity for the assistant. */
-.hg-page,.hg-grants,.hg-login-option{--hg-soft:var(--accent-soft);--hg-tint:color-mix(in srgb,var(--accent-soft) 55%,var(--surface))}
+.hg-page,.hg-grants{--hg-soft:var(--accent-soft);--hg-tint:color-mix(in srgb,var(--accent-soft) 55%,var(--surface))}
 .hg-page{max-width:1040px;padding-block:24px 72px;min-height:calc(100vh - 230px)}
 .hg-page .back-link{margin-bottom:28px;font-size:12px}
 .hg-mark{width:32px;height:32px;color:var(--accent);flex:none}
@@ -222,16 +222,6 @@
 .hg-brand{display:flex;align-items:center;gap:11px;color:var(--accent);font-size:14px;font-weight:600;letter-spacing:-.02em}
 .hg-brand .hg-mark{width:38px;height:38px;padding:5px;border-radius:12px;background:var(--accent-soft);color:var(--on-accent-soft)}
 .hg-brand h2{font-size:20px;letter-spacing:-.025em}
-.hg-login-option{margin-top:12px}
-.hg-login-option .button.hg-continue{gap:12px;background:var(--raised);color:var(--ink);border:1px solid var(--line);padding:11px 18px 11px 12px;min-height:68px;text-align:left}
-.hg-login-option .button.hg-continue:hover{background:var(--hg-tint);border-color:var(--accent);color:var(--ink)}
-.hg-login-icon{display:grid;place-items:center;width:40px;height:40px;flex:none;border-radius:50%;background:var(--accent-soft);color:var(--on-accent-soft)}
-.hg-continue .hg-mark{width:29px;height:29px;color:inherit}
-.hg-login-copy{display:grid;gap:3px;flex:1;min-width:0}
-.hg-login-label{font-size:14px;font-weight:600;line-height:1.4}
-.hg-login-description{font-size:11px;font-weight:400;line-height:1.5;color:var(--muted)}
-.hg-continue>svg:last-child{width:17px;height:17px;color:var(--accent);transition:transform .16s}
-.hg-continue:hover>svg:last-child{transform:translateX(3px)}
 .hg-intro{display:flex;align-items:flex-start;gap:22px;margin:6px 0 30px}
 .hg-heading-icon{display:grid;place-items:center;width:72px;height:72px;flex:none;border-radius:23px;background:var(--accent-soft);color:var(--on-accent-soft);margin-top:3px}
 .hg-heading-icon .hg-mark{color:inherit}
@@ -367,9 +357,8 @@
   .hg-review-aside h1{font-size:29px}.hg-review-card{padding:23px 20px}.hg-card-heading{gap:10px;margin-bottom:23px}.hg-permission{padding:14px 12px;gap:11px}.hg-permission strong{font-size:13px}.hg-permission span>span{font-size:12px}.hg-permission small{font-size:10px}.hg-purpose{font-size:13px;padding:14px 15px}
   .hg-decision-buttons{gap:9px;flex-wrap:wrap}.hg-decision-buttons .button{padding-inline:14px}.hg-confirm{font-size:12px}.hg-request-details>div{grid-template-columns:88px minmax(0,1fr)}
   .hg-grants .panel-header{flex-wrap:wrap;gap:15px}.hg-grants .panel-header>.button{min-height:40px}.hg-grant{padding:17px 15px}.hg-grant-top{flex-wrap:wrap;gap:12px}.hg-no-grants h3{font-size:17px}
-  .hg-login-option .button.hg-continue{gap:10px;padding:10px 15px 10px 11px}.hg-login-icon{width:36px;height:36px}.hg-continue .hg-mark{width:27px;height:27px}.hg-login-label{font-size:14px}.hg-login-description{font-size:11px}
 }
-@media(prefers-reduced-motion:reduce){.hg-permission,.hg-continue>svg:last-child,.hg-instructions summary>svg{transition:none}.hg-continue:hover{transform:none}.hg-continue:hover>svg:last-child{transform:none}}
+@media(prefers-reduced-motion:reduce){.hg-permission,.hg-instructions summary>svg{transition:none}}
 
 /* Spacing and quiet row surfaces replace decorative separators. */
 .data-table tbody > tr:nth-child(even), .wb-table tbody > tr:nth-child(even) { background:color-mix(in srgb,var(--raised) 60%,transparent); }
