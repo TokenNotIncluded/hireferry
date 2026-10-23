@@ -83,7 +83,7 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
             "AI 简历初筛与人才匹配",
-            "聘渡 HireFerry 提供 AI 原生简历初筛与人才双向匹配。早期阶段求职和招聘都免费，可抢注唯一用户名、创建可选公开的个人主页，并连接 ChatGPT、Grok 等 AI profile。",
+            "聘渡 HireFerry 提供 AI 原生简历初筛与人才双向匹配。早期阶段求职和招聘都免费，可注册独一无二的用户名、创建可选公开的个人主页，并连接 ChatGPT、Grok 等 AI profile。",
         ),
         ("/", true) => (
             "AI résumé screening and talent matching",
@@ -223,7 +223,7 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     "先与平台私聊。匹配后共享资料并开始交流，在工作台查看匹配与沟通进展。",
                     "Start with a private conversation. Share profiles after a match and track introductions and conversations in your workspace."
                 ),
-                t("抢注个人主页", "Claim your homepage"),
+                t("注册独一无二的名字", "Register a unique name"),
                 t("免费创建岗位", "Create a free role")
             ),
             "/cli" => format!(
