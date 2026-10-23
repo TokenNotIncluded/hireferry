@@ -81,6 +81,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/api/admin/team/invitations/{id}/resend", post(resend))
         .route("/api/admin/team/members/{id}", patch(update_member))
+        .route("/api/admin/team/members/{id}", delete(delete_member))
         .route("/api/admin/team/ai", post(create_ai))
         .route("/api/admin/team/members/{id}/token", post(rotate_ai_token))
         .route("/api/team/invitations/preview", post(preview))
@@ -751,6 +752,28 @@ async fn update_member(
     let result = member(&tx, &id)?;
     tx.commit()?;
     Ok(Json(json!({"member":result})))
+}
+
+async fn delete_member(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<StatusCode> {
+    let session = owner(&s, &headers, true)?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    ensure_owner(&tx, &session, false)?;
+    let old = member(&tx, &id)?;
+    if old["kind"] != "ai" {
+        return Err(AppError::bad_request(
+            "Only AI employee identities can be deleted",
+        ));
+    }
+    tx.execute("DELETE FROM team_ai_tokens WHERE member_id=?1", [&id])?;
+    tx.execute("DELETE FROM team_members WHERE id=?1", [&id])?;
+    audit(&tx, &owner_actor(&session), "team_ai_delete", &id, "")?;
+    tx.commit()?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
