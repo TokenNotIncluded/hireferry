@@ -442,7 +442,9 @@ def _smoke_android(args):
             # Clear the actual field value, then enter only the test origin.
             run(command + ["shell", "input", "keyevent", *["KEYCODE_DEL"] * (len(entry.get("text", "")) + 2)])
             run(command + ["shell", "input", "text", address])
-            run(command + ["shell", "input", "keyevent", "KEYCODE_BACK"])
+            # BACK exits the activity when the emulator uses a hardware
+            # keyboard and therefore has no soft keyboard to dismiss.
+            run(command + ["shell", "input", "keyevent", "KEYCODE_ESCAPE"])
             root, _ = wait_ui(launcher, "retain the connection form")
             tap(node_with(root, "Open workspace", "进入工作台"))
             root, layout = wait_ui(lambda r: node_with(r, "Remote IPC denied") is not None, "load the test service and reject remote native commands")
