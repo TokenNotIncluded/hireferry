@@ -82,12 +82,12 @@ pub(crate) fn is_public_profile_path(path: &str) -> bool {
 fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
-            "AI 简历初筛与人才匹配",
-            "聘渡 HireFerry 提供 AI 原生简历初筛与人才双向匹配。早期阶段求职和招聘都免费，可注册独一无二的用户名、创建可选公开的个人主页，并连接 ChatGPT、Grok 等 AI profile。",
+            "投了几百份简历石沉大海？让 AI 持续帮你找工作",
+            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接 HireFerry AI 后 7×24 持续筛选岗位、匹配机会。早期阶段求职和招聘都免费。",
         ),
         ("/", true) => (
-            "AI résumé screening and talent matching",
-            "HireFerry connects people and roles with AI résumé screening and talent matching. Early access is free for job seekers and employers, with unique usernames, optional public profiles and AI profile links.",
+            "Hundreds of résumés and no reply? Let AI keep looking",
+            "Set your target role, location and salary expectations. Connect HireFerry AI to keep screening roles and matching opportunities around the clock. Early access is free for job seekers and employers.",
         ),
         ("/cli", false) => (
             "hfy CLI 与 AI 技能安装",
@@ -215,8 +215,8 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                 ),
                 t("说说你的期待", "Share your plans"),
                 t(
-                    "提交简历或岗位需求，和平台聊清你的期待。AI 自动初筛简历并匹配岗位。",
-                    "Share a résumé or a role and tell the platform what matters to you. AI screens résumés and matches people with roles."
+                    "填写求职目标、地点和薪资期待，连接 AI 后 7×24 持续筛选岗位并匹配机会。",
+                    "Set your target role, location and salary expectations. Connect AI to keep screening roles and matching opportunities around the clock."
                 ),
                 t("合适再认识", "Meet your match"),
                 t(
