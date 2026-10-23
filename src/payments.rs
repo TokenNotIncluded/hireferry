@@ -230,8 +230,24 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
     })
 }
 
+pub fn waffo_mode(state: &AppState, db: &rusqlite::Connection) -> AppResult<String> {
+    use rusqlite::OptionalExtension;
+    Ok(db
+        .query_row(
+            "SELECT mode FROM payment_settings WHERE provider='waffo'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or_else(|| state.cfg.payments.waffo.mode.clone()))
+}
+
 async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResult<Checkout> {
-    let cfg = &state.cfg.payments.waffo;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(if order.live_mode { "prod" } else { "test" })?;
     if !cfg.enabled
         || cfg.merchant_id.is_empty()
         || cfg.store_id.is_empty()
@@ -318,7 +334,11 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
 }
 
 fn waffo_checkout_body(state: &AppState, order: &Order, email: &str) -> AppResult<Value> {
-    let cfg = &state.cfg.payments.waffo;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(if order.live_mode { "prod" } else { "test" })?;
     let snapshot: Value = serde_json::from_str(&order.snapshot_json).map_err(AppError::internal)?;
     let (_, region) = cfg.checkout_region(&order.currency, snapshot["payment_region"].as_str())?;
     Ok(json!({
@@ -405,7 +425,17 @@ async fn waffo_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> AppResult<StatusCode> {
-    let cfg = &state.cfg.payments.waffo;
+    let event: Value = serde_json::from_slice(&body)
+        .map_err(|_| AppError::bad_request("Invalid payment event"))?;
+    let mode = event["mode"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing payment mode"))?;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(mode)
+        .map_err(|_| AppError::bad_request("Incorrect or unconfigured payment environment"))?;
     if !cfg.enabled
         || cfg.webhook_public_key_pem.is_empty()
         || cfg.store_id.is_empty()
@@ -422,8 +452,6 @@ async fn waffo_webhook(
     ) {
         return Err(AppError::unauthorized("Invalid payment signature"));
     }
-    let event: Value = serde_json::from_slice(&body)
-        .map_err(|_| AppError::bad_request("Invalid payment event"))?;
     if let Some(receipt) = waffo_receipt(&event, &cfg.mode, &cfg.store_id)? {
         crate::commerce::settle_payment(&state, receipt).await?;
     } else if let Some(receipt) = waffo_refund(&event, &cfg.mode, &cfg.store_id)? {

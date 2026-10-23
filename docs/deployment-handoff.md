@@ -77,7 +77,7 @@ source_url = "https://github.com/TokenNotIncluded/hireferry"
 
 `[site].support_email` 与 `[smtp].reply_to` 是两个独立字段。页面联系方式不会替代 SMTP 的获准发件地址，也不会自动修改该地址。PEM 密钥可使用 TOML 多行字面量字符串保存；不要在日志、截图、Git 或工单中贴出密钥。
 
-系统设置没有网页修改入口。`GET /api/config` 和远程 MCP `get_site_config` 只读公开的币种、费用、网关可用币种和业务限额，不暴露密钥。修改 TOML 后运行 check-config，再重启服务。
+支付环境可由超级管理员在经营总览切换，配置方式见 [支付说明](payments.md#switching-waffo-environments)。密钥仍只写入配置文件；其他系统设置没有网页修改入口。`GET /api/config` 和远程 MCP `get_site_config` 只读公开的币种、费用、网关可用币种和业务限额，不暴露密钥。修改 TOML 后运行 check-config，再重启服务。
 
 服务条款和隐私政策由 `/api/legal/{terms|privacy}?lang={zh|en}` 提供清洗后的 HTML、版本和生效日期。部署前按 [政策配置](legal-policies.md) 核实运营方与承诺值，并回读两个语言版本；外部 Markdown 文件相对 TOML 所在目录解析。未识别变量或无效文档会阻止配置加载。默认价格段落会区分免费、固定金额和按底薪比例，按币种精度显示并说明旧岗位条款保留。保留期、退款响应和注销时限是运营承诺，配置不会自动创建相应后台流程。
 

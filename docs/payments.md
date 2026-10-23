@@ -409,3 +409,30 @@ production verification key together, after store approval. Preserve the previou
 credentials outside Git; never change a test order into a live order.
 
 On 2026-10-22 the live **test API** accepted `includePaymentMethods: ["wechat", "alipay"]` for both CNY and USD, although the published payment matrix still listed only WeChat Pay. This verifies session creation, not a real charge or production approval.
+
+
+## Switching Waffo environments
+
+Keep `[payments.waffo]` as the existing test credentials with `mode = "test"`.
+Add `[payments.waffo.production]` with `merchant_id`, `store_id`, `product_id`,
+`private_key_pem`, `webhook_public_key_pem`, and `tax_category` from the approved
+production merchant/product. Both profiles share `base_url`, allowed currencies
+and checkout regions. Restart after editing credentials and run `check-config` first.
+The optional production section must be complete and contain parseable RSA keys.
+
+The owner sees the current Waffo environment and a switch in Admin > Overview
+(and Orders). Switching requires administrator authorization and CSRF protection,
+is audited, and persists in SQLite `payment_settings`. On first deployment the
+TOML `mode` supplies the default; after an administrator saves a choice, that
+choice survives restarts. No secrets can be edited or read through this endpoint.
+A missing production profile disables the production switch.
+
+Switching affects **new orders only**. Each existing order keeps `live_mode`;
+checkout selects its corresponding credentials even after a switch. Both webhook
+environments remain accepted with their own verification keys and store IDs;
+settlement still checks the order environment. Register test and production
+webhooks for `order.completed`, `refund.succeeded`, and `refund.failed` at the
+same `/api/webhooks/waffo` URL. This permits late payments and refunds after a switch.
+Keep both profiles when upgrading or rolling back. A persisted environment without
+its matching credentials prevents startup. Provider approval and a parseable key
+do not by themselves prove that a real payment and refund work end to end.

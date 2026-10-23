@@ -344,6 +344,18 @@ pub struct Waffo {
     pub tax_category: String,
     pub mode: String,
     pub checkout_regions: BTreeMap<String, WaffoRegion>,
+    pub production: Option<WaffoProduction>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaffoProduction {
+    pub merchant_id: String,
+    pub store_id: String,
+    pub product_id: String,
+    pub private_key_pem: String,
+    pub webhook_public_key_pem: String,
+    pub tax_category: String,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -365,6 +377,7 @@ impl Default for Waffo {
             webhook_public_key_pem: "".into(),
             tax_category: "".into(),
             mode: "test".into(),
+            production: None,
             checkout_regions: BTreeMap::from([
                 (
                     "global".into(),
@@ -390,6 +403,55 @@ impl Default for Waffo {
 }
 
 impl Waffo {
+    pub fn for_mode(&self, mode: &str) -> AppResult<Self> {
+        if !matches!(mode, "test" | "prod") {
+            return Err(AppError::bad_request("Choose test or prod payment mode"));
+        }
+        let mut selected = self.clone();
+        selected.production = None;
+        if mode == "prod" {
+            if let Some(p) = &self.production {
+                selected.merchant_id = p.merchant_id.clone();
+                selected.store_id = p.store_id.clone();
+                selected.product_id = p.product_id.clone();
+                selected.private_key_pem = p.private_key_pem.clone();
+                selected.webhook_public_key_pem = p.webhook_public_key_pem.clone();
+                selected.tax_category = p.tax_category.clone();
+            } else if self.mode != "prod" {
+                return Err(AppError::unavailable(
+                    "Production Waffo credentials are not configured",
+                ));
+            }
+        } else if self.mode == "prod" {
+            return Err(AppError::unavailable(
+                "Test Waffo credentials are not configured",
+            ));
+        }
+        selected.mode = mode.into();
+        if [
+            &selected.merchant_id,
+            &selected.store_id,
+            &selected.product_id,
+            &selected.private_key_pem,
+            &selected.webhook_public_key_pem,
+            &selected.tax_category,
+        ]
+        .iter()
+        .any(|v| v.trim().is_empty())
+        {
+            return Err(AppError::unavailable("Waffo credentials are incomplete"));
+        }
+        use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey};
+        use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
+        rsa::RsaPrivateKey::from_pkcs8_pem(&selected.private_key_pem)
+            .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_pem(&selected.private_key_pem))
+            .map_err(|_| AppError::bad_request("Invalid Waffo private key"))?;
+        rsa::RsaPublicKey::from_public_key_pem(&selected.webhook_public_key_pem)
+            .or_else(|_| rsa::RsaPublicKey::from_pkcs1_pem(&selected.webhook_public_key_pem))
+            .map_err(|_| AppError::bad_request("Invalid Waffo webhook public key"))?;
+        Ok(selected)
+    }
+
     pub fn checkout_region(
         &self,
         currency: &str,
@@ -908,6 +970,15 @@ impl Config {
             return Err(AppError::bad_request(
                 "Waffo merchant, product, keys, tax_category and test/prod mode are required",
             ));
+        }
+        if w.production.is_some() {
+            if w.mode != "test" {
+                return Err(AppError::bad_request(
+                    "Keep base Waffo credentials in test mode when configuring production",
+                ));
+            }
+            w.for_mode("prod")?;
+            w.for_mode("test")?;
         }
         if !(0..=100000000).contains(&self.pricing.onboarding_cents)
             || !(0..=10000).contains(&self.pricing.publish_bps)

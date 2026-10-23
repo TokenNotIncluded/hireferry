@@ -81,6 +81,17 @@ mode = "test" # Exactly "test" or "prod".
 # See docs/payments.md for provider setup, signatures and environment checks.
 
 # These select payment methods, not separate API servers or billing countries.
+# Optional separate production credentials. Keep the base credentials above in test mode.
+# Once complete, the owner can switch new orders in Admin > Overview without restarting.
+# The selected mode is persisted in SQLite; credentials always remain in this file.
+# [payments.waffo.production]
+# merchant_id = ""
+# store_id = ""
+# product_id = ""
+# private_key_pem = ""
+# webhook_public_key_pem = ""
+# tax_category = "saas"
+
 [payments.waffo.checkout_regions.global]
 currencies = ["USD", "EUR", "GBP", "HKD", "JPY"]
 payment_methods = ["card", "applepay", "googlepay"]

@@ -66,6 +66,18 @@ impl AppState {
         let db = db::open(&cfg.database)?;
         webhooks::configure(&db, &cfg.webhooks)?;
         notifications::configure(&db, cfg.smtp.enabled)?;
+        let saved_mode: Option<String> = {
+            use rusqlite::OptionalExtension;
+            db.query_row(
+                "SELECT mode FROM payment_settings WHERE provider='waffo'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?
+        };
+        if let Some(mode) = saved_mode {
+            cfg.payments.waffo.for_mode(&mode)?;
+        }
         let auth = auth::AuthService::new(&cfg)?;
         Ok(Self {
             cfg: Arc::new(cfg),

@@ -18,6 +18,10 @@ use serde_json::{Value, json};
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/admin/overview", get(overview))
+        .route(
+            "/api/admin/payments/waffo",
+            get(waffo_settings).post(change_waffo_mode),
+        )
         .route("/api/admin/users", get(users))
         .route("/api/admin/users/{id}", get(user_detail).patch(update_user))
         .route(
@@ -1026,4 +1030,56 @@ async fn update_match(
     let p = guard(&s, &h, true)?;
     patch_match(&s, &p, &id, i)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn waffo_settings_data(s: &AppState, db: &Connection) -> AppResult<Value> {
+    let w = &s.cfg.payments.waffo;
+    Ok(
+        json!({"enabled":w.enabled,"mode":crate::payments::waffo_mode(s, db)?,
+        "test_ready":w.enabled && w.for_mode("test").is_ok(),
+        "production_ready":w.enabled && w.for_mode("prod").is_ok()}),
+    )
+}
+async fn waffo_settings(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, false)?;
+    let db = s.conn()?;
+    access::ensure_admin(&db, &p)?;
+    Ok(Json(waffo_settings_data(&s, &db)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WaffoModeInput {
+    mode: String,
+    expected_mode: String,
+}
+async fn change_waffo_mode(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<WaffoModeInput>,
+) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, true)?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    access::ensure_admin(&tx, &p)?;
+    if !s.cfg.payments.waffo.enabled {
+        return Err(AppError::unavailable("Waffo is disabled"));
+    }
+    s.cfg.payments.waffo.for_mode(&input.mode)?;
+    let previous = crate::payments::waffo_mode(&s, &tx)?;
+    if previous != input.expected_mode {
+        return Err(AppError::conflict(
+            "Payment mode changed; refresh and retry",
+        ));
+    }
+    tx.execute("INSERT INTO payment_settings(provider,mode) VALUES('waffo',?1) ON CONFLICT(provider) DO UPDATE SET mode=excluded.mode", [&input.mode])?;
+    audit(
+        &tx,
+        &p.actor,
+        "payment_mode_change",
+        "waffo",
+        &json!({"from":previous,"to":input.mode}).to_string(),
+    )?;
+    let result = waffo_settings_data(&s, &tx)?;
+    tx.commit()?;
+    Ok(Json(result))
 }
