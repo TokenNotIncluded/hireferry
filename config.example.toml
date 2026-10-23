@@ -105,16 +105,19 @@ payment_methods = ["wechat", "alipay"]
 # before enabling additional currencies. No automatic exchange conversion.
 currency = "CNY"
 allowed_currencies = ["CNY"]
-onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+onboarding_cents = 10000 # Original integer minor units.
+onboarding_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
 # Additional activation prices are independent of job/salary currencies.
 # Example fixed prices; the server never infers exchange rates.
 # onboarding_amounts = { USD = 1498, EUR = 1333, GBP = 1118, HKD = 11752, JPY = 2368 }
 publish_mode = "salary_percent" # salary_percent, fixed, or free
-publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
-publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
+publish_bps = 1000 # Original rate; 10000 basis points = 100%.
+publish_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+publish_fixed_minor = 30000 # Original amount in this currency's minor unit; discount applies after calculation.
 edit_mode = "salary_percent" # Snapshot is retained for the lifetime of each job.
-edit_bps = 100 # Percentage of the original base salary, not the publication fee.
-edit_fixed_minor = 3000
+edit_bps = 100 # Original percentage of base salary, not the publication fee.
+edit_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 max_edits = 3 # Applies to JD edits; headcount changes and deletion stay free.
 employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new jobs.
 
@@ -122,7 +125,7 @@ employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new j
 # Values are business settings, not exchange rates; review before enabling.
 # [pricing.currency_amounts.USD]
 # publish_fixed_minor = 30000
-# edit_fixed_minor = 3000
+# edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 # employer_ai_min_salary_minor = 300000
 # For JPY/KRW, one minor unit is one yen/won (no multiplication by 100).
 

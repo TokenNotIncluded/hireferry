@@ -80,6 +80,10 @@ CLI admin-bootstrap 口令一次性、10 分钟有效。首次引导会话 5 分
 
 公开 `pricing` 包含默认 `currency`、`currency_decimals`、`allowed_currencies`、`currency_options`，以及 `onboarding_cents`、发布/修改的 `*_mode`、`*_bps`、`*_fixed_minor`、`max_edits` 和 `employer_ai_min_salary_minor`。每个 `currency_options` 项提供币种、精度和该币种的两项固定费用及 AI 门槛。`payment_currencies` 按已启用网关列出它当前允许的币种，例如 `{stripe:["USD","JPY"],waffo:["USD"]}`；它独立于新岗位的可选币种，旧订单仍可能使用其他历史币种。`limits` 提供 `max_job_headcount`、`max_pending_orders_per_user`、`list_page_size`、`list_max_page`、`workbench_page_size`、`recent_list_limit`。工作台默认页大小可配置为 1–100（模板 25），最近记录上限可配置为 1–1000（模板 200）。
 
+价格配置同时发布原价与折扣价：`onboarding_original_minor` / `onboarding_minor`、`onboarding_discount_percent`，以及每个 `currency_options` 的 `publish_fixed_minor` / `publish_discount_percent` 和 `edit_fixed_minor` / `edit_discount_percent`。百分比是减免比例，不是剩余比例；`0` 表示原价，`100` 表示免费。工资比例模式也先按原始 `bps` 计算，再应用折扣。折扣后的最小单位金额为 0 时，只有折扣正好为 100% 才允许免费。首页、定价区、开通页和相关价格说明会把原价显示为删除线，再显示折扣价。
+
+当开通、发布或修改的最终金额为 0，服务端直接创建 `provider="free"`、`status="paid"` 的订单或立即应用修改，不调用 Stripe/Waffo；支付页面显示“免费完成”。调用方不应为免费操作传入支付网关。
+
 公开法律文档来自独立中英 Markdown 模板；`[legal.values]` 和 `[legal.document_files]` 配置公开政策值及完整替代文本。费用模式、币种、整数金额精度、修改次数与 AI 门槛从运行配置派生，不能被政策值覆盖。加载配置时校验所有文档和变量，渲染过滤原始 HTML 与不安全链接。详见 [政策配置](legal-policies.md)。
 
 ### HumanGrant 入口与确认
@@ -407,7 +411,7 @@ OutreachInput 必填 channel、opportunity、stage，可选 source_url、note（
 
 ### 传输与请求
 
-端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。MCP 连接不提供第三方客户端的 OAuth 自动接入、resources/prompts、MCP 会话 ID 或 MCP GET/SSE 通道。聊天的原生 SSE 位于 `/api/chat/events/stream`，增量消息也可通过 MCP 工具读写，见 [Agent 聊天协议](chat-agents.md)。
+端点 `POST /mcp`，协议 `2025-11-25`，无状态 Streamable HTTP，使用 JSON 响应。接受现有个人或管理员 Bearer 令牌，以及普通用户批准后的 HumanGrant 签名请求。Cookie 不能代替远程 MCP 凭据。MCP 连接不提供第三方客户端的 OAuth 自动接入、MCP 会话 ID 或 MCP GET/SSE 通道；提供只读 `resources/list` / `resources/read` 开发者文档资源。聊天的原生 SSE 位于 `/api/chat/events/stream`，增量消息也可通过 MCP 工具读写，见 [Agent 聊天协议](chat-agents.md)。
 
 ```http
 Authorization: Bearer <personal-token-or-admin-token>
@@ -422,7 +426,7 @@ HumanGrant 使用 `Authorization: HumanGrant <access_token>`，并按 [签名规
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"my-hr-agent","version":"1.0"}}}
 ```
 
-支持 initialize、ping、tools/list、tools/call。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。普通用户和管理员分别获得其业务工具、公开配置与下列会话工具；当前工具集合以 `tools/list` 为准。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。HumanGrant 的 `tools/list` 只返回当前授权允许的工具，`tools/call` 在执行时继续检查具体资源和当前权限。HumanGrant 不开放管理员工具、`choose_role`、`create_checkout` 或 `update_mandate`。
+支持 initialize、ping、tools/list、tools/call、resources/list、resources/read。无 id 通知返回 202。显式不支持的 MCP-Protocol-Version 头返回 400。普通用户和管理员分别获得其业务工具、公开配置与下列会话工具；当前工具集合以 `tools/list` 为准。发布的 inputSchema 均为 object、additionalProperties=false；required 以 tools/list 为准。工作台 limit 默认值和招聘人数最大值按当前配置发布。HumanGrant 的 `tools/list` 只返回当前授权允许的工具，`tools/call` 在执行时继续检查具体资源和当前权限。HumanGrant 不开放管理员工具、`choose_role`、`create_checkout` 或 `update_mandate`。
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}

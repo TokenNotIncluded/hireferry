@@ -154,7 +154,9 @@ fn currency_and_fee_configuration_rejects_ambiguous_or_invalid_values() {
         "JPY".into(),
         CurrencyAmounts {
             publish_fixed_minor: 3000,
+            publish_discount_percent: 0,
             edit_fixed_minor: 300,
+            edit_discount_percent: 0,
             employer_ai_min_salary_minor: 300000,
         },
     );
@@ -445,7 +447,9 @@ async fn selected_currency_uses_explicit_amounts_and_limits_are_configurable() {
         "USD".into(),
         CurrencyAmounts {
             publish_fixed_minor: 888,
+            publish_discount_percent: 0,
             edit_fixed_minor: 88,
+            edit_discount_percent: 0,
             employer_ai_min_salary_minor: 12345,
         },
     );
@@ -567,4 +571,33 @@ PRAGMA user_version=3;
         .unwrap(),
         0
     );
+}
+
+#[test]
+fn configured_discount_preserves_original_quote_and_zero_skips_gateway() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.onboarding_cents = 1000;
+    cfg.pricing.onboarding_discount_percent = 50;
+    cfg.pricing.publish_mode = "fixed".into();
+    cfg.pricing.publish_fixed_minor = 2000;
+    cfg.pricing.publish_discount_percent = 25;
+    cfg.pricing.edit_mode = "fixed".into();
+    cfg.pricing.edit_fixed_minor = 500;
+    cfg.pricing.edit_discount_percent = 100;
+    cfg.validate().unwrap();
+    assert_eq!(cfg.pricing.onboarding_original_amount("CNY").unwrap(), 1000);
+    assert_eq!(cfg.pricing.onboarding_amount("CNY").unwrap(), 500);
+    assert_eq!(
+        hireferry::config::Pricing::discount_amount(2000, 25).unwrap(),
+        1500
+    );
+    assert_eq!(
+        hireferry::config::Pricing::discount_amount(500, 100).unwrap(),
+        0
+    );
+    let public = cfg.pricing.public();
+    assert_eq!(public["onboarding_original_minor"], 1000);
+    assert_eq!(public["onboarding_minor"], 500);
+    assert_eq!(public["onboarding_discount_percent"], 50);
 }
