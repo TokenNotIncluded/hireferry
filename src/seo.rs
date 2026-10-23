@@ -72,11 +72,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
             "AI 简历初筛与人才匹配",
-            "聘渡 HireFerry 提供 AI 原生简历初筛与人才双向匹配。提交简历或岗位需求，匹配后共享资料并开始交流。求职免费，招聘按次付费。",
+            "聘渡 HireFerry 提供 AI 原生简历初筛与人才双向匹配。早期阶段求职和招聘都免费，可抢注唯一用户名、创建可选公开的个人主页，并连接 ChatGPT、Grok 等 AI profile。",
         ),
         ("/", true) => (
             "AI résumé screening and talent matching",
-            "HireFerry connects people and roles with AI résumé screening and talent matching. Share profiles after a match. Free for job seekers; employers pay per posting.",
+            "HireFerry connects people and roles with AI résumé screening and talent matching. Early access is free for job seekers and employers, with unique usernames, optional public profiles and AI profile links.",
         ),
         ("/cli", false) => (
             "hfy CLI 与 AI 技能安装",
