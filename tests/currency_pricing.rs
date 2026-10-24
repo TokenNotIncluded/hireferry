@@ -557,7 +557,7 @@ PRAGMA user_version=3;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        15
+        17
     );
     assert_eq!(
         db.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
@@ -600,4 +600,45 @@ fn configured_discount_preserves_original_quote_and_zero_skips_gateway() {
     assert_eq!(public["onboarding_original_minor"], 1000);
     assert_eq!(public["onboarding_minor"], 500);
     assert_eq!(public["onboarding_discount_percent"], 50);
+}
+
+#[tokio::test]
+async fn configured_full_edit_discount_is_recorded_and_skips_gateway() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.publish_mode = "fixed".into();
+    cfg.pricing.publish_fixed_minor = 2_000;
+    cfg.pricing.edit_mode = "fixed".into();
+    cfg.pricing.edit_fixed_minor = 500;
+    cfg.pricing.edit_discount_percent = 100;
+    cfg.validate().unwrap();
+    let state = AppState::new(cfg).unwrap();
+    let owner = employer(&state);
+    let (job, publication) =
+        commerce::new_job(&state, &owner, "Paid role", "Original", 100, "stripe").unwrap();
+    commerce::settle_payment(&state, receipt(&publication))
+        .await
+        .unwrap();
+    let ledger_before: i64 = state
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM ledger", [], |row| row.get(0))
+        .unwrap();
+
+    let (edited, order) =
+        commerce::edit_job(&state, &owner, &job.id, "Applied immediately", "ignored").unwrap();
+    assert_eq!(edited.jd_md, "Applied immediately");
+    assert_eq!(order.amount_cents, 0);
+    assert_eq!(order.provider, "free");
+    assert_eq!(order.status, "paid");
+    assert!(order.checkout_url.is_none());
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT count(*) FROM ledger", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        ledger_before
+    );
 }
