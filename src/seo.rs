@@ -269,11 +269,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
         ),
         ("/for-employers", false) => (
             "AI 自动筛简历与免费发布岗位",
-            "正在找 AI 自动筛简历、智能简历筛选或人岗匹配工具？HireFerry 让招聘方早期免费发布岗位，授权 AI 按岗位要求整理公开候选人线索；不抓取 BOSS 直聘等第三方平台，邮箱、订单和私聊保持私密。",
+            "正在找 AI 自动筛简历、智能简历筛选或人岗匹配工具？HireFerry 让招聘方永久免费发布岗位，授权 AI 异步按岗位要求整理公开候选人线索；不抓取 BOSS 直聘等第三方平台，邮箱、订单和私聊保持私密。",
         ),
         ("/for-employers", true) => (
             "AI resume screening and free job publishing",
-            "Looking for AI resume screening, intelligent candidate filtering or job matching? HireFerry lets recruiters publish roles free during early access and authorize AI to organize public candidate signals; it does not scrape BOSS Zhipin or other third-party platforms, and keeps email, orders and private chats private.",
+            "Looking for AI resume screening, intelligent candidate filtering or job matching? HireFerry lets recruiters publish roles permanently free and authorize asynchronous AI passes to organize public candidate signals; it does not scrape BOSS Zhipin or other third-party platforms, and keeps email, orders and private chats private.",
         ),
         ("/for-job-tools", false) => (
             "本地求职工具与 HireFerry 公开发现层",
@@ -437,14 +437,14 @@ pub(crate) fn page(
             "/for-employers" => format!(
                 "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><h2>{}</h2><p>{}</p><p><a class=\"button\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a> <a class=\"button secondary\" href=\"/discover\">{}</a></p>",
                 t(
-                    "AI 自动筛简历，少收一堆不匹配简历。",
-                    "AI resume screening, with fewer mismatched résumés."
+                    "AI 异步初筛，少收一堆不匹配简历。",
+                    "Asynchronous AI screening, with fewer mismatched résumés."
                 ),
                 description,
-                t("招聘方早期阶段权益", "Early-access recruiter benefits"),
+                t("招聘方永久免费权益", "Permanent free recruiter benefits"),
                 t(
-                    "免费开通、无需月费，免费发布岗位",
-                    "Free activation and role publishing, with no monthly fee"
+                    "永久免费开通、无需月费，免费发布岗位；如果帮你招到人，欢迎捐赠支持",
+                    "Permanent free activation and role publishing, with no monthly fee; donations are welcome if we help you hire"
                 ),
                 t(
                     "只公开你主动发布的岗位内容",
@@ -455,12 +455,12 @@ pub(crate) fn page(
                     "The public MCP lets AI read the role directly"
                 ),
                 t(
-                    "AI 自动筛简历，先看公开证据",
-                    "AI resume screening starts with public evidence"
+                    "AI 异步筛选，先看公开证据",
+                    "Asynchronous AI screening starts with public evidence"
                 ),
                 t(
-                    "如果你正在找 BOSS 直聘自动筛简历、AI 自动筛简历或人岗匹配工具，HireFerry 走的是自己的公开岗位与公开主页路径：不抓取第三方简历、不自动打招呼，只有本人主动公开的内容才会被 AI 读取。",
-                    "If you are looking for BOSS Zhipin resume screening, AI resume screening or job matching, HireFerry uses its own public roles and profiles: it does not scrape third-party résumés or send automatic greetings, and AI reads only what people explicitly publish."
+                    "如果你正在找 BOSS 直聘自动筛简历、AI 自动筛简历或人岗匹配工具，HireFerry 走的是自己的公开岗位与公开主页路径：AI 以异步、主动式批次处理，不抓取第三方简历、不自动打招呼，只有本人主动公开的内容才会被读取。",
+                    "If you are looking for BOSS Zhipin resume screening, AI resume screening or job matching, HireFerry uses its own public roles and profiles: asynchronous proactive passes process the work; it does not scrape third-party résumés or send automatic greetings, and reads only what people explicitly publish."
                 ),
                 t("免费发布一个岗位", "Post one role free"),
                 t("先看公开目录", "View public directory")
