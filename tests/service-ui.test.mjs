@@ -874,6 +874,8 @@ test('unclaimed profile setup offers an immediate save-name action beside the us
   const html = await app.profilePage();
   assert.match(html, /<form id="profile-form" data-form="profile">/);
   assert.match(html, /name="handle" form="profile-form" autofocus/);
+  assert.match(html, /value="a-seeker"/);
+  assert.match(html, /点击保存后才会真正抢注/);
   assert.match(html, /profile-claim-actions/);
   assert.match(html, /保存名字并继续/);
 });
