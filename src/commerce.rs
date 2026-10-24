@@ -456,7 +456,7 @@ pub fn new_job_with_promo(
     }
     let id = uuid::Uuid::new_v4().to_string();
     tx.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,version,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",params![id,uid,title,jd,salary,currency,amounts.employer_ai_min_salary_minor,headcount,if amount == 0 {"published"} else {"draft"},if amount == 0 {1} else {0},now()])?;
-    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
+    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
     if let Some(code) = &promo {
         snapshot["promo"] = json!({"code_id":code.id,"code":code.code,"discount_percent":code.discount_percent,"original_amount_cents":original_amount});
     }
