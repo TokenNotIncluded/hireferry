@@ -72,6 +72,33 @@ async fn public_directory_only_exposes_explicit_resumes_and_active_published_rol
     );
     assert!(jobs["items"][0].get("public_email").is_none());
 
+    let detail = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/public/jobs/job-public")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), axum::http::StatusCode::OK);
+    let detail: Value =
+        serde_json::from_slice(&detail.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(detail["title"], "Rust API maintainer");
+
+    let closed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/public/jobs/job-closed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(closed.status(), axum::http::StatusCode::NOT_FOUND);
+
     let response = app
         .clone()
         .oneshot(
@@ -90,6 +117,27 @@ async fn public_directory_only_exposes_explicit_resumes_and_active_published_rol
     assert_eq!(
         people["items"][0]["ai_profile_links"]["chatgpt"],
         "https://chatgpt.com/g/ada"
+    );
+
+    let person = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/public/people/ada")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(person.status(), axum::http::StatusCode::OK);
+    let person: Value =
+        serde_json::from_slice(&person.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(person["handle"], "ada");
+    assert!(
+        person["resume_html"]
+            .as_str()
+            .unwrap()
+            .contains("I build APIs")
     );
 
     let hidden = app
