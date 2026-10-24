@@ -87,6 +87,17 @@ pub struct ProfileInput {
     #[serde(default)]
     pub ai_profile_links: std::collections::BTreeMap<String, String>,
 }
+
+fn is_generated_handle(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("user_") else {
+        return false;
+    };
+    (16..=27).contains(&suffix.len())
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<User> {
     safety::bounded_text(&input.name, 120, "Name")?;
     let db = s.conn()?;
@@ -158,6 +169,11 @@ pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<Us
     )?;
     if handle_taken {
         return Err(AppError::conflict("That username is already taken"));
+    }
+    if input.public_profile && is_generated_handle(&handle) {
+        return Err(AppError::bad_request(
+            "Claim a custom username before publishing your profile",
+        ));
     }
     // Retain the legacy input field for compatibility, but it never grants
     // discovery access. Only the platform and explicit matches see a profile.
