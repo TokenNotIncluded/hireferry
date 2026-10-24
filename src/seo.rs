@@ -437,8 +437,8 @@ pub(crate) fn page(
             "/for-employers" => format!(
                 "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><h2>{}</h2><p>{}</p><p><a class=\"button\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a> <a class=\"button secondary\" href=\"/discover\">{}</a></p>",
                 t(
-                    "把岗位交给 AI，少收一堆不匹配简历。",
-                    "Let AI sort the signal from the noise."
+                    "AI 自动筛简历，少收一堆不匹配简历。",
+                    "AI resume screening, with fewer mismatched résumés."
                 ),
                 description,
                 t("招聘方早期阶段权益", "Early-access recruiter benefits"),
