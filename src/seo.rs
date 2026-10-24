@@ -237,11 +237,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
             "投了几百份简历石沉大海？让 AI 持续帮你找工作",
-            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接 HireFerry AI 后 7×24 持续筛选岗位，做简历与岗位匹配。早期阶段求职和招聘都免费。",
+            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接 HireFerry AI 后由异步、主动式服务按周期筛选岗位，做简历与岗位匹配。当前求职和招聘永久免费，欢迎捐赠支持早期项目。",
         ),
         ("/", true) => (
             "Hundreds of résumés and no reply? Let AI keep looking",
-            "Set your target role, location and salary expectations. Connect HireFerry AI to keep screening roles and matching opportunities around the clock. Early access is free for job seekers and employers.",
+            "Set your target role, location and salary expectations. HireFerry AI works asynchronously and proactively in scheduled passes, then returns when there is progress. Job seeking and hiring are currently free; donations support the early project.",
         ),
         ("/cli", false) => (
             "hfy CLI 与 AI 技能安装",
@@ -422,8 +422,8 @@ pub(crate) fn page(
                 ),
                 t("说说你的期待", "Share your plans"),
                 t(
-                    "填写求职目标、地点和薪资期待，连接 AI 后 7×24 持续筛选岗位并匹配机会。",
-                    "Set your target role, location and salary expectations. Connect AI to keep screening roles and matching opportunities around the clock."
+                    "填写求职目标、地点和薪资期待，连接 AI 后由异步、主动式服务按周期筛选岗位并匹配机会，有进展时主动回来。",
+                    "Set your target role, location and salary expectations. Connect AI for asynchronous, proactive passes that screen roles and match opportunities, then return when there is progress."
                 ),
                 t("合适再认识", "Meet your match"),
                 t(
