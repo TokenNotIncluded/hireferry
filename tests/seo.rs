@@ -1,6 +1,7 @@
 use axum::{body::Body, http::Request};
 use hireferry::{AppState, config::Config};
 use http_body_util::BodyExt;
+use rusqlite::params;
 use tower::ServiceExt;
 
 fn app(english: bool) -> axum::Router {
@@ -145,4 +146,42 @@ async fn downloads_are_public_and_release_links_are_crawlable_without_javascript
         assert!(html.contains(asset["name"].as_str().unwrap()));
     }
     assert!(html.contains("not formally released yet"));
+}
+
+#[tokio::test]
+async fn public_job_detail_initial_html_uses_public_metadata_and_json_ld() {
+    let mut detail_config = Config {
+        database: ":memory:".into(),
+        public_url: "https://hireferry.example".into(),
+        ..Config::default()
+    };
+    detail_config.webauthn_rp_id = "hireferry.example".into();
+    let state = hireferry::AppState::new(detail_config).unwrap();
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO users(id,email,name,handle,role,employer_paid,banned,created_at,updated_at) VALUES(?1,?2,?3,'open-source','employer',1,0,1,1)",
+            params!["seo-employer", "seo-employer@example.test", "Open Source Co"],
+        )
+        .unwrap();
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('seo-job','seo-employer','Rust API maintainer','## Build public APIs',250000,'CNY',300000,2,'published',1,1)",
+            [],
+        )
+        .unwrap();
+    let app = hireferry::app(state);
+    let (status, _, html) = read(&app, "/discover/jobs/seo-job").await;
+    assert_eq!(status, 200);
+    assert!(html.contains("<title>Rust API maintainer · HireFerry · 聘渡</title>"));
+    assert!(html.contains("<meta name=\"robots\" content=\"index, follow"));
+    assert!(html.contains("data-hireferry-jsonld"));
+    assert!(html.contains("\"@type\":\"JobPosting\""));
+    assert!(html.contains("Build public APIs"));
+    assert!(!html.contains("seo-employer@example.test"));
+    let (_, _, sitemap) = read(&app, "/sitemap.xml").await;
+    assert!(sitemap.contains("https://hireferry.example/discover/jobs/seo-job"));
 }

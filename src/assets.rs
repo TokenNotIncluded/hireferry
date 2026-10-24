@@ -114,16 +114,22 @@ pub(crate) async fn serve(
             let (text, mime) = match path {
                 "robots.txt" => (crate::seo::robots(&state.cfg), "text/plain; charset=utf-8"),
                 "sitemap.xml" => (
-                    crate::seo::sitemap(&state.cfg),
+                    crate::seo::sitemap(&state),
                     "application/xml; charset=utf-8",
                 ),
                 _ => {
                     let template = std::str::from_utf8(&bundle.assets["index.html"].bytes)
                         .expect("UTF-8 HTML template");
-                    let html = match crate::seo::page(template, uri.path(), &state.cfg) {
-                        Ok(html) => html,
-                        Err(error) => return error.into_response(),
+                    let detail = if crate::seo::is_public_directory_detail_path(uri.path()) {
+                        crate::seo::public_detail_data(&state, uri.path())
+                    } else {
+                        None
                     };
+                    let html =
+                        match crate::seo::page(template, uri.path(), &state.cfg, detail.as_ref()) {
+                            Ok(html) => html,
+                            Err(error) => return error.into_response(),
+                        };
                     (html, "text/html; charset=utf-8")
                 }
             };

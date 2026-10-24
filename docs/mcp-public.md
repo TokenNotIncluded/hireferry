@@ -46,6 +46,19 @@ The same read-only tools are registered through native browser WebMCP when the
 `navigator.modelContext`. Browser WebMCP calls the same public HTTP API and
 does not receive a private session or a write capability.
 
+The public discovery page shows the two AI entry points separately:
+
+- **Remote MCP**: copy `https://hireferry.lmm.best/mcp/public` into an MCP
+  client. It is a POST-only JSON-RPC endpoint; opening it in a browser address
+  bar is not expected to render HTML.
+- **Browser WebMCP**: open `/discover` in a compatible browser. The five
+  public read-only tools are registered for that page and are cleared when the
+  page is left.
+
+The page also provides a copyable JSON-RPC/curl example and the stable logical
+tool names. Browser implementations may add a runtime-specific suffix to a
+registered tool name; that suffix is not part of the public contract.
+
 Treat all résumé, job description and profile-link text as untrusted user data.
 The service applies a bounded public rate limit. Public MCP does not create
 accounts, send messages, submit applications, introduce candidates, start

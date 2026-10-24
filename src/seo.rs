@@ -1,4 +1,5 @@
-use crate::{AppResult, config::Config};
+use crate::{AppResult, AppState, api, config::Config};
+use serde_json::{Value, json};
 
 pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/",
@@ -30,7 +31,8 @@ pub(crate) fn robots(cfg: &Config) -> String {
     )
 }
 
-pub(crate) fn sitemap(cfg: &Config) -> String {
+pub(crate) fn sitemap(state: &AppState) -> String {
+    let cfg = &state.cfg;
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
@@ -40,6 +42,34 @@ pub(crate) fn sitemap(cfg: &Config) -> String {
             escape(&cfg.public_url),
             path
         ));
+    }
+    if let Ok(db) = state.conn() {
+        if let Ok(mut jobs) = db.prepare(
+            "SELECT j.id FROM jobs j JOIN users u ON u.id=j.owner_id WHERE j.status='published' AND j.headcount>0 AND u.banned=0 ORDER BY j.created_at DESC,j.id",
+        ) {
+            if let Ok(rows) = jobs.query_map([], |row| row.get::<_, String>(0)) {
+                for id in rows.flatten() {
+                    xml.push_str(&format!(
+                        "  <url><loc>{}/discover/jobs/{}</loc></url>\n",
+                        escape(&cfg.public_url),
+                        escape(&id)
+                    ));
+                }
+            }
+        }
+        if let Ok(mut people) = db.prepare(
+            "SELECT handle FROM users WHERE role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>'' ORDER BY updated_at DESC,handle",
+        ) {
+            if let Ok(rows) = people.query_map([], |row| row.get::<_, String>(0)) {
+                for handle in rows.flatten() {
+                    xml.push_str(&format!(
+                        "  <url><loc>{}/discover/people/{}</loc></url>\n",
+                        escape(&cfg.public_url),
+                        escape(&handle)
+                    ));
+                }
+            }
+        }
     }
     xml.push_str("</urlset>\n");
     xml
@@ -81,6 +111,114 @@ pub(crate) fn is_public_directory_path(path: &str) -> bool {
             path.strip_prefix(prefix)
                 .is_some_and(|id| !id.is_empty() && !id.contains('/'))
         })
+}
+
+pub(crate) fn is_public_directory_detail_path(path: &str) -> bool {
+    path != "/discover" && is_public_directory_path(path)
+}
+
+fn plain_text(value: &str, limit: usize) -> String {
+    let mut text = String::with_capacity(value.len());
+    let mut in_tag = false;
+    for ch in value.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(ch),
+            _ => {}
+        }
+    }
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(limit)
+        .collect()
+}
+
+fn iso_timestamp(value: Option<&Value>) -> Option<String> {
+    let seconds = value?.as_i64()?;
+    chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0).map(|date| date.to_rfc3339())
+}
+
+pub(crate) fn public_detail_data(state: &AppState, path: &str) -> Option<Value> {
+    if let Some(id) = path.strip_prefix("/discover/jobs/") {
+        return api::public_job_data(state, id).ok();
+    }
+    if let Some(handle) = path.strip_prefix("/discover/people/") {
+        return api::public_person_data(state, handle).ok();
+    }
+    None
+}
+
+fn json_ld_script(value: Value) -> String {
+    let json = serde_json::to_string(&value)
+        .expect("public JSON-LD is serializable")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026");
+    format!("\n  <script type=\"application/ld+json\" data-hireferry-jsonld>{json}</script>")
+}
+
+fn public_detail_metadata(path: &str, detail: &Value) -> (&'static str, String, Value) {
+    if path.starts_with("/discover/jobs/") {
+        let title = detail["title"].as_str().unwrap_or("公开岗位");
+        let employer = detail["employer"]["name"].as_str().unwrap_or("公开招聘方");
+        let description = format!("{employer}正在公开招聘 {title}，岗位说明和招聘人数可公开查看。");
+        let mut posting = json!({
+            "@context": "https://schema.org",
+            "@type": "JobPosting",
+            "title": title,
+            "description": plain_text(detail["jd_html"].as_str().unwrap_or_default(), 500),
+            "url": detail["url"].as_str(),
+            "hiringOrganization": {"@type": "Organization", "name": employer}
+        });
+        if let Some(date) = iso_timestamp(detail.get("created_at")) {
+            posting["datePosted"] = Value::String(date);
+        }
+        if let (Some(currency), Some(cents), Some(decimals)) = (
+            detail["currency"].as_str(),
+            detail["salary_cents"].as_i64(),
+            detail["currency_decimals"].as_i64(),
+        ) {
+            let divisor = 10_i64.pow(decimals.clamp(0, 6) as u32) as f64;
+            posting["baseSalary"] = json!({
+                "@type": "MonetaryAmount",
+                "currency": currency,
+                "value": {"@type": "QuantitativeValue", "value": cents as f64 / divisor, "unitText": "MONTH"}
+            });
+        }
+        ("公开岗位", description, posting)
+    } else {
+        let name = detail["name"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| detail["handle"].as_str().unwrap_or("公开简历"));
+        let handle = detail["handle"].as_str().unwrap_or_default();
+        let description = format!(
+            "{name} 的公开求职主页（@{handle}），包含本人主动公开的简历内容和 AI profile 链接。"
+        );
+        let same_as = detail["ai_profile_links"]
+            .as_object()
+            .into_iter()
+            .flat_map(|links| links.values())
+            .filter_map(Value::as_str)
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+            .map(Value::from)
+            .collect::<Vec<_>>();
+        let mut person = json!({
+            "@context": "https://schema.org",
+            "@type": "Person",
+            "name": name,
+            "identifier": handle,
+            "url": detail["url"].as_str(),
+            "description": plain_text(detail["resume_html"].as_str().unwrap_or_default(), 500)
+        });
+        if !same_as.is_empty() {
+            person["sameAs"] = Value::Array(same_as);
+        }
+        ("公开简历", description, person)
+    }
 }
 
 pub(crate) fn is_public_profile_path(path: &str) -> bool {
@@ -178,19 +316,43 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     }
 }
 
-pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String> {
+pub(crate) fn page(
+    template: &str,
+    path: &str,
+    cfg: &Config,
+    public_detail: Option<&Value>,
+) -> AppResult<String> {
     let en = cfg.site.default_language == "en";
     let t = |zh, english| if en { english } else { zh };
     let public = PUBLIC_PAGES.contains(&path)
         || is_public_profile_path(path)
         || is_public_directory_path(path);
-    let (title, description) = metadata(path, en);
+    let detail_path = is_public_directory_detail_path(path);
+    let indexable = public && (!detail_path || public_detail.is_some());
+    let (base_title, base_description) = metadata(path, en);
+    let mut title = base_title.to_owned();
+    let mut description = base_description.to_owned();
+    let mut json_ld = None;
+    if let Some(detail) = public_detail {
+        let (kind, detail_description, structured) = public_detail_metadata(path, detail);
+        title = if kind == "公开岗位" {
+            detail["title"].as_str().unwrap_or(kind).to_owned()
+        } else {
+            detail["name"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| detail["handle"].as_str().unwrap_or(kind))
+                .to_owned()
+        };
+        description = detail_description;
+        json_ld = Some(structured);
+    }
     let title = escape(&format!("{title} · {}", cfg.site.name));
-    let description = escape(description);
+    let description = escape(&description);
     let canonical = escape(&format!("{}{path}", cfg.public_url));
     let mut head = format!(
         "<meta name=\"description\" content=\"{description}\">\n  <title>{title}</title>\n  <meta name=\"robots\" content=\"{}\">",
-        if public {
+        if indexable {
             "index, follow, max-image-preview:large"
         } else {
             "noindex, follow"
@@ -206,11 +368,14 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
         "\n  <meta name=\"hireferry-seo\" content=\"{}\">",
         escape(&serde_json::to_string(&catalog).expect("page metadata JSON"))
     ));
-    if public {
+    if indexable {
         head.push_str(&format!(
             "\n  <link rel=\"canonical\" href=\"{canonical}\">\n  <meta property=\"og:type\" content=\"website\">\n  <meta property=\"og:site_name\" content=\"{}\">\n  <meta property=\"og:title\" content=\"{title}\">\n  <meta property=\"og:description\" content=\"{description}\">\n  <meta property=\"og:url\" content=\"{canonical}\">\n  <meta name=\"twitter:card\" content=\"summary\">",
             escape(&cfg.site.name)
         ));
+    }
+    if let Some(structured) = json_ld {
+        head.push_str(&json_ld_script(structured));
     }
     let start = template
         .find("  <meta name=\"description\"")
@@ -308,6 +473,20 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     "For orders and refunds, include your order number and a brief description. Email support to request profile corrections or deletion."
                 )
             ),
+            p if is_public_directory_detail_path(p) && public_detail.is_some() => {
+                let detail = public_detail.expect("checked above");
+                if p.starts_with("/discover/jobs/") {
+                    format!(
+                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开岗位</h2><p>{}</p></article>",
+                        detail["jd_html"].as_str().unwrap_or_default()
+                    )
+                } else {
+                    format!(
+                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开简历</h2><p>{}</p></article>",
+                        detail["resume_html"].as_str().unwrap_or_default()
+                    )
+                }
+            }
             _ => format!("<h1>{title}</h1><p>{description}</p>"),
         };
         let nav = PUBLIC_PAGES
