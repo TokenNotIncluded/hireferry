@@ -619,7 +619,7 @@ function gatewayInputs(record,{hideRegions=false}={}) {
 }
 
 function acquisitionSource() {
-  const params=new URLSearchParams(location.search), parts=[params.get('utm_source'),params.get('utm_campaign'),params.get('ref')].filter(Boolean).map(value=>value.trim()).filter(Boolean);
+  const params=new URLSearchParams(location.search), parts=[params.get('utm_source'),params.get('utm_medium'),params.get('utm_campaign'),params.get('utm_content'),params.get('ref')].filter(Boolean).map(value=>value.trim()).filter(Boolean);
   const current=parts.join(':').slice(0,120);
   try {
     if(current) sessionStorage.setItem('hireferry:acquisition_source',current);

@@ -361,7 +361,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
     document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -780,6 +780,11 @@ test('employer and seeker return targets survive role selection without allowing
   seeker.location.search = '';
   assert.equal(seeker.app.afterSignIn(), '/app?tab=profile');
   assert.equal(seeker.app.afterSignIn(), '/app');
+});
+
+test('signup attribution keeps medium and content for growth funnel analysis', () => {
+  const tagged = webmcp({ search: '?utm_source=x&utm_medium=web&utm_campaign=cn_jobseeker_oct24&utm_content=reply_veracat' });
+  assert.equal(tagged.app.acquisitionSource(), 'x:web:cn_jobseeker_oct24:reply_veracat');
 });
 
 test('contact, refund policy, and related notices are bilingual and use configured support details', () => {
