@@ -28,9 +28,14 @@
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">Report an issue</a>
 </p>
 
+<p align="center">
+  <a href="https://hireferry.lmm.best/login?role=seeker&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=seeker">Free job-seeker sign-up</a> ·
+  <a href="https://hireferry.lmm.best/login?role=employer&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=employer">Permanent-free role publishing</a>
+</p>
+
 HireFerry is a recruitment platform you can host yourself. Job seekers and employers each communicate with the platform AI. Authorized AI agents connected through MCP automate requirement analysis, résumé screening, matching and follow-up. Connected agent clients run the automation loop; the server provides permissions, business tools and records. Once introduced, both parties can view the relevant profile and job and start a separate conversation.
 
-The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seekers use the service for free. Employer fees follow the site's configuration.
+The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seeking and hiring are permanently free by default; the site runs in donation mode, so donations are welcome when HireFerry helps you find work or hire someone.
 
 **On this page**: [Features](#features) · [How it works](#workflow) · [Quick start](#quick-start) · [CLI and AI](#cli-and-ai) · [Public discovery](#public-discovery) · [Architecture](#architecture) · [Documentation](#documentation) · [Contributing](#contributing)
 

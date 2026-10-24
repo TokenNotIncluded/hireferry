@@ -28,9 +28,14 @@
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">問題回報</a>
 </p>
 
+<p align="center">
+  <a href="https://hireferry.lmm.best/login?role=seeker&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=seeker">求職者免費註冊</a> ·
+  <a href="https://hireferry.lmm.best/login?role=employer&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=employer">徵才方永久免費發布職缺</a>
+</p>
+
 聘渡是一個可自行架設的人才媒合平台。求職者和徵才方分別與平台溝通，由透過 MCP 連接的獲授權 AI agent 自動整理需求、篩選履歷、建立媒合與追蹤進度。持續執行的 agent 客戶端負責自動化循環，伺服器提供權限、業務介面與紀錄。雙方完成媒合後可查看對應資料，並進入獨立對話。
 
-伺服器端使用 **Rust + Axum + SQLite**。單一執行檔內嵌網頁，TOML 管理設定。求職者免費，徵才方費用依網站設定收取。
+伺服器端使用 **Rust + Axum + SQLite**。單一執行檔內嵌網頁，TOML 管理設定。預設求職與徵才永久免費，網站採捐贈模式；如果聘渡幫你找到工作或招到人，歡迎捐贈支持。
 
 **本頁導覽**：[功能](#features) · [服務流程](#workflow) · [快速開始](#quick-start) · [CLI 與 AI](#cli-and-ai) · [公開目錄](#public-discovery) · [系統架構](#architecture) · [文件](#documentation) · [參與貢獻](#contributing)
 
