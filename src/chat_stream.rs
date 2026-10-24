@@ -445,6 +445,15 @@ fn end(
             "UPDATE chat_conversations SET updated_at=?2 WHERE id=?1",
             params![conversation, now()],
         )?;
+        if target == "complete" {
+            crate::chat_ai::enqueue_tx(
+                &tx,
+                conversation,
+                message,
+                !p.admin && p.user_id.is_some(),
+                &s.cfg.chat.auto_reply,
+            )?;
+        }
         audit(
             &tx,
             &p.actor,

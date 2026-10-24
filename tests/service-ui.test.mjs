@@ -2090,6 +2090,33 @@ test('empty conversations give seekers, employers and administrators relevant st
   }
 });
 
+test('platform chats expose résumé and recommended-role shortcuts with async AI expectations', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    search: '?tab=messages&conversation=platform_seeker-one',
+  });
+  try {
+    const html = await service.messagesPage();
+    assert.match(html, /href="\/app\?tab=profile"/);
+    assert.match(html, /href="\/app\?tab=matches"/);
+    assert.match(html, /异步|asynchronous/);
+    assert.match(html, /不是时刻在线|not a 24\/7/);
+  } finally { service.stopChat(); }
+});
+
+test('administrator platform chats expose résumé, recommendation and role-card actions', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    admin: true, search: '?tab=messages&conversation=platform_seeker-one',
+  });
+  try {
+    const html = await service.messagesPage(true);
+    assert.match(html, /data-action="admin-edit-user"/);
+    assert.match(html, /data-action="chat-job-card"/);
+    assert.match(html, /推荐岗位|Recommend roles/);
+  } finally { service.stopChat(); }
+});
+
 test('an inactive employer has one optional activation note inside the conversation rather than stacked fixed banners', async () => {
   const { app } = webmcp({ role: 'employer' });
   app.state.lang = 'en'; app.state.user.employer_paid = false;

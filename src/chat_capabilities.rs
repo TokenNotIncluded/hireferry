@@ -41,6 +41,13 @@ pub fn capabilities(state: &AppState) -> Value {
             "retained_events": chat_stream::EVENT_RETENTION
         },
         "welcome": state.cfg.chat.public()["welcome"],
+        "assistant": {
+            "mode": "async_proactive",
+            "early_stage": true,
+            "always_online": false,
+            "automatic_acknowledgement": state.cfg.chat.auto_reply.enabled,
+            "description": "HireFerry AI works asynchronously and proactively. It is not a 24/7 real-time support channel; messages may be queued and the service returns when work is ready."
+        },
         "authentication": "Use the current browser session or an authorized Bearer token. HumanGrant access is scoped through MCP.",
         "streaming": "Persist next_cursor, not a message ID. Apply deltas once in sequence. On resync_required, reload the conversation snapshot and its event_cursor."
     })

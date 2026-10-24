@@ -408,6 +408,51 @@ fn platform_threads_are_unique_private_and_lazily_created_only_after_authorizati
     assert!(!first.to_string().contains("example.invalid"));
 }
 
+#[tokio::test]
+async fn platform_ai_acknowledges_messages_asynchronously_with_workspace_links() {
+    let mut cfg = Config::default();
+    cfg.chat.auto_reply.delay_seconds = 0;
+    let f = Fixture::with_config(cfg);
+    let seeker = f.user("seeker");
+    let admin = f.admin();
+    let room = chat::platform_conversation(&f.state, &seeker, None).unwrap();
+    let _ = send(
+        &f,
+        &seeker,
+        room["id"].as_str().unwrap(),
+        "我想找 Rust 后端岗位",
+    );
+    let pending: i64 = f
+        .state
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM chat_ai_jobs WHERE status='pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending, 1);
+    assert!(hireferry::chat_ai::run_once(&f.state).await.unwrap());
+    let page = chat::messages(&f.state, &admin, room["id"].as_str().unwrap(), 0, 100).unwrap();
+    let reply = items(&page)
+        .iter()
+        .find(|item| item["via_ai"] == true)
+        .expect("the async platform acknowledgement should be visible");
+    assert_eq!(reply["format"], "openui");
+    assert!(reply["body"].as_str().unwrap().contains("不是时刻在线"));
+    assert!(reply["body"].as_str().unwrap().contains("app?tab=profile"));
+    assert_eq!(
+        f.state
+            .conn()
+            .unwrap()
+            .query_row("SELECT status FROM chat_ai_jobs", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "complete"
+    );
+}
+
 #[test]
 fn matching_creates_a_separate_room_without_revealing_either_platform_history() {
     let f = Fixture::new();

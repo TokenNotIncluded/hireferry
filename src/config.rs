@@ -59,6 +59,31 @@ impl Default for Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Chat {
     pub welcome: BTreeMap<String, ChatWelcome>,
+    pub auto_reply: ChatAutoReply,
+}
+
+/// The early-stage platform assistant is deliberately asynchronous. It keeps
+/// a durable queue so a restart does not turn an unanswered message into a
+/// silent failure. A connected MCP agent can replace the deterministic
+/// acknowledgement later without changing the chat contract.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatAutoReply {
+    pub enabled: bool,
+    pub delay_seconds: u64,
+    pub poll_seconds: u64,
+    pub max_attempts: u32,
+}
+
+impl Default for ChatAutoReply {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            delay_seconds: 2,
+            poll_seconds: 5,
+            max_attempts: 3,
+        }
+    }
 }
 #[derive(Clone, Default, Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -79,6 +104,14 @@ pub struct ChatPrompt {
 }
 impl Chat {
     pub fn validate(&self) -> AppResult<()> {
+        if self.auto_reply.delay_seconds > 3600
+            || !(1..=300).contains(&self.auto_reply.poll_seconds)
+            || !(1..=10).contains(&self.auto_reply.max_attempts)
+        {
+            return Err(AppError::bad_request(
+                "Invalid asynchronous chat auto-reply settings",
+            ));
+        }
         for (audience, welcome) in &self.welcome {
             if !matches!(
                 audience.as_str(),

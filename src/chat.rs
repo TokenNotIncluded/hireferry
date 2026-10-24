@@ -158,6 +158,11 @@ struct PlatformInput {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct JobCardInput {
+    pub job_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReadInput {
     message_id: i64,
 }
@@ -168,6 +173,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/chat/conversations", get(http_conversations))
         .route("/api/chat/conversations/{id}", get(http_conversation))
         .route("/api/chat/platform", post(http_platform))
+        .route("/api/chat/conversations/{id}/job-card", post(http_job_card))
         .route(
             "/api/chat/conversations/{id}/messages",
             get(http_messages).post(http_send),
@@ -707,6 +713,13 @@ pub fn send_formatted_message(
             "UPDATE chat_conversations SET updated_at=?2 WHERE id=?1",
             params![id, now()],
         )?;
+        crate::chat_ai::enqueue_tx(
+            &tx,
+            id,
+            message_id,
+            !p.admin && p.user_id.is_some(),
+            &s.cfg.chat.auto_reply,
+        )?;
         audit(
             &tx,
             &p.actor,
@@ -721,6 +734,182 @@ pub fn send_formatted_message(
     drop(db);
     s.chat_notify.notify_waiters();
     Ok(result)
+}
+
+/// Internal platform-AI sender used by the durable early-stage worker. It
+/// intentionally accepts only platform conversations and never exposes a new
+/// authorization path to HTTP, MCP, or browser callers.
+pub(crate) fn send_system_ai(
+    s: &AppState,
+    id: &str,
+    client_id: &str,
+    body: &str,
+    format: &str,
+) -> AppResult<Value> {
+    crate::chat_stream::validate_format(format)?;
+    text(body, 10_000, "Message")?;
+    text(client_id, 80, "Message client ID")?;
+    if body.trim().is_empty() || client_id.trim().is_empty() {
+        return Err(AppError::bad_request(
+            "An AI message and client ID are required",
+        ));
+    }
+    let system = Principal {
+        user_id: None,
+        admin: true,
+        via_ai: true,
+        actor: "system_ai".into(),
+    };
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let active: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_conversations c JOIN users u ON u.id=c.user_id WHERE c.id=?1 AND c.kind='platform' AND u.banned=0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !active || !writable(&tx, id)? {
+        return Err(AppError::not_found(
+            "Platform conversation is no longer available",
+        ));
+    }
+    let previous: Option<(i64, String, String, String)> = tx
+        .query_row(
+            "SELECT id,body,format,status FROM chat_messages WHERE conversation_id=?1 AND sender_key='system_ai' AND client_id=?2",
+            params![id, client_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let result = if let Some((message_id, previous_body, previous_format, status)) = previous {
+        if previous_body != body || previous_format != format || status != "complete" {
+            return Err(AppError::conflict(
+                "This AI reply client ID already belongs to another message",
+            ));
+        }
+        load_message(&tx, &system, message_id)?
+    } else {
+        tx.execute(
+            "INSERT INTO chat_messages(conversation_id,sender_kind,sender_id,sender_key,sender_actor,body,client_id,via_ai,created_at,format) VALUES(?1,'platform',NULL,'system_ai','system_ai',?2,?3,1,?4,?5)",
+            params![id, body, client_id, now(), format],
+        )?;
+        let message_id = tx.last_insert_rowid();
+        crate::chat_stream::record_event(
+            &tx,
+            id,
+            message_id,
+            "message.created",
+            0,
+            Some(body),
+            None,
+        )?;
+        tx.execute(
+            "UPDATE chat_conversations SET updated_at=?2 WHERE id=?1",
+            params![id, now()],
+        )?;
+        audit(
+            &tx,
+            "system_ai",
+            "chat_auto_reply",
+            id,
+            &json!({"message_id":message_id,"format":format}).to_string(),
+        )?;
+        load_message(&tx, &system, message_id)?
+    };
+    tx.commit()?;
+    drop(db);
+    s.chat_notify.notify_waiters();
+    Ok(result)
+}
+
+fn openui_quote(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// Send a bounded, clickable role card to a seeker from the staff chat. The
+/// card never grants profile access by itself: an existing introduction opens
+/// its room, otherwise the button prepares a reviewed request in the platform
+/// conversation.
+pub(crate) fn send_job_card(
+    s: &AppState,
+    p: &Principal,
+    conversation: &str,
+    input: JobCardInput,
+) -> AppResult<Value> {
+    let db = s.conn()?;
+    access::ensure_admin(&db, p)?;
+    let (user_id, role): (String, String) = db
+        .query_row(
+            "SELECT c.user_id,u.role FROM chat_conversations c JOIN users u ON u.id=c.user_id WHERE c.id=?1 AND c.kind='platform' AND u.banned=0",
+            [conversation],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Platform conversation is no longer available"))?;
+    if role != "seeker" {
+        return Err(AppError::bad_request(
+            "Job cards can only be recommended to job seekers",
+        ));
+    }
+    let job = crate::models::load_job(&db, &input.job_id)?;
+    if job.status != "published" || job.headcount <= 0 {
+        return Err(AppError::bad_request(
+            "Only open published roles can be sent as job cards",
+        ));
+    }
+    let employer = crate::models::load_user(&db, &job.owner_id)?;
+    let match_id: Option<String> = db
+        .query_row(
+            "SELECT id FROM matches WHERE seeker_id=?1 AND job_id=?2 AND status IN ('introduced','interview','hired')",
+            params![user_id, job.id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let origin = s.cfg.public_url.trim_end_matches('/');
+    let detail_url = format!("{origin}/discover/jobs/{}", job.id);
+    let intro = match_id.map(|id| format!("{origin}/app?tab=messages&conversation=match_{id}"));
+    let title = openui_quote(&job.title);
+    let employer_name = openui_quote(&employer.name);
+    let excerpt = openui_quote(
+        &job.jd_md
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(280)
+            .collect::<String>(),
+    );
+    let action_text = openui_quote(&format!("我想了解这个岗位：{}", job.title));
+    let action = if let Some(url) = intro {
+        format!(
+            "Button(\"进入匹配会话\", @OpenUrl(\"{}\"), \"solid\", \"primary\", \"md\", \"message\")",
+            openui_quote(&url)
+        )
+    } else {
+        format!(
+            "Button(\"发起对话\", @ToAssistant(\"{}\"), \"solid\", \"primary\", \"md\", \"message\")",
+            action_text
+        )
+    };
+    let body = format!(
+        "root = Col([card])\ncard = Card([eyebrow, title, meta, excerpt, actions], \"outline\", 5, 4)\neyebrow = Badge(\"公开岗位 · 正在招聘\", \"success\")\ntitle = Title(\"{}\", \"lg\")\nmeta = Text(\"{} · {} / 月\", \"sm\", \"muted\", \"medium\")\nexcerpt = Markdown(\"{}\")\nactions = Row([details, contact], 3, \"start\", \"start\", true)\ndetails = Button(\"查看岗位详情\", @OpenUrl(\"{}\"), \"outline\", \"primary\", \"md\", \"briefcase\")\ncontact = {}",
+        title,
+        employer_name,
+        format!("{} {}", job.currency, job.salary_cents),
+        excerpt,
+        openui_quote(&detail_url),
+        action
+    );
+    drop(db);
+    send_system_ai(
+        s,
+        conversation,
+        &format!("job-card:{}:{}", job.id, uuid::Uuid::new_v4().simple()),
+        &body,
+        "openui",
+    )
 }
 
 pub fn mark_read(s: &AppState, p: &Principal, id: &str, message_id: i64) -> AppResult<Value> {
@@ -1040,6 +1229,15 @@ async fn http_platform(
 ) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, true)?;
     Ok(Json(platform_conversation(&s, &p, i.user_id.as_deref())?))
+}
+async fn http_job_card(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(i): Json<JobCardInput>,
+) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, true)?;
+    Ok(Json(send_job_card(&s, &p, &id, i)?))
 }
 async fn http_messages(
     State(s): State<AppState>,
