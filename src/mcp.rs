@@ -57,7 +57,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "set_avatar_svg",
-            "Set your own avatar from a safe SVG. Scripts and external references are rejected.",
+            "Set your own avatar from a safe SVG. Local SMIL animation is allowed; scripts, event handlers, CSS, embedded HTML and external references are rejected.",
             json!({"svg":{"type":"string","maxLength":64000}}),
             &["svg"],
             false,

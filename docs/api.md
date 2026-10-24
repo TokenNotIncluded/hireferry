@@ -464,7 +464,7 @@ HumanGrant 使用 `Authorization: HumanGrant <access_token>`，并按 [签名规
 | --- | --- | --- |
 | get_profile | {} | 本人 User |
 | update_profile | name,public_email,resume_md,visible? | User，visible 不公开 |
-| set_avatar_svg | svg | User，静态 SVG |
+| set_avatar_svg | svg | User；安全 SVG，可使用本地 SMIL 动画；脚本、事件处理器、CSS、嵌入 HTML 和外部引用会被拒绝 |
 | set_image_avatar | image_base64 | User；标准 Base64，无 data URL，解码≤2 MiB、编码≤2796204 字符 |
 | choose_role | role,provider? | {user,order}；新账号须先完成人工开户以获得 AI 资格 |
 | list_jobs | q?,page? | {items,total}；介绍的具体岗位 |
