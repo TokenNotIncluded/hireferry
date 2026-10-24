@@ -11,6 +11,7 @@ pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/terms",
     "/privacy",
     "/discover",
+    "/for-employers",
 ];
 
 pub(crate) fn escape(value: &str) -> String {
@@ -265,6 +266,14 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
             "Public jobs and résumés",
             "Browse explicitly public roles and résumés, or let an AI read the same information through the free public MCP endpoint.",
         ),
+        ("/for-employers", false) => (
+            "招聘方免费发布岗位 · 聘渡 HireFerry",
+            "早期阶段招聘方免费发布岗位，让求职者和 AI 读取明确公开的招聘需求，减少无效申请。",
+        ),
+        ("/for-employers", true) => (
+            "Free job publishing for recruiters · HireFerry",
+            "Post roles for free during early access and let candidates and AI read your explicit public hiring needs, with less noise.",
+        ),
         ("/humangrant", false) => (
             "HumanGrant 人类辅助登录",
             "了解 HireFerry HumanGrant：由本人审核 AI 助手请求的账户权限，确认授权范围并管理或撤销授权。",
@@ -415,6 +424,29 @@ pub(crate) fn page(
                 t("求职者免费使用", "Free for job seekers"),
                 t("注册独一无二的名字", "Register a unique name"),
                 t("免费创建岗位", "Create a free role")
+            ),
+            "/for-employers" => format!(
+                "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><p><a class=\"button\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a> <a class=\"button secondary\" href=\"/discover\">{}</a></p>",
+                t(
+                    "把岗位交给 AI，少收一堆不匹配简历。",
+                    "Let AI sort the signal from the noise."
+                ),
+                description,
+                t("招聘方早期阶段权益", "Early-access recruiter benefits"),
+                t(
+                    "免费开通和免费发布岗位",
+                    "Free activation and role publishing"
+                ),
+                t(
+                    "只公开你主动发布的岗位内容",
+                    "Only explicitly published role content is public"
+                ),
+                t(
+                    "公开 MCP 可让 AI 直接读取岗位",
+                    "The public MCP lets AI read the role directly"
+                ),
+                t("免费发布一个岗位", "Post one role free"),
+                t("先看公开目录", "View public directory")
             ),
             "/cli" => format!(
                 "<h1>{title}</h1><p>{description}</p><h2>{}</h2><p>Linux / macOS / Windows</p><p><a href=\"/install.sh\">install.sh</a> · <a href=\"/install.ps1\">install.ps1</a></p><h2>{}</h2><pre><code>hfy --server {} auth login --oauth\nhfy --server {} whoami\nhfy --server {} capabilities</code></pre>",
