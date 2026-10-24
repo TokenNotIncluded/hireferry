@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 17 {
+    if version > 18 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -205,7 +205,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             "UPDATE users SET handle='user_'||substr(replace(id,'-',''),1,16) WHERE handle=''",
             [],
         )?;
-        tx.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; CREATE TRIGGER IF NOT EXISTS users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,16) WHERE id=NEW.id; END;")?;
+        tx.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; DROP TRIGGER IF EXISTS users_assign_handle; CREATE TRIGGER users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,27) WHERE id=NEW.id; END;")?;
         tx.pragma_update(None, "user_version", 16)?;
         tx.commit()?;
     }
@@ -216,10 +216,30 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 17)?;
         tx.commit()?;
     }
+    // Schema 18 adds per-member WebAuthn credentials. The table itself is
+    // created idempotently by the auth migration; this marker prevents older
+    // binaries from silently ignoring member passkeys.
+    if version < 18 {
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS user_passkeys (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                credential_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_used_at INTEGER,
+                counter INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS user_passkeys_user ON user_passkeys(user_id,created_at,id);",
+        )?;
+        tx.pragma_update(None, "user_version", 18)?;
+        tx.commit()?;
+    }
     // Keep this idempotent for databases created by tests or older imports that
     // inserted users after the versioned migration ran.
     crate::referrals::migrate(db)?;
-    db.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; CREATE TRIGGER IF NOT EXISTS users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,16) WHERE id=NEW.id; END;")?;
+    db.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; DROP TRIGGER IF EXISTS users_assign_handle; CREATE TRIGGER users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,27) WHERE id=NEW.id; END;")?;
     // Additive graph indexes/revision and presentation state, like the workbench
     // indexes above, do not change the authoritative business record format.
     crate::relations::migrate(db)?;

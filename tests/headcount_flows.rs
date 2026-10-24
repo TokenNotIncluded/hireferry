@@ -168,7 +168,7 @@ fn version_three_jobs_gain_openings_without_reopening_archives() {
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 16);
+    assert_eq!(version, 18);
     for status in ["draft", "published", "closed", "deleted"] {
         let job = models::load_job(&db, status).unwrap();
         assert_eq!(job.status, status);
@@ -206,7 +206,7 @@ fn version_three_jobs_gain_openings_without_reopening_archives() {
         db.execute("UPDATE jobs SET headcount=1000001 WHERE id='published'", [])
             .is_err()
     );
-    db.pragma_update(None, "user_version", 16).unwrap();
+    db.pragma_update(None, "user_version", 19).unwrap();
     assert_eq!(db::migrate(&db).unwrap_err().status, StatusCode::CONFLICT);
 }
 

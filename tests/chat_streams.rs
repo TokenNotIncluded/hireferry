@@ -746,7 +746,7 @@ fn schema_14_upgrade_preserves_history_and_rolls_back_on_failure() {
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 16);
+    assert_eq!(version, 18);
     let row: (String, String, String, i64) = db
         .query_row(
             "SELECT body,format,status,sequence FROM chat_messages",

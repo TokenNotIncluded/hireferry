@@ -539,6 +539,115 @@ async fn passkey_sign_in(
     body
 }
 
+async fn enroll_member_passkey(
+    client: &mut Client,
+    name: &str,
+    key: &mut WebauthnAuthenticator<SoftPasskey>,
+) -> Value {
+    let (status, body) = client
+        .request(
+            "POST",
+            "/api/auth/passkeys/register/start",
+            json!({"name":name}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let options = serde_json::from_value(body["options"].clone()).unwrap();
+    let credential = key
+        .do_registration(url::Url::parse("http://localhost:3000").unwrap(), options)
+        .unwrap();
+    let (status, body) = client
+        .request(
+            "POST",
+            "/api/auth/passkeys/register/finish",
+            json!({"credential":credential}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["ok"], true);
+    body
+}
+
+async fn member_passkey_sign_in(
+    client: &mut Client,
+    key: &mut WebauthnAuthenticator<SoftPasskey>,
+) -> Value {
+    let (status, body) = client
+        .request("POST", "/api/auth/passkeys/login/start", json!({}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let options = serde_json::from_value(body["options"].clone()).unwrap();
+    let credential = key
+        .do_authentication(url::Url::parse("http://localhost:3000").unwrap(), options)
+        .unwrap();
+    let (status, body) = client
+        .request(
+            "POST",
+            "/api/auth/passkeys/login/finish",
+            json!({"credential":credential}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["user"]["email"], "member-passkey@example.test");
+    body
+}
+
+#[tokio::test]
+async fn member_passkeys_bind_login_list_and_remove_without_gateway_or_email() {
+    let state = state();
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        18
+    );
+    let mut member = Client::new(&state);
+    let signed_in = member.sign_in("member-passkey@example.test").await;
+    let user_id = signed_in["user"]["id"].as_str().unwrap().to_owned();
+    let mut key = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    enroll_member_passkey(&mut member, "My laptop", &mut key).await;
+
+    let (status, list) = member.request("GET", "/api/auth/passkeys", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["passkeys"].as_array().unwrap().len(), 1);
+    let passkey_id = list["passkeys"][0]["id"].as_str().unwrap().to_owned();
+
+    let mut login = Client::new(&state);
+    let signed_in = member_passkey_sign_in(&mut login, &mut key).await;
+    assert_eq!(signed_in["user"]["id"], user_id);
+    assert!(login.csrf.is_some());
+
+    assert_eq!(
+        login
+            .request(
+                "DELETE",
+                &format!("/api/auth/passkeys/{passkey_id}"),
+                json!({}),
+            )
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        login
+            .request("POST", "/api/auth/passkeys/login/start", json!({}))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM user_passkeys", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
 #[tokio::test]
 async fn real_webauthn_registration_login_multiple_keys_revocation_and_last_key_guard() {
     let state = state();
