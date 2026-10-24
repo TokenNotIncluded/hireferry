@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -171,8 +172,14 @@ def stage_desktop(args):
     for fmt, source in sources.items():
         destination = args.out / filename('desktop', release_version, args.target, fmt)
         if fmt == 'app.tar.gz':
-            with tarfile.open(destination, 'w:gz') as archive:
-                archive.add(source, arcname=source.name)
+            if sys.platform == 'darwin':
+                # Preserve Apple metadata/stapled tickets. This is a manual-install
+                # archive, not an updater payload. Verification reopens this archive.
+                subprocess.run(['tar', '-czf', str(destination.resolve()), '-C',
+                                str(source.parent.resolve()), source.name], check=True)
+            else:
+                with tarfile.open(destination, 'w:gz') as archive:
+                    archive.add(source, arcname=source.name)
         else:
             shutil.copyfile(source, destination)
     checksums(args.out)
@@ -243,6 +250,62 @@ def verified_inputs(source, wanted):
     return found
 
 
+def signing_report_name(target):
+    return f'desktop-signing-{target}.json'
+
+
+def validate_signing_report(report, wanted, files=None, require_signed=False):
+    if (not isinstance(report, dict) or set(report) != {'schema_version', 'target', 'assets'}
+            or report['schema_version'] != 1 or not isinstance(report['assets'], dict)
+            or set(report['assets']) != set(wanted) or not wanted
+            or any(item['target'] != report['target'] for item in wanted.values())):
+        raise ValueError('Invalid or incomplete desktop signing report')
+    allowed = {'Windows':{'authenticode','unsigned'},
+               'macOS':{'developer-id-notarized','ad-hoc'}, 'Linux':{'checksum-only'}}
+    required = {'Windows':'authenticode', 'macOS':'developer-id-notarized', 'Linux':'checksum-only'}
+    for name, entry in report['assets'].items():
+        if (not isinstance(entry, dict) or not {'sha256','size','verification'} <= set(entry)
+                or set(entry) - {'sha256','size','verification','publisher'}
+                or not isinstance(entry['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', entry['sha256'])
+                or not isinstance(entry['size'], int) or isinstance(entry['size'], bool) or entry['size'] <= 0
+                or not isinstance(entry['verification'], str)
+                or entry['verification'] not in allowed[wanted[name]['platform']]):
+            raise ValueError(f'Invalid native verification metadata: {name}')
+        if entry['verification'] in ('authenticode','developer-id-notarized'):
+            publisher = entry.get('publisher')
+            if not isinstance(publisher, str) or not publisher or len(publisher) > 1000 or '\n' in publisher:
+                raise ValueError('Native signing publisher must be recorded')
+        elif 'publisher' in entry:
+            raise ValueError('Unsigned/checksum-only packages cannot claim a signing publisher')
+        if require_signed and entry['verification'] != required[wanted[name]['platform']]:
+            raise ValueError(f'Formal desktop release requires native publisher signing: {name}')
+        if files is not None and (entry['sha256'] != digest(files[name]) or entry['size'] != files[name].stat().st_size):
+            raise ValueError(f'Signing report does not match package bytes: {name}')
+    return report
+
+
+def validate_desktop_signing(manifest, require_signed=False):
+    reports = manifest.get('desktop_signing')
+    targets = {row['target'] for row in manifest['catalog']['desktop']}
+    if not isinstance(reports, dict) or set(reports) != targets or not targets:
+        raise ValueError('Complete native desktop signing reports are required')
+    for target, report in reports.items():
+        wanted = {asset['name']:asset for asset in manifest['assets']
+                  if asset['product']=='desktop' and asset['target']==target and asset['format']!='flatpak'}
+        validate_signing_report(report, wanted, require_signed=require_signed)
+        for name, entry in report['assets'].items():
+            if entry['sha256'] != wanted[name]['sha256'] or entry['size'] != wanted[name]['size']:
+                raise ValueError('Manifest and desktop signing report differ')
+
+
+def require_publishable(manifest):
+    if manifest.get('distribution', 'release') != 'release':
+        raise ValueError('Engineering artifacts cannot update public downloads or AUR binary packages')
+    if 'desktop' in manifest['versions']:
+        validate_desktop_signing(manifest, require_signed=True)
+    return manifest
+
+
 def make_manifest(data, wanted, files, tag, repo, commit=''):
     published_catalog = json.loads(json.dumps(data))
     published_catalog['repository'] = repository(repo)
@@ -265,6 +328,8 @@ def make_manifest(data, wanted, files, tag, repo, commit=''):
 def validate_manifest(manifest):
     if not isinstance(manifest, dict) or manifest.get('schema_version') != 1:
         raise ValueError('Unsupported download manifest schema')
+    if manifest.get('distribution', 'release') not in ('release','engineering'):
+        raise ValueError('Invalid distribution state')
     repo = repository(manifest['repository'])
     data = validate_catalog(manifest['catalog'])
     if data['repository'] != repo:
@@ -310,6 +375,10 @@ def validate_manifest(manifest):
             raise ValueError('Invalid package size')
         if not isinstance(asset['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', asset['sha256']):
             raise ValueError('Invalid package checksum')
+    if 'desktop_signing' in manifest:
+        if 'desktop' not in products:
+            raise ValueError('Signing reports require desktop assets')
+        validate_desktop_signing(manifest, require_signed=manifest.get('distribution','release')=='release')
     return manifest
 
 
@@ -348,6 +417,8 @@ def merge_manifests(current, incoming):
         for group in (('desktop', 'flatpak') if product == 'desktop' else (product,)):
             merged['catalog'][group] = source['catalog'][group]
         merged['assets'].extend(asset for asset in source['assets'] if asset['product'] == product)
+        if product == 'desktop' and 'desktop_signing' in source:
+            merged['desktop_signing'] = source['desktop_signing']
     merged['assets'].sort(key=lambda asset: asset['name'])
     commits = set(merged['source_commits'].values())
     if len(commits) == 1:
@@ -364,6 +435,8 @@ def svg(data, manifest=None):
     if manifest: data = manifest['catalog']
     count = len(manifest['assets']) if manifest else sum(len(row['formats']) for group in GROUPS for row in data.get(group, []))
     subtitle = ('RELEASE ASSETS VERIFIED · ' + ' / '.join(dict.fromkeys(manifest['releases'][p] for p in PRODUCTS if p in manifest['releases']))) if manifest else 'BUILD TARGETS · DOWNLOADS APPEAR AFTER A COMPLETE RELEASE'
+    if manifest and manifest.get('distribution') == 'engineering':
+        subtitle = 'ENGINEERING ARTIFACTS · NOT A PUBLISHED RELEASE'
     subtitle = html.escape(subtitle)
     headline = 'HireFerry · Every desktop, one ferry.' if not manifest or 'desktop' in manifest['versions'] else ('HireFerry · Your service. Your ferry.' if 'server' in manifest['versions'] else 'HireFerry · One CLI. Every platform.')
     cards = []
@@ -384,7 +457,7 @@ def svg(data, manifest=None):
         products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows), ('Server', server_rows)) if present) or 'No published packages'
         cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">{products}</text>')
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
-<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
+<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Package integrity recorded with SHA-256.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
 <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f5f2e9"/><stop offset="1" stop-color="#e2e6db"/></linearGradient></defs>
 <style>text{{font-family:Inter,system-ui,sans-serif}}.platform{{font-size:25px;font-weight:650;fill:#fbfaf6}}.detail{{font-size:14px;fill:#bfcac0}}.formats{{font-size:12px;fill:#dce6de}}</style>
 <rect width="960" height="392" rx="24" fill="url(#paper)"/>
@@ -402,16 +475,18 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
     repo = manifest['repository'] if manifest else data['repository']
     guide = docs_url + 'desktop.md'
     cli_guide = docs_url + 'cli.md'
+    engineering = manifest and manifest.get('distribution') == 'engineering'
     lines = ['<!-- Generated by scripts/release.py; edit release/targets.json, not this file. -->',
              '# 聘渡 · 桌面版、CLI 与服务端下载', '', f'![HireFerry 发布矩阵]({image})', '',
              f'[安装与发布说明]({guide}) · [CLI 使用指南]({cli_guide}) · '
              f'[所有 Releases](https://github.com/{repo}/releases)', '']
     if manifest:
-        lines += ['下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。', '']
+        lines += [('**工程验证产物，未发布为正式安装包。** 仅用于本次 CI 验证；不能导入公开下载页或生成 AUR 二进制配方。'
+                   if engineering else '下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。'), '']
         if 'desktop' not in manifest['versions']:
             lines += ['**尚未收录已发布的桌面安装包。** 桌面构建目标见 `release/targets.json`。', '']
         for product in PRODUCTS:
-            if product in manifest['versions']:
+            if product in manifest['versions'] and not engineering:
                 tag = manifest['releases'][product]
                 lines.append(f"- **{PRODUCT_LABELS[product]} {manifest['versions'][product]}**：[Release](https://github.com/{repo}/releases/tag/{tag}) · [校验文件](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS)")
     else:
@@ -419,17 +494,27 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
     lines += ['', '| 组件 | 系统 | 架构 | 软件包 | 下载体积 |', '| --- | --- | --- | --- | --- |']
     if manifest:
         for a in sorted(manifest['assets'], key=lambda a:(a['product'],a['platform'],a['architecture'],a['format'])):
-            lines.append(f"| {PRODUCT_LABELS[a['product']]} | {a['platform']} | {ARCH_LABELS.get(a['architecture'], a['architecture'])} | [{LABELS[a['format']]}]({a['url']}) | {human_size(a['size'])} |")
+            package = f"`{a['name']}`" if engineering else f"[{LABELS[a['format']]}]({a['url']})"
+            lines.append(f"| {PRODUCT_LABELS[a['product']]} | {a['platform']} | {ARCH_LABELS.get(a['architecture'], a['architecture'])} | {package} | {human_size(a['size'])} |")
     else:
         for group in GROUPS:
             for row in data.get(group, []):
                 lines.append(f"| {PRODUCT_LABELS[group_product(group)]} | {row['platform']} | {ARCH_LABELS.get(row['architecture'], row['architecture'])} | {'、'.join(LABELS[f] for f in row['formats'])} | 发布后生成 |")
     lines += ['', '## Arch Linux / AUR', '',
-              '服务端与客户端 CLI 独立安装，支持 x86_64 和 aarch64。同一组件的 `-git` 与 `-bin` 互斥，服务端与 CLI 可以共存。', '',
+              '服务端、CLI 与桌面 GUI 独立安装，支持 x86_64 和 aarch64。同一组件的 `-git` 与 `-bin` 互斥，不同组件可以共存。', '',
               '| 组件 | 跟随 main 编译 | 安装 Release 二进制 |', '| --- | --- | --- |']
     for product in ('server', 'cli'):
         names = [f'hireferry-{product}-{variant}' for variant in ('git', 'bin')]
         lines.append(f"| {PRODUCT_LABELS[product]} | [{names[0]}](https://aur.archlinux.org/packages/{names[0]}) | [{names[1]}](https://aur.archlinux.org/packages/{names[1]}) |")
+    lines += ['| 桌面 GUI | 仓库提供 `hireferry-desktop-git` 配方；AUR 可用性见指南 | `hireferry-desktop-bin` 必须依据正式桌面 Release 生成；可用性见指南 |']
+    if manifest and 'desktop_signing' in manifest:
+        labels = {'authenticode':'已验 Authenticode 与时间戳', 'developer-id-notarized':'已验 Developer ID 与公证票据',
+                  'checksum-only':'SHA-256；无平台发布者签名', 'unsigned':'未签名工程构建', 'ad-hoc':'临时本地签名工程构建'}
+        lines += ['', '## 桌面包签名与更新', '', '| 系统 / 目标 | 实际包验签结果 |', '| --- | --- |']
+        for target, report in sorted(manifest['desktop_signing'].items()):
+            states = sorted({labels[entry['verification']] for entry in report['assets'].values()})
+            lines.append(f"| `{target}` | {'、'.join(states)} |")
+        lines += ['', '桌面更新通过下载并安装新版本完成；未启用应用内自动更新。Flatpak 附件更新需重新安装新附件。SHA-256 不代替平台签名，签名也不承诺免除 Windows SmartScreen 的信誉提示。']
     lines += ['', f'安装、服务初始化与发布流程见 [AUR 指南]({docs_url}aur.md)。AUR 配方不计入上面的 Release 二进制数量。', '']
     lines += ['', '## Linux 选包建议', '',
               '| 发行版系列 | 桌面版优先选择 | 适用范围 |', '| --- | --- | --- |',
@@ -453,17 +538,31 @@ def assemble(args, products=('desktop', 'cli')):
         raise ValueError(f'Release tag must match the {primary} Cargo package version')
     repo = repository(args.repository or data['repository'])
     wanted = expected(data, versions, products)
-    files = verified_inputs(args.source, wanted)
-    manifest = validate_manifest(make_manifest(data, wanted, files, args.tag, repo, args.commit))
+    reports = {signing_report_name(row['target']):row for row in data['desktop']} if 'desktop' in products else {}
+    files = verified_inputs(args.source, {**wanted, **reports})
+    manifest = make_manifest(data, wanted, files, args.tag, repo, args.commit)
+    manifest['distribution'] = getattr(args, 'distribution', 'release')
+    if reports:
+        manifest['desktop_signing'] = {}
+        for name, row in reports.items():
+            target = row['target']
+            report = json.loads(files[name].read_text())
+            target_assets = {n:m for n,m in wanted.items() if m['product']=='desktop' and m['target']==target and m['format']!='flatpak'}
+            validate_signing_report(report, target_assets, files, require_signed=manifest['distribution']=='release')
+            manifest['desktop_signing'][target] = report
+    validate_manifest(manifest)
+    if manifest['distribution'] == 'release':
+        require_publishable(manifest)
     args.destination.mkdir(parents=True, exist_ok=False)
     for name, path in files.items():
         shutil.copyfile(path, args.destination/name)
     (args.destination/'VERSION').write_text(versions.get('cli', versions[primary]) + '\n')
     (args.destination/'downloads.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    (args.destination/'downloads.md').write_text(markdown(data, manifest, f'https://github.com/{repo}/releases/download/{args.tag}/release-matrix.svg', f'https://github.com/{repo}/blob/{args.tag}/docs/'))
+    image = 'release-matrix.svg' if manifest['distribution']=='engineering' else f'https://github.com/{repo}/releases/download/{args.tag}/release-matrix.svg'
+    (args.destination/'downloads.md').write_text(markdown(data, manifest, image, f'https://github.com/{repo}/blob/{args.commit if manifest["distribution"]=="engineering" and args.commit else args.tag}/docs/'))
     (args.destination/'release-matrix.svg').write_text(svg(data, manifest))
     checksums(args.destination)
-    print(f'Verified {len(files)} package assets for {args.tag}')
+    print(f'Verified {len(wanted)} package assets for {args.tag} ({manifest["distribution"]})')
 
 
 def assemble_cli(args):
@@ -474,14 +573,35 @@ def assemble_server(args):
     assemble(args, ('server',))
 
 
+def verify_publication(args):
+    manifest = require_publishable(validate_manifest(json.loads((args.directory/'downloads.json').read_text())))
+    allowed = {asset['name']:asset for asset in manifest['assets']}
+    allowed.update({name:{} for name in ('VERSION','downloads.json','downloads.md','release-matrix.svg')})
+    if 'desktop_signing' in manifest:
+        allowed.update({signing_report_name(target):{} for target in manifest['desktop_signing']})
+    files = verified_inputs(args.directory, allowed)
+    for asset in manifest['assets']:
+        if digest(files[asset['name']]) != asset['sha256'] or files[asset['name']].stat().st_size != asset['size']:
+            raise ValueError('Download manifest does not match final package bytes')
+    for target, report in manifest.get('desktop_signing', {}).items():
+        if json.loads(files[signing_report_name(target)].read_text()) != report:
+            raise ValueError('Final desktop signing report differs from download manifest')
+    print('Complete formal release and native verification reports are ready to publish')
+
+
 def docs(args):
     manifest_path = args.manifest or (SNAPSHOT if SNAPSHOT.exists() else None)
     manifest = validate_manifest(json.loads(manifest_path.read_text())) if manifest_path else None
+    if manifest and manifest.get('distribution', 'release') != 'release':
+        raise ValueError('Engineering artifacts cannot update public downloads or AUR binary packages')
     if args.manifest:
+        require_publishable(manifest)
         current = json.loads(SNAPSHOT.read_text()) if SNAPSHOT.exists() else None
         manifest = merge_manifests(current, manifest)
     data = manifest['catalog'] if manifest else catalog()
     outputs = {ROOT/'docs/downloads.md':markdown(data, manifest), ROOT/'docs/assets/release-matrix.svg':svg(data, manifest)}
+    if manifest:
+        outputs[ROOT/'static/downloads.json'] = json.dumps(manifest, indent=2) + '\n'
     if args.manifest:
         outputs[SNAPSHOT] = json.dumps(manifest, indent=2) + '\n'
     stale = []
@@ -516,7 +636,11 @@ def main():
         build.add_argument('--tag', required=True)
         build.add_argument('--repository')
         build.add_argument('--commit', default='')
+        build.add_argument('--distribution', choices=('release','engineering'), default='release')
         build.set_defaults(run=fn)
+    verify = commands.add_parser('verify-publication')
+    verify.add_argument('directory', type=Path)
+    verify.set_defaults(run=verify_publication)
     generate = commands.add_parser('docs')
     generate.add_argument('--manifest', type=Path)
     generate.add_argument('--check', action='store_true')

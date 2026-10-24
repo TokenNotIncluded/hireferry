@@ -3,7 +3,26 @@ name: Desktop and CLI packages
 on:
   push:
     tags: ['desktop-v*']
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'packaging/flatpak/**'
+      - 'packaging/aur/**'
+      - 'release/**'
+      - 'scripts/release.py'
+      - 'scripts/desktop-signing.py'
+      - 'scripts/aur.py'
+      - 'scripts/package-flatpak.sh'
+      - 'tests/release.test.py'
+      - 'tests/desktop-signing.test.py'
+      - 'tests/aur.test.py'
+      - '.github/workflows/desktop-release.yml'
   workflow_dispatch:
+    inputs:
+      require_signing:
+        description: Require real Windows publisher signing and macOS Developer ID notarization (does not publish)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +51,8 @@ jobs:
       - name: Verify catalog, generated docs and package boundaries
         run: |
           python3 tests/release.test.py
+          python3 tests/desktop-signing.test.py
+          python3 tests/aur.test.py
           python3 scripts/release.py docs --check
           bash -n scripts/package-flatpak.sh
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
@@ -70,11 +91,31 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.desktop) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      # PR code never receives signing secrets. Tag releases always require them.
+      DESKTOP_REQUIRE_SIGNATURES: ${{ github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) }}
+      WINDOWS_CERTIFICATE: ${{ matrix.platform == 'Windows' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.WINDOWS_CERTIFICATE || '' }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'Windows' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+      WINDOWS_CERTIFICATE_THUMBPRINT: ${{ matrix.platform == 'Windows' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.WINDOWS_CERTIFICATE_THUMBPRINT || '' }}
+      WINDOWS_TIMESTAMP_URL: ${{ matrix.platform == 'Windows' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && vars.WINDOWS_TIMESTAMP_URL || '' }}
+      APPLE_CERTIFICATE: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_CERTIFICATE || '' }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+      APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_SIGNING_IDENTITY || '' }}
+      APPLE_ID: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_ID || '' }}
+      APPLE_PASSWORD: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_PASSWORD || '' }}
+      APPLE_TEAM_ID: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_TEAM_ID || '' }}
+      APPLE_API_ISSUER: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_API_ISSUER || '' }}
+      APPLE_API_KEY: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_API_KEY || '' }}
+      APPLE_API_KEY_BASE64: ${{ matrix.platform == 'macOS' && github.event_name != 'pull_request' && (github.ref_type == 'tag' || inputs.require_signing == true) && secrets.APPLE_API_KEY_BASE64 || '' }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check required signing credentials before building
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/desktop-signing.py configure --target "$TARGET" --out "$RUNNER_TEMP/desktop-signing.json"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
@@ -117,7 +158,15 @@ jobs:
           TARGET: ${{ matrix.target }}
           BUNDLES: ${{ matrix.bundles }}
           APPIMAGE_EXTRACT_AND_RUN: '1'
-        run: npm run tauri -- build --ci --target "$TARGET" --bundles "$BUNDLES" -- --locked
+        run: |
+          # Empty secrets must be absent: Tauri treats set-but-empty Apple env
+          # variables as supplied signing inputs on some paths.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+              APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH; do
+            if [[ -z ${!name:-} ]]; then unset "$name"; fi
+          done
+          unset WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD APPLE_API_KEY_BASE64
+          npm run tauri -- build --ci --target "$TARGET" --bundles "$BUNDLES" --config "$RUNNER_TEMP/desktop-signing.json" -- --locked
       - name: Start the Linux desktop launcher under a real WebKit view
         if: runner.os == 'Linux'
         env:
@@ -125,12 +174,27 @@ jobs:
         run: |
           dbus-run-session -- xvfb-run -a \
             "desktop/src-tauri/target/$TARGET/release/hireferry-desktop" --smoke-test
+      - name: Start the Windows or macOS launcher under its native WebView
+        if: runner.os != 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess, sys
+          suffix = '.exe' if sys.platform == 'win32' else ''
+          binary = pathlib.Path('desktop/src-tauri/target')/os.environ['TARGET']/'release'/('hireferry-desktop'+suffix)
+          subprocess.run([str(binary.resolve()), '--smoke-test'], check=True, timeout=45)
+          PY
       - name: Normalize packages and record checksums
         env:
           TARGET: ${{ matrix.target }}
         run: |
           python3 scripts/release.py stage-desktop --target "$TARGET" \
             --bundle-dir "desktop/src-tauri/target/$TARGET/release/bundle" --out dist/desktop
+          python3 scripts/desktop-signing.py verify --target "$TARGET" --directory dist/desktop
+      - name: Delete temporary notarization key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/hireferry-notary-key.p8" "$RUNNER_TEMP/desktop-signing.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-release-${{ matrix.target }}
@@ -199,9 +263,10 @@ jobs:
       - name: Validate every required package and generate Markdown, SVG and JSON
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DISTRIBUTION: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'release' || 'engineering' }}
         run: |
           python3 scripts/release.py assemble artifacts/release dist/release \
-            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --distribution "$DISTRIBUTION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: complete-desktop-release
@@ -218,6 +283,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: complete-desktop-release
@@ -228,7 +294,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          (cd dist/release && sha256sum -c SHA256SUMS)
+          python3 scripts/release.py verify-publication dist/release
           state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || printf missing)
           if [[ "$state" == false ]]; then
             echo 'This release is already published; bump the desktop version.' >&2
@@ -246,5 +312,12 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/release-docs.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+
+  update-aur:
+    needs: [prepare, publish]
+    uses: ./.github/workflows/aur.yml
+    secrets: inherit
     with:
       tag: ${{ needs.prepare.outputs.tag }}
