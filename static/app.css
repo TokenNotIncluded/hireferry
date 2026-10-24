@@ -460,6 +460,7 @@
 .profile-claim p { margin: 0; color: var(--muted); max-width: 42rem; }
 .profile-share { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 0 24px; padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
 .profile-share .help { margin:0; overflow-wrap:anywhere; }
+.profile-share-actions { display:flex; gap:8px; flex:none; flex-wrap:wrap; }
 .referral-panel { background: linear-gradient(135deg, var(--surface), var(--raised)); }
 .referral-panel .panel-header { align-items:flex-start; }
 .referral-panel .panel-header p { max-width: 42rem; line-height:1.8; }
@@ -467,3 +468,4 @@
 .referral-panel .profile-share code { min-width:0; flex:1; color:var(--accent); font:11px/1.8 var(--mono); overflow-wrap:anywhere; word-break:break-all; }
 @media (max-width: 640px) { .profile-claim { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 640px) { .profile-share { align-items:flex-start; flex-direction:column; } }
+@media (max-width: 640px) { .profile-share-actions { width:100%; } .profile-share-actions .button { flex:1; } }
