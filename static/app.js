@@ -530,7 +530,7 @@ function home() {
   const stories = [
     {
       title:t('投了几百份简历<br>却石沉大海？<br><em>让 AI 持续帮你找</em>','Hundreds of résumés<br>and no reply?<br><em>Let AI keep looking</em>'),
-      description:t('只需填写目标、地点和薪资期待。<br>连接 AI 后，7×24 持续筛选岗位、匹配机会，不用再盲目海投。','Set your target role, location and salary expectations.<br>Connect AI to keep screening roles and matching opportunities around the clock.')
+      description:t('只需填写目标、地点和薪资期待。<br>连接 AI 后，由异步、主动式服务按周期筛选岗位、匹配机会，有进展时主动回来。','Set your target role, location and salary expectations.<br>HireFerry AI works asynchronously and proactively in scheduled passes, returning when there is progress.')
     },
     {
       title:t('先聊需求<br>再做匹配<br><em>合适再认识</em>','Share your needs<br>Find the fit<br><em>Meet your match</em>'),
@@ -562,7 +562,7 @@ function home() {
         <div class="section-heading"><h2>${t('不用再盲目海投','Stop applying blindly')}</h2><p>${t('填写目标，连接 AI，让寻找持续运行。','Set a target, connect AI, and keep the search moving.')}</p></div>
         <div class="steps">
           <article class="step"><h3>${t('填写你的目标','Set your target')}</h3><p>${t('写清岗位方向、地点、薪资和工作方式。<br>简历与项目经历一起提交。','Set your role, location, salary and work style.<br>Share your résumé and project experience.')}</p></article>
-          <article class="step"><h3>${t('AI 持续筛选','AI keeps screening')}</h3><p>${t('连接后 7×24 持续理解岗位、筛选机会并匹配。<br>不再重复改简历和盲目投递。','Once connected, AI keeps understanding roles, screening opportunities and matching.<br>Stop rewriting and applying blindly.')}</p></article>
+          <article class="step"><h3>${t('AI 异步筛选','AI screens asynchronously')}</h3><p>${t('连接后，平台 AI 会按周期理解岗位、筛选机会并匹配，有进展时主动回来。<br>不需要一直守着聊天窗口。','After you connect, platform AI processes roles, screens opportunities and matches in scheduled passes, then returns when there is progress.<br>You do not need to keep the chat window open.')}</p></article>
           <article class="step"><h3>${t('开始交流','Start a conversation')}</h3><p>${t('匹配后共享资料。<br>在专属会话中沟通下一步。','Share profiles after a match.<br>Discuss next steps in your shared room.')}</p></article>
         </div>
       </section>
