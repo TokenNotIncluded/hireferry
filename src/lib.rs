@@ -6,6 +6,7 @@ mod assets;
 pub mod auth;
 pub mod badges;
 pub mod chat;
+pub mod chat_ai;
 pub mod chat_capabilities;
 pub mod chat_stream;
 pub mod cli_auth;

@@ -1194,6 +1194,7 @@ document.addEventListener('submit',async event=>{
     else if(kind==='job-headcount'){const count=headcountInput(data.get('headcount'));await saveJobHeadcount(form.dataset.id,count,form.dataset.admin==='true');if(form.dataset.admin==='true')closeDialog();await render();notify(count===0?t('人数已保存为 0，暂停新匹配；已有会话保留。','Target saved as 0. New introductions are paused; existing chats remain.'):t('招聘人数已免费更新。','Hiring target updated for free.'));}
     else if(kind==='token'||kind==='admin-token'){const r=await api(kind==='admin-token'?'/api/admin/tokens':'/api/tokens',{method:'POST',body:{name:data.get('name')}});await render();document.querySelector('#new-token').innerHTML=`<div class="token-secret"><strong class="field-label">${t('请现在保存，令牌只显示一次。','Save it now. This token is shown only once.')}</strong><code>${esc(r.token)}</code><button class="text-button" type="button" data-action="copy-token" data-copy="${esc(r.token)}">${icon('copy')}${t('复制令牌','Copy token')}</button><p class="help">${t('请勿分享或放入公开仓库。','Do not share it or put it in a public repository.')}</p></div>`;form.reset();notify(t('访问令牌已创建。','Access token created.'));}
     else if(kind==='chat')await service.sendMessage(form,data);
+    else if(kind==='chat-job-card')await service.sendJobCard(form,data);
     else if(kind==='mandate')await service.saveMandate(form,data);
     else if(kind==='admin-mandate')await service.saveMandate(form,data,true);
     else if(kind==='outreach')await service.saveOutreach(form,data);
@@ -1310,6 +1311,7 @@ document.addEventListener('click',async event=>{
     else if(action==='update-match'||action==='match-detail')await editMatch(id);
     else if(action==='chat-older'){setBusy(button,true);await service.olderMessages();}
     else if(action==='chat-latest')service.scrollLatest();
+    else if(action==='chat-job-card'){setBusy(button,true);await service.chatJobCardDialog();}
     else if(action==='admin-mandate')await service.adminMandate(id);
     else if(action==='new-outreach')service.outreachDialog(button.dataset.user);
     else if(action==='edit-outreach')service.outreachDialog(button.dataset.user,id);
@@ -1454,6 +1456,7 @@ function webMCPTools(isCurrent) {
   for(const action of ['finish','cancel'])tool(chatToolPrefix+action+'_message',`${action==='finish'?'Complete':'Stop'} your active message using its next sequence. Stopping retains the partial text and labels it as stopped.`,object({conversation_id:str,message_id:{type:'integer',minimum:1},sequence:{type:'integer',minimum:1,maximum:4097}},['conversation_id','message_id','sequence']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/streams/${x.message_id}/${action}`,{method:'POST',body:{sequence:x.sequence}}));
   tool(chatToolPrefix+'mark_read','Mark messages in a permitted conversation as read.',object({conversation_id:str,message_id:integer},['conversation_id','message_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/read`,{method:'POST',body:{message_id:x.message_id}}));
   if(state.admin){
+    tool('hireferry_admin_send_job_card','Send a clickable job card into a seeker’s private platform chat. Existing introductions open their room; otherwise the card prepares a reviewed draft. The card itself never grants access.',object({conversation_id:str,job_id:str},['conversation_id','job_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/job-card`,{method:'POST',body:{job_id:x.job_id}}));
     tool('hireferry_admin_send_email_notification','Queue one authorized service email to a platform user. Uses the platform SMTP server and stored login email, and respects notification preferences. No arbitrary email addresses. Reuse request_key for identical retries. Queue acceptance is not inbox delivery.',object({user_id:str,subject:{type:'string',minLength:1,maxLength:160},body:{type:'string',minLength:1,maxLength:5000},request_key:{type:'string',minLength:8,maxLength:128,pattern:'^[A-Za-z0-9_-]+$'}},['user_id','subject','body','request_key']),x=>aiApi('/api/admin/notifications/email',{method:'POST',body:x}));
     tool('hireferry_admin_list_email_notifications','Read recent email delivery records. accepted means SMTP accepted, not inbox delivery or reading.',object({user_id:str}),x=>aiApi(queryPath('/api/admin/notifications/email',x)),true);
     const listSchema=object({q:str,role:{type:'string',enum:['seeker','employer','unassigned']},page:{type:'integer',minimum:1}});

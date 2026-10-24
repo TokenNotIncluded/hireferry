@@ -425,6 +425,20 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     return room.writable === false ? t('历史会话 · 只读', 'Archived conversation · read-only') : room.kind === 'matched' ? t('匹配双方与聘渡团队', 'You, your match & HireFerry') : admin ? t('用户与平台的私聊', 'Private conversation with HireFerry') : t('仅你与聘渡团队可见', 'Private with HireFerry');
   }
 
+  function chatServiceLinks(room, admin) {
+    if (room.kind !== 'platform') return '';
+    if (admin && room.user_id) {
+      return `<nav class="chat-shortcuts" aria-label="${t('用户快捷入口', 'User shortcuts')}"><button type="button" class="chat-shortcut" data-action="admin-edit-user" data-id="${esc(room.user_id)}">${icon('file')}<span>${t('查看简历', 'View résumé')}</span></button><a class="chat-shortcut" href="/admin?tab=matches&view=search&candidate=${encodeURIComponent(room.user_id)}" data-nav>${icon('briefcase')}<span>${t('推荐岗位', 'Recommend roles')}</span></a><button type="button" class="chat-shortcut" data-action="chat-job-card">${icon('send')}<span>${t('发送岗位卡片', 'Send role card')}</span></button></nav>`;
+    }
+    const employer = state.user?.role === 'employer';
+    return `<nav class="chat-shortcuts" aria-label="${t('工作台快捷入口', 'Workspace shortcuts')}"><a class="chat-shortcut" href="/app?tab=${employer ? 'jobs' : 'profile'}" data-nav>${icon(employer ? 'briefcase' : 'file')}<span>${t(employer ? '查看我的岗位' : '查看我的简历', employer ? 'View my roles' : 'View my résumé')}</span></a><a class="chat-shortcut" href="/app?tab=matches" data-nav>${icon('link')}<span>${t(employer ? '查看匹配候选人' : '查看推荐岗位', employer ? 'View matched candidates' : 'View recommended roles')}</span></a></nav>`;
+  }
+
+  function chatAiNotice(room) {
+    if (room.kind !== 'platform') return '';
+    return `<aside class="chat-ai-notice" role="note">${icon('clock')}<span><strong>${t('平台 AI：异步、主动式服务', 'Platform AI: asynchronous and proactive')}</strong>${t('目前仍在早期阶段，不是时刻在线的实时客服。消息会进入后台队列，有进展时我们会主动回到这里。', 'We are still in the early stage. This is not a 24/7 live chat; messages enter a background queue and we will proactively return here when there is progress.')}</span></aside>`;
+  }
+
   function chatThread(current) {
     const room = current.current;
     if (!room) return `<div class="chat-unselected">${inboxToggle(true)}${icon('message')}<h2>${t('选择一个会话', 'Choose a conversation')}</h2><p>${t('选择沟通对象，查看记录并继续处理。', 'Choose who to speak with, review the history, and continue.')}</p></div>`;
@@ -434,7 +448,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const draft = current.loading ? '' : chatDrafts.get(current.id)?.body || '';
     const subtitle = chatSubtitle(room, current.admin);
     const status = current.loading ? t('正在加载消息…', 'Loading messages…') : '';
-    return `<header class="chat-thread-header">${inboxToggle(true)}<button type="button" class="icon-button chat-back" data-chat-back aria-label="${t('返回会话列表', 'Back to conversations')}">${icon('back')}</button>${conversationAvatar(room, current.admin)}<div class="chat-thread-title"><h2>${esc(conversationLabel(room))}</h2><p data-chat-subtitle>${subtitle}</p></div>${chatContextLink(room, current.admin)}<details class="chat-tools"><summary class="icon-button" aria-label="${t('会话选项', 'Conversation options')}" title="${t('会话选项', 'Conversation options')}">${icon('more')}</summary><div class="chat-tools-menu"><p class="chat-privacy">${icon('shield')}<span>${privacy}</span></p><a href="${esc(route(current.admin, 'messages', { view: 'list' }))}" data-nav>${icon('panel')}${t('返回工作台导航', 'Workspace navigation')}</a><button type="button" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${icon('info')}${t('反馈问题', 'Report a problem')}</button><p class="chat-keyboard-hint">${t('Enter 换行 · Ctrl / ⌘ Enter 发送', 'Enter for a new line · Ctrl / ⌘ Enter to send')}</p></div></details></header>
+    return `<header class="chat-thread-header">${inboxToggle(true)}<button type="button" class="icon-button chat-back" data-chat-back aria-label="${t('返回会话列表', 'Back to conversations')}">${icon('back')}</button>${conversationAvatar(room, current.admin)}<div class="chat-thread-title"><h2>${esc(conversationLabel(room))}</h2><p data-chat-subtitle>${subtitle}</p></div>${chatContextLink(room, current.admin)}<details class="chat-tools"><summary class="icon-button" aria-label="${t('会话选项', 'Conversation options')}" title="${t('会话选项', 'Conversation options')}">${icon('more')}</summary><div class="chat-tools-menu"><p class="chat-privacy">${icon('shield')}<span>${privacy}</span></p><a href="${esc(route(current.admin, 'messages', { view: 'list' }))}" data-nav>${icon('panel')}${t('返回工作台导航', 'Workspace navigation')}</a><button type="button" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${icon('info')}${t('反馈问题', 'Report a problem')}</button><p class="chat-keyboard-hint">${t('Enter 换行 · Ctrl / ⌘ Enter 发送', 'Enter for a new line · Ctrl / ⌘ Enter to send')}</p></div></details></header>${chatServiceLinks(room, current.admin)}${chatAiNotice(room)}
       <div class="chat-scroll" id="chat-scroll" tabindex="0" aria-label="${t('聊天记录', 'Conversation history')}" aria-busy="${current.loading}">${chatAccountNote(current.admin)}<button type="button" class="chat-history text-button" data-action="chat-older" ${current.hasOlder ? '' : 'hidden'}>${t('加载更早的消息', 'Load earlier messages')}</button><div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="${t('消息', 'Messages')}">${current.loading ? chatPlaceholder() : current.messages?.length ? messagesHtml(current.messages, current.admin) : chatWelcome(room, current.admin)}</div></div>
       <form data-form="chat" class="chat-composer"><button type="button" data-action="chat-latest" class="chat-new-message" hidden>${t('有新消息 · 回到最新', 'New messages · Jump to latest')} ↓</button><div class="chat-composer-surface"><label class="sr-only" for="chat-body">${t('写一条消息', 'Write a message')}</label><textarea id="chat-body" name="body" rows="1" maxlength="10000" required ${disabled ? 'disabled' : ''} placeholder="${esc(readOnly ? t('此会话已归档', 'This conversation is archived') : t('写一条消息…', 'Write a message…'))}">${esc(draft)}</textarea><button class="button small" type="submit" ${disabled ? 'disabled' : ''} aria-label="${t('发送', 'Send')}" title="${t('发送', 'Send')}">${icon('send')}<span class="sr-only">${t('发送', 'Send')}</span></button></div><div class="chat-composer-status" data-chat-status ${status ? '' : 'hidden'}><span id="chat-connection" role="status">${status}</span><button type="button" class="text-button" data-chat-resend hidden>${t('重试发送', 'Retry send')}</button></div></form>`;
   }
@@ -974,6 +988,27 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     // Only the incremental endpoint advances the poll cursor; concurrent replies cannot be skipped.
     api(`/api/chat/conversations/${encodeURIComponent(current.id)}/read`, { method: 'POST', body: { message_id: message.id } }).catch(() => {});
     if (chat === current) textarea.focus({ preventScroll: true });
+  }
+
+  async function chatJobCardDialog() {
+    const current = chat;
+    if (!current?.admin || current.current?.kind !== 'platform') {
+      throw new Error(t('岗位卡片只能从平台私聊发送。', 'Role cards can only be sent from a private platform chat.'));
+    }
+    const page = await api('/api/admin/workbench/jobs?limit=50');
+    const jobs = page.items || [];
+    if (!jobs.length) {
+      throw new Error(t('当前没有可推荐的公开岗位。', 'There are no open roles to recommend right now.'));
+    }
+    openDialog(`<div class="eyebrow">ROLE CARD</div><h2 id="dialog-title">${t('发送岗位卡片', 'Send a role card')}</h2><p class="dialog-intro">${t('卡片会出现在私聊里。已有匹配会直接打开会话，没有匹配时会先填入一条可编辑的发起对话草稿。', 'The card will appear in the private chat. Existing introductions open directly; otherwise the card prepares an editable conversation draft.')}</p><form data-form="chat-job-card"><div class="field"><label for="chat-job-card-select">${t('选择岗位', 'Choose a role')}<select class="input" id="chat-job-card-select" name="job_id" required>${jobs.map(job => `<option value="${esc(job.id)}">${esc(job.title)} · ${esc(job.employer_name || '')} · ${money(job.salary_cents, job)}</option>`).join('')}</select></label></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">${t('取消', 'Cancel')}</button><button type="submit" class="button">${t('发送岗位卡片', 'Send role card')}${icon('send')}</button></div></form>`, { wide: true });
+  }
+
+  async function sendJobCard(form, data) {
+    const current = chat;
+    if (!current?.id) throw new Error(t('请先选择一个平台私聊。', 'Choose a private platform chat first.'));
+    await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/job-card`, { method: 'POST', body: { job_id: String(data.get('job_id') || '').trim() } });
+    closeDialog();
+    notify(t('岗位卡片已发送。', 'Role card sent.'));
   }
 
   async function olderMessages() {
@@ -1577,5 +1612,5 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     return shell(`${heading(t('让平台 AI，协助每次连接。', 'Give your platform AI a clear role.'), t('独立的管理员授权，用于平台业务与跟进。', 'Separate administrator authorization for service operations and follow-ups.'), '', 'PLATFORM AI')}<section class="panel"><div class="panel-header"><div><h2>${t('平台业务访问令牌', 'Platform business access token')}</h2><p>${t('与求职者、招聘方的个人令牌分开管理。', 'Managed separately from job seekers’ and employers’ personal tokens.')}</p></div><span class="pill">${icon('shield')} ADMIN MCP</span></div>${notice(t('此令牌可管理用户资料、岗位、匹配、委托、寻找记录和平台消息，并查看订单统计。它代表平台发言，AI 发送的消息会明确标记。', 'This token can manage profiles, roles, introductions, search briefs, outreach records, and platform messages, and read order statistics. It speaks for HireFerry; AI messages are clearly labeled.'))}<div class="field"><label>${t('MCP 服务地址', 'MCP server URL')}</label><div class="code-box">${esc(location.origin)}/mcp</div></div><p class="help">${t('使用 HTTP 连接，并将令牌作为 Authorization: Bearer 请求头。系统配置与通行密钥管理不对 AI 开放。', 'Connect over HTTP with an Authorization: Bearer header. System configuration and passkey management are not available to AI.')}</p><form data-form="admin-token" class="token-create-form"><div class="field"><label for="admin-token-name">${t('连接名称', 'Connection name')}</label><input class="input" id="admin-token-name" name="name" maxlength="80" required placeholder="${esc(t('例如：平台招聘助手', 'For example: Platform hiring assistant'))}"></div><button class="button secondary" type="submit">${icon('plus')}${t('创建平台令牌', 'Create platform token')}</button></form><div class="token-reauth"><p class="help">${t('创建令牌需要在最近 10 分钟内完成通行密钥验证。', 'Creating a token requires a passkey check within the last 10 minutes.')}</p><button class="text-button" data-action="admin-reauth">${icon('key')}${t('重新验证通行密钥', 'Verify passkey again')}</button></div><div id="new-token"></div></section><section class="panel"><div class="panel-header"><h2>${t('已授权的平台 AI', 'Authorized platform AI')}</h2></div>${d.items?.length ? `<div class="list">${d.items.map(k => `<div class="list-row"><div><h3>${esc(k.name)}</h3><div class="list-meta"><span>${t('创建于', 'Created')} ${date(k.created_at)}</span><span>${t('到期', 'Expires')} ${date(k.expires_at)}</span><span>${t('最近使用', 'Last used')} ${date(k.last_used_at)}</span></div></div><button class="text-button" data-action="revoke-admin-token" data-id="${esc(k.id)}">${t('立即撤销', 'Revoke now')}</button></div>`).join('')}</div>` : empty(t('尚未授权平台 AI。', 'No platform AI is authorized yet.'), t('为可信的助手单独创建令牌，并妥善保管。', 'Create a separate token for a trusted assistant and keep it private.'), '', 'bot')}</section>`, 'agents', true);
   }
 
-  return { messagesPage, mountChat, stopChat, showPendingChat, navigateChat, sendMessage, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
+  return { messagesPage, mountChat, stopChat, showPendingChat, navigateChat, sendMessage, chatJobCardDialog, sendJobCard, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
 }

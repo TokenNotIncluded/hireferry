@@ -122,6 +122,13 @@ rate_limit_window_seconds = 300
 max_user_code_attempts = 30
 max_pending_grants = 1000
 
+# Early-stage platform AI replies are asynchronous and proactive, not always online.
+[chat.auto_reply]
+enabled = true
+delay_seconds = 1
+poll_seconds = 2
+max_attempts = 3
+
 # Optional local welcome override; uncomment this entire block to try it.
 # Only empty, writable platform chats for job seekers use this audience.
 # Other audiences and omitted fields keep the built-in localized copy.

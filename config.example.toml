@@ -229,6 +229,15 @@ release_tag_prefix = "cli-v"
 # English fields fall back to the base field; prompts=[] hides suggestion buttons.
 # Markdown is sanitized before display; clicking a suggestion only fills a draft.
 # Restart after changes. See docs/chat-agents.md for limits and complete behavior.
+# The early-stage assistant replies asynchronously and proactively; it is not a
+# 24/7 real-time support channel. A durable queue keeps acknowledgements alive
+# across restarts. Set enabled=false only if another service owns replies.
+[chat.auto_reply]
+enabled = true
+delay_seconds = 2
+poll_seconds = 5
+max_attempts = 3
+
 # [chat.welcome.platform_seeker]
 # title = "先聊聊你的下一份工作"
 # title_en = "Tell us about your next role"
