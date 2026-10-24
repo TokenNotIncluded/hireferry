@@ -469,3 +469,4 @@
 @media (max-width: 640px) { .profile-claim { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 640px) { .profile-share { align-items:flex-start; flex-direction:column; } }
 @media (max-width: 640px) { .profile-share-actions { width:100%; } .profile-share-actions .button { flex:1; } }
+.auth-context{margin:-10px 0 20px;padding:11px 13px;border-radius:10px;background:var(--accent-soft);color:var(--muted);font-size:11px;line-height:1.7}.role-card-primary{width:100%;border:1px solid var(--line);cursor:pointer}.role-card-primary:hover{background:var(--accent-soft);border-color:var(--accent)}

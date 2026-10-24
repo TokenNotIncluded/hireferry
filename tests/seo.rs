@@ -77,6 +77,10 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
             .next()
             .unwrap()
             .to_owned();
+        if path == "/for-employers" {
+            assert_eq!(title, "招聘方免费发布岗位 · HireFerry · 聘渡");
+            assert!(!title.contains("聘渡 HireFerry · HireFerry"));
+        }
         assert!(titles.insert(title), "unique page title: {path}");
     }
     let (_, _, robots) = read(&app, "/robots.txt").await;
