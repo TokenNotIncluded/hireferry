@@ -176,6 +176,30 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             Ok(json!({"source":r.get::<_,String>(0)?,"signups":r.get::<_,i64>(1)?}))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let referral_signups: i64 = db.query_row(
+        "SELECT COUNT(*) FROM user_referrals WHERE created_at>=?1 AND created_at<?2",
+        params![from, to],
+        |r| r.get(0),
+    )?;
+    let referral_total: i64 =
+        db.query_row("SELECT COUNT(*) FROM user_referrals", [], |r| r.get(0))?;
+    let top_referrers = db
+        .prepare(
+            "SELECT u.id,u.name,u.handle,COUNT(*) AS invites
+             FROM user_referrals r JOIN users u ON u.id=r.inviter_id
+             WHERE r.created_at>=?1 AND r.created_at<?2
+             GROUP BY u.id,u.name,u.handle
+             ORDER BY invites DESC,u.id LIMIT 8",
+        )?
+        .query_map(params![from, to], |r| {
+            Ok(json!({
+                "user_id":r.get::<_,String>(0)?,
+                "name":r.get::<_,String>(1)?,
+                "handle":r.get::<_,String>(2)?,
+                "invites":r.get::<_,i64>(3)?
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({
         "stats":{
             "users":count("SELECT count(*) FROM users")?,
@@ -190,7 +214,7 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             "review_orders":count("SELECT count(*) FROM orders WHERE status='paid_needs_review'")?
         },
         "series":series,"revenue_by_kind":by_kind,"recent_orders":recent,
-        "growth":{"signup_sources":signup_sources},
+        "growth":{"signup_sources":signup_sources,"referral_signups":referral_signups,"referral_total":referral_total,"top_referrers":top_referrers},
         "currency":currency,"currency_decimals":currency_decimals,"currency_totals":currency_totals,
         "bucket":if monthly{"month"}else{"day"},
         "timezone":"UTC","development":s.cfg.development,
