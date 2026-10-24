@@ -166,12 +166,12 @@ Bearer / WebMCP 则同时检查当前 AI 资格，不会通过免费操作绕过
 管理员修改实际 JD 或状态仍会增加版本，并在待付款相关订单存在时要求先处理。
 关闭时人数归零；只有改变人数本身不受这项待付款限制。
 
-远程 MCP 共 **32 个普通用户工具、32 个管理员工具**。`get_site_config` 向两类客户端提供公开币种、精度、计费方式和业务限额。与本功能直接相关的普通工具为
+远程 MCP 共 **40 个普通用户工具、45 个管理员工具**；另有 5 个无需登录的公开只读工具。`get_site_config` 向两类客户端提供公开币种、精度、计费方式和业务限额。与本功能直接相关的普通工具为
 `create_job`（可选 `headcount`）、`set_job_headcount`、`list_deleted_jobs`、`delete_job`、
 `restore_job`、`permanently_delete_job`；管理员使用 `admin_update_job`、`admin_delete_job`、`admin_restore_job`。
 删除/永久删除工具标记为破坏性操作；JSON 参数与 HTTP 共用业务验证。
 浏览器 WebMCP 按登录角色提供相应的 `hireferry_` 前缀工具，复用相同业务授权；
-其注册集合和命名不与远程工具目录一一对应，32/32 仅为上述远程 MCP 的数量。
+其注册集合和命名不与远程工具目录一一对应，40/45 仅为上述授权远程 MCP 的数量；公开目录在 `/discover` 注册独立的 `hireferry_public_*` 只读工具。
 
 招聘方 AI 资格要求已开通，且至少有一个发布费有效、`published`、月薪底薪不低于 ¥3,000 的岗位。
 **人数为 0 仍是 published，保留满足其他条件的 AI 资格**，所以可以通过 AI 免费恢复人数。
