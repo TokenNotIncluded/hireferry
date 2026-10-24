@@ -381,7 +381,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', 'syncPageMetadata', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,publicJobPage,publicPersonPage,openDialog,closeDialog};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', 'syncPageMetadata', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,login,emailCode,profilePage,roleMismatchPage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,publicJobPage,publicPersonPage,openDialog,closeDialog};')(
     document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, () => {}, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -803,6 +803,17 @@ test('employer and seeker return targets survive role selection without allowing
   assert.equal(seeker.app.afterSignIn(), '/app');
 });
 
+test('login makes passwordless magic-link and expired-link states explicit', () => {
+  const { app } = webmcp({ search: '?email_link=expired' });
+  app.state.config.google_enabled = true;
+  const html = app.login();
+  assert.match(html, /不用设置密码/);
+  assert.match(html, /发送登录链接/);
+  assert.match(html, /这个登录链接已过期/);
+  assert.match(html, /aria-live="polite"/);
+  assert.doesNotMatch(html, /发送登录验证码/);
+});
+
 test('signup attribution keeps medium and content for growth funnel analysis', () => {
   const tagged = webmcp({ search: '?utm_source=x&utm_medium=web&utm_campaign=cn_jobseeker_oct24&utm_content=reply_veracat' });
   assert.equal(tagged.app.acquisitionSource(), 'x:web:cn_jobseeker_oct24:reply_veracat');
@@ -875,6 +886,15 @@ test('new role selection lands on the work surface that completes onboarding', (
   assert.equal(app.defaultRoleReturn('employer'), '/app?tab=jobs');
 });
 
+test('seekers get a clear account-role prompt when opening the employer editor', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  const html = app.roleMismatchPage('employer');
+  assert.match(html, /当前账号是求职者身份/);
+  assert.match(html, /请退出当前账号，再用招聘方账号登录后重试/);
+  assert.match(html, /data-action="logout-switch-account"/);
+  assert.match(html, /role=employer/);
+});
+
 test('an existing seeker with an unclaimed generated handle returns to profile setup', () => {
   const { app } = webmcp({ role: 'seeker' });
   app.state.user.handle = 'user_' + 'a'.repeat(16);
@@ -896,7 +916,7 @@ test('unclaimed seekers see one workspace profile claim banner outside profile a
 
 test('unclaimed profile setup offers an immediate save-name action beside the username field', async () => {
   const profile = { email: 'seeker@example.test', name: 'A seeker', role: 'seeker', handle: 'user_' + 'a'.repeat(16), public_profile: false, public_email: '', resume_md: '', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
-  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] }, '/api/auth/sessions': { items: [{ id: 'current', current: true, created_at: 1, expires_at: 2 }, { id: 'other', current: false, created_at: 1, expires_at: 2 }] } } });
   const html = await app.profilePage();
   assert.match(html, /<form id="profile-form" data-form="profile">/);
   assert.match(html, /name="handle" form="profile-form" autofocus/);
@@ -916,6 +936,30 @@ test('published profiles offer a copyable README badge', async () => {
   assert.match(html, /utm_campaign=profile_badge/);
   assert.match(html, /copy-profile-badge/);
   assert.match(html, /\[!\[ada AI profile\]/);
+});
+
+test('profile settings expose GitHub, X and multiple custom public links', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: true, public_email: '', resume_md: '## Rust', ai_profile_links: { github: 'https://github.com/ada', x: 'https://x.com/ada', '个人网站': 'https://ada.example.com' }, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const html = await app.profilePage();
+  assert.match(html, /name="ai_github"/);
+  assert.match(html, /name="ai_x"/);
+  assert.match(html, /data-action="add-profile-link"/);
+  assert.match(html, /data-custom-link-label[^>]*value="个人网站"/);
+  assert.match(html, /data-custom-link-url[^>]*value="https:\/\/ada\.example\.com"/);
+});
+
+test('profile exposes email rebinding cancellation and session controls', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: false, public_email: '', resume_md: '## Rust', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] }, '/api/auth/sessions': { items: [{ id: 'current', current: true, created_at: 1, expires_at: 2 }, { id: 'other', current: false, created_at: 1, expires_at: 2 }] } } });
+  const html = await app.profilePage();
+  assert.match(html, /换绑登录邮箱/);
+  assert.match(html, /当前邮箱会收到一个取消链接/);
+  assert.match(html, /data-form="email-change"/);
+  assert.match(html, /data-action="revoke-user-session"/);
+  assert.match(html, /data-action="revoke-other-sessions"/);
+  assert.match(html, /Google Password Manager/);
+  assert.doesNotMatch(html, /user-passkey-kind/);
 });
 
 test('free early access remains available to an existing inactive employer', () => {

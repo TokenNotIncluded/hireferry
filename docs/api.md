@@ -168,13 +168,13 @@ HumanGrant 的完整请求字段、取消、会话检查、签名与有效权限
 
 ### 公开目录与公开 MCP
 
-这些接口不需要登录，只返回招聘方已发布且仍在招聘的岗位，以及求职者明确打开公开个人主页后的简历。公开简历的 AI profile 链接由本人填写；登录邮箱、私聊、匹配历史、订单、草稿和关闭内容不会返回。
+这些接口不需要登录，只返回招聘方已发布且仍在招聘的岗位，以及求职者明确打开公开个人主页后的简历。公开主页链接由本人填写，可以包含 AI、GitHub、X、个人网站和其他 HTTPS 页面；登录邮箱、私聊、匹配历史、订单、草稿和关闭内容不会返回。
 
 | 方法与路径 | 输入 | 返回 / 范围 |
 | --- | --- | --- |
 | GET `/api/public/jobs` | query `q?`、`page?` | 公开招聘岗位；返回 `jd_md`、清洗后的 `jd_html`、薪资、人数和有限的招聘方公开信息 |
 | GET `/api/public/jobs/{id}` | 无 | 单个仍在招聘的公开岗位；暂停、关闭、删除或未付款岗位返回 404 |
-| GET `/api/public/people` | query `q?`、`page?` | 明确公开的求职者简历摘要、handle、公开邮箱和 AI profile 链接 |
+| GET `/api/public/people` | query `q?`、`page?` | 明确公开的求职者简历摘要、handle、公开邮箱和主页链接 |
 | GET `/api/public/people/{handle}` | 唯一 handle | 单个公开简历；handle 不区分大小写 |
 | POST `/mcp/public` | MCP `2025-11-25` JSON-RPC | 无需 Authorization；只读公开工具 `hireferry_public_*`，免费且有界限流 |
 

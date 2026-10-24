@@ -38,7 +38,7 @@ function detailMetadata(path, record) {
   const links = Object.values(record?.ai_profile_links || {}).filter(url => /^https?:\/\//.test(url));
   return {
     title: name,
-    description: `${name} 的公开求职主页（@${record?.handle || ''}），包含本人主动公开的简历内容和 AI profile 链接。`,
+    description: `${name} 的公开求职主页（@${record?.handle || ''}），包含本人主动公开的简历内容和个人主页链接。`,
     structured: {
       '@context': 'https://schema.org',
       '@type': 'Person',

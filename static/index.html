@@ -1,14 +1,33 @@
 <!doctype html>
-<html lang="zh-CN" class="light" data-theme="light" data-palette="neutral">
+<html lang="zh-CN" class="dark" data-theme="dark" data-default-theme="dark" data-palette="neutral">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f8f7f3">
+  <meta name="theme-color" content="#171715">
   <meta name="description" content="聘渡 HireFerry · AI 原生简历初筛与人才自动匹配。AI 自动理解需求并匹配人选，全在线交付。求职免费，招聘按次付费。">
   <title>聘渡 HireFerry · 人才双向匹配服务</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <script src="/static/theme.js"></script>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const valid = value => ['system', 'light', 'dark'].includes(value);
+      const defaultTheme = root.dataset.defaultTheme || 'light';
+      let preference = defaultTheme;
+      try {
+        const saved = localStorage.getItem('hireferry-theme');
+        if (valid(saved)) preference = saved;
+      } catch {}
+      const theme = preference === 'system'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : preference;
+      root.dataset.theme = theme;
+      root.dataset.themePreference = preference;
+      root.classList.toggle('dark', theme === 'dark');
+      root.classList.toggle('light', theme === 'light');
+    })();
+  </script>
+  <script defer src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/theme-palettes.css">
   <link rel="stylesheet" href="/static/theme.css">
@@ -28,7 +47,6 @@
   <link rel="stylesheet" href="/static/feedback.css">
   <link rel="stylesheet" href="/static/public-directory.css">
   <script type="module" src="/static/app.js"></script>
-  <script type="module" src="/static/feedback-ui.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳转到主要内容 / Skip to content</a>

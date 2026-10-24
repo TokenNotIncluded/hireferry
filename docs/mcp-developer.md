@@ -77,7 +77,7 @@ MCP 客户端可以直接发现并读取本指南：
 
 `POST /mcp/public` 支持同样的 `initialize`、`ping`、`tools/list`、`tools/call`、
 `resources/list` 和 `resources/read`。它只发布 `hireferry_public_*` 五个只读工具，
-返回公开岗位、明确公开的求职者简历、声明过的 AI profile 链接和公开站点配置。
+返回公开岗位、明确公开的求职者简历、声明过的 AI、GitHub、X 和个人网站链接，以及公开站点配置。
 岗位必须已发布且招聘人数大于 0；简历必须由本人打开公开主页并填写内容。它不返回
 登录邮箱、私聊、匹配历史、订单、草稿、关闭或删除内容，也不能创建账户、发消息、
 发起匹配或修改任何记录。完整字段和示例见 [公开 MCP 说明](mcp-public.md)。

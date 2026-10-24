@@ -63,6 +63,49 @@ async fn public_profile_is_opt_in_and_exposes_only_declared_ai_links() {
 }
 
 #[test]
+fn profile_links_accept_social_and_custom_public_pages() {
+    let state = AppState::new(Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    let id = "links-user";
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'Ada','ada-links','seeker',1,1)",
+            params![id, "ada-links@example.invalid"],
+        )
+        .unwrap();
+    let links = std::collections::BTreeMap::from([
+        ("github".into(), "https://github.com/ada".into()),
+        ("x".into(), "https://x.com/ada".into()),
+        ("个人网站".into(), "https://ada.example.com".into()),
+        ("作品集".into(), "https://portfolio.example.com/ada".into()),
+    ]);
+    let user = api::save_profile(
+        &state,
+        id,
+        ProfileInput {
+            name: "Ada".into(),
+            handle: "ada-links".into(),
+            public_email: String::new(),
+            resume_md: "## Rust".into(),
+            visible: false,
+            public_profile: true,
+            ai_profile_links: links,
+        },
+    )
+    .unwrap();
+    assert_eq!(user.ai_profile_links["github"], "https://github.com/ada");
+    assert_eq!(user.ai_profile_links["x"], "https://x.com/ada");
+    assert_eq!(user.ai_profile_links["个人网站"], "https://ada.example.com");
+    assert_eq!(user.ai_profile_links.len(), 4);
+}
+
+#[test]
 fn generated_placeholder_handle_cannot_be_published() {
     let state = AppState::new(Config {
         development: true,
