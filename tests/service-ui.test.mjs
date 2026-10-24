@@ -868,6 +868,16 @@ test('unclaimed profile setup offers an immediate save-name action beside the us
   assert.match(html, /保存名字并继续/);
 });
 
+test('published profiles offer a copyable README badge', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: true, public_email: '', resume_md: '## Rust', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const html = await app.profilePage();
+  assert.match(html, /README 徽章/);
+  assert.match(html, /badge\.svg\?label=ada/);
+  assert.match(html, /copy-profile-badge/);
+  assert.match(html, /\[!\[ada AI profile\]/);
+});
+
 test('free early access remains available to an existing inactive employer', () => {
   const { app } = webmcp({ role: 'employer' });
   app.state.user.employer_paid = false;
