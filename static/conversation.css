@@ -6,6 +6,12 @@
 .inbox-eyebrow { display:none; }
 .chat-workspace .conversation-sidebar-heading h1 { display:flex; align-items:center; gap:11px; font-family:var(--font); font-size:20px; font-weight:650; line-height:1.2; letter-spacing:-.04em; margin:0; }
 .inbox-count { display:grid; place-items:center; min-width:23px; height:23px; padding:0 6px; border:0; background:var(--raised); border-radius:7px; font:11px var(--mono); letter-spacing:0; color:var(--muted); }
+.profile-claim-nudge { display:flex; align-items:flex-start; gap:9px; margin:0 19px 12px; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--accent-soft); color:var(--muted); }
+.profile-claim-nudge > svg { width:16px; height:16px; flex:none; margin-top:2px; color:var(--accent); }
+.profile-claim-nudge > div { display:grid; gap:5px; min-width:0; }
+.profile-claim-nudge strong { color:var(--ink); font:600 12px/1.4 var(--font); }
+.profile-claim-nudge p { font:11px/1.65 var(--font); }
+.profile-claim-nudge .button { justify-self:start; margin-top:2px; }
 .conversation-tools { padding:0 19px; }
 .conversation-search { display:flex; align-items:center; gap:8px; background:var(--paper); border:1px solid var(--line); border-radius:9px; min-height:39px; padding:0 10px; }
 .conversation-search:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
@@ -152,6 +158,7 @@
   .chat-workspace.thread-selected .conversation-sidebar { display:none; }
   .chat-workspace.thread-selected .chat-thread { display:flex; }
   .chat-workspace .conversation-sidebar-heading { padding:10px 20px; min-height:64px; }
+  .profile-claim-nudge { margin-inline:20px; }
   .conversation-tools { padding:0 20px; }
   .conversation-search input { font-size:16px; padding:10px 0; }
   .conversation-filters button { font-size:13px; min-height:44px; }

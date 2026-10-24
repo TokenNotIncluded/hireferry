@@ -81,6 +81,26 @@ test('default workspace reads only the private platform thread and escapes messa
   assert.equal(requests.some(([path]) => path.includes('/match_one/messages')), false);
 });
 
+test('seekers with a generated placeholder handle see a profile claim nudge in the inbox', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [], next_cursor: 0, first_cursor: 0 },
+  { state: { user: { id: 'seeker-one', role: 'seeker', handle: 'user_0123456789abcdef' } } });
+  const html = await service.messagesPage();
+  assert.match(html, /profile-claim-nudge/);
+  assert.match(html, /Claim your unique name first/);
+  assert.match(html, /href="\/app\?tab=profile"[^>]*data-nav/);
+});
+
+test('claimed seekers do not see the profile claim nudge in the inbox', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [], next_cursor: 0, first_cursor: 0 },
+  { state: { user: { id: 'seeker-one', role: 'seeker', handle: 'lightdot' } } });
+  const html = await service.messagesPage();
+  assert.doesNotMatch(html, /profile-claim-nudge/);
+});
+
 test('archived administrator rooms display history but cannot be composed into', async () => {
   const service = ui(async path => path === '/api/chat/conversations'
     ? { items: [{ id: 'match_archived', kind: 'matched', title: 'Concluded search', writable: false, participants: [] }] }
