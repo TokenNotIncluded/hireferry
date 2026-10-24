@@ -863,9 +863,11 @@ fn rendered_markdown_has_no_executable_markup_or_tracking_images() {
 }
 
 #[test]
-fn svg_allows_local_shapes_but_rejects_active_content_and_external_references() {
+fn svg_allows_local_shapes_and_safe_animation_but_rejects_active_content_and_external_references() {
     let safe = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><defs><linearGradient id="paint"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient></defs><circle cx="10" cy="10" r="8" fill="url(#paint)"/></svg>"##;
     assert!(safety::safe_svg(safe).is_ok());
+    let animated = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><g><circle cx="10" cy="10" r="8"/><animateTransform attributeName="transform" attributeType="XML" type="rotate" values="0 10 10;360 10 10" dur="2s" repeatCount="indefinite"/></g></svg>"##;
+    assert!(safety::safe_svg(animated).is_ok());
     for unsafe_svg in [
         r#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#,
         r#"<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>"#,
@@ -875,6 +877,9 @@ fn svg_allows_local_shapes_but_rejects_active_content_and_external_references() 
         r#"<svg xmlns="http://www.w3.org/2000/svg"><circle fill="u\72l(https://tracker.example.invalid/image)"/></svg>"#,
         r#"<?xml-stylesheet type="text/css" href="https://tracker.example.invalid/style.css"?><svg xmlns="http://www.w3.org/2000/svg"></svg>"#,
         r#"<!DOCTYPE svg [<!ENTITY external SYSTEM "https://tracker.example.invalid/entity">]><svg xmlns="http://www.w3.org/2000/svg"><title>&external;</title></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8"><animate attributeName="href" to="https://tracker.example.invalid/image" dur="1s"/></circle></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8"><animate attributeName="opacity" values="0;1" onbegin="alert(1)" dur="1s"/></circle></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8"><animate attributeName="opacity" values="url(https://tracker.example.invalid/image)" dur="1s"/></circle></svg>"#,
     ] {
         assert!(
             safety::safe_svg(unsafe_svg).is_err(),

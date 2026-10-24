@@ -46,7 +46,10 @@ fn markdown_options(text: &str, extra: pulldown_cmark::Options) -> String {
         .clean(&html)
         .to_string()
 }
-/// An SVG allowlist. No script, CSS, external references, animation or embedded HTML.
+/// An SVG allowlist. Scripts, CSS, external references and embedded HTML are
+/// rejected. Local SMIL animation is allowed for a small set of safe drawing
+/// attributes so avatars can move without gaining event handlers or network
+/// access.
 pub fn safe_svg(svg: &str) -> AppResult<String> {
     bounded_text(svg, 64_000, "SVG")?;
     let doc =
@@ -77,6 +80,9 @@ pub fn safe_svg(svg: &str) -> AppResult<String> {
         "radialGradient",
         "stop",
         "clipPath",
+        "animate",
+        "animateTransform",
+        "set",
     ];
     let attrs = [
         "id",
@@ -118,7 +124,68 @@ pub fn safe_svg(svg: &str) -> AppResult<String> {
         "stop-opacity",
         "clip-path",
         "preserveAspectRatio",
+        "attributeName",
+        "attributeType",
+        "from",
+        "to",
+        "values",
+        "keyTimes",
+        "keySplines",
+        "dur",
+        "begin",
+        "end",
+        "min",
+        "max",
+        "restart",
+        "repeatCount",
+        "repeatDur",
+        "calcMode",
+        "additive",
+        "accumulate",
+        "type",
     ];
+    let animation_tags = ["animate", "animateTransform", "set"];
+    let animation_attrs = [
+        "attributeName",
+        "attributeType",
+        "from",
+        "to",
+        "values",
+        "keyTimes",
+        "keySplines",
+        "dur",
+        "begin",
+        "end",
+        "min",
+        "max",
+        "restart",
+        "repeatCount",
+        "repeatDur",
+        "calcMode",
+        "additive",
+        "accumulate",
+        "type",
+    ];
+    let animatable_attrs = [
+        "cx",
+        "cy",
+        "d",
+        "fill",
+        "fill-opacity",
+        "opacity",
+        "r",
+        "rx",
+        "ry",
+        "stroke",
+        "stroke-dasharray",
+        "stroke-dashoffset",
+        "stroke-opacity",
+        "stroke-width",
+        "transform",
+        "x",
+        "y",
+    ];
+    let transform_types = ["rotate", "scale", "skewx", "skewy", "translate"];
     for node in doc.descendants().filter(|n| n.is_element()) {
         if !tags.contains(&node.tag_name().name())
             || node
@@ -135,6 +202,32 @@ pub fn safe_svg(svg: &str) -> AppResult<String> {
                 ));
             }
             let v = attr.value().to_ascii_lowercase();
+            let is_animation_attr = animation_tags.contains(&node.tag_name().name())
+                && animation_attrs.contains(&attr.name());
+            if animation_tags.contains(&node.tag_name().name()) {
+                if attr.name() == "attributeName" && !animatable_attrs.contains(&v.as_str()) {
+                    return Err(AppError::bad_request(
+                        "SVG animation targets an unsupported attribute",
+                    ));
+                }
+                if attr.name() == "attributeType" && !["auto", "xml"].contains(&v.as_str()) {
+                    return Err(AppError::bad_request(
+                        "SVG animation uses an unsupported attribute type",
+                    ));
+                }
+                if node.tag_name().name() == "animateTransform" {
+                    if attr.name() == "attributeName" && v != "transform" {
+                        return Err(AppError::bad_request(
+                            "SVG transform animation must target transform",
+                        ));
+                    }
+                    if attr.name() == "type" && !transform_types.contains(&v.as_str()) {
+                        return Err(AppError::bad_request(
+                            "SVG uses an unsupported transform animation",
+                        ));
+                    }
+                }
+            }
             if v.contains("url(")
                 && !(v.starts_with("url(#")
                     && v.ends_with(')')
@@ -148,7 +241,8 @@ pub fn safe_svg(svg: &str) -> AppResult<String> {
             }
             if v.contains("javascript:")
                 || v.contains("data:")
-                || v.contains(['@', '<', '\\', ';', '{', '}'])
+                || v.contains(['@', '<', '\\', '{', '}'])
+                || (v.contains(';') && !is_animation_attr)
                 || v.contains("/*")
             {
                 return Err(AppError::bad_request("Unsafe SVG value"));
