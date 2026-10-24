@@ -979,14 +979,14 @@ function contactPage() {
 
 async function render({navigation=false}={}) {
   const navigationStarted=performance.now();
-  window.hireferryLoadRouteStyles?.(location.pathname);
+  const stylePromise=Promise.resolve().then(()=>window.hireferryEnsureRouteStyles?.(location.pathname)||{failed:[]}).catch(()=>({failed:['route-styles']}));
   const fast=sessionReader.fresh()?service.navigateChat?.(new URL(location.href),{onlyIfChanged:!navigation}):null;
   if(fast){
     requests.cancel(`navigation:${state.render}`);
     const version=++state.render;
-    root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
+    root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);root.dataset.styleState='loading';delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
     const record=stage=>requestAnimationFrame(()=>{if(version!==state.render)return;root.dataset[stage==='shell'?'navigationShellMs':'navigationReadyMs']=(performance.now()-navigationStarted).toFixed(1);if(stage!=='shell')root.dataset.navigationState=stage;});
-    record('shell');await fast;record('ready');return;
+    record('shell');await fast;const styleResult=await stylePromise;root.dataset.styleState=styleResult.failed.length?'degraded':'ready';record('ready');return;
   }
   requests.cancel(`navigation:${state.render}`);
   const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';updatePageMetadata();
@@ -996,11 +996,14 @@ async function render({navigation=false}={}) {
   const pageKey=pageIdentity(path,tab);
   const placeholderTab=path.startsWith('/human/')?'human-review':path.startsWith('/app/jobs/')?'editor':tab||(path==='/admin'?'overview':'messages');
   const pendingBody=()=>{if(isPublicDirectoryPage(path))return publicDirectorySkeleton(path);const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
-  root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
+  root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);root.dataset.styleState='loading';delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
   const recordPaint=stage=>requestAnimationFrame(()=>{if(version!==state.render)return;root.dataset[stage==='shell'?'navigationShellMs':'navigationReadyMs']=(performance.now()-navigationStarted).toFixed(1);if(stage!=='shell')root.dataset.navigationState=stage;});
   const showPending=(force=false)=>{if(!force&&root.dataset.pageKey===pageKey){root.classList.add('page-pending');(root.querySelector('.app-content')||root.querySelector('main'))?.setAttribute('aria-busy','true');if((path==='/app'&&(!tab||tab==='messages'))||(path==='/admin'&&tab==='messages'))service.showPendingChat(qs().get('conversation'));}else {controlsUI.clear(root);mountPage(root,header()+pendingBody()+footer(),pageKey,{busy:true});disclosureUI.sync({scope:identityOf(state)});}};
   showPending();
   recordPaint('shell');
+  const styleResult=await stylePromise;
+  if(version!==state.render)return;
+  root.dataset.styleState=styleResult.failed.length?'degraded':'ready';
   try {
     let loadedConfig=false;
     if(!state.config||(!publicPage&&state.configCached)) {

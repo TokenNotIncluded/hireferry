@@ -115,7 +115,7 @@ async fn home_shell_keeps_route_css_out_of_the_blocking_head() {
     let response = request(&app(), Method::GET, "/", &[]).await;
     assert_eq!(response.status(), StatusCode::OK);
     let html = String::from_utf8(body(response).await).unwrap();
-    assert_eq!(html.matches("rel=\"stylesheet\"").count(), 5);
+    assert_eq!(html.matches("rel=\"stylesheet\"").count(), 6);
     assert!(html.contains("route-styles.js"));
     for route_style in [
         "workspace.css",

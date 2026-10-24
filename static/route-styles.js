@@ -1,77 +1,87 @@
 /*
- * Keep the landing page's critical CSS small without making the SPA depend on
- * a build step. The server rewrites /static/ URLs to the immutable release
- * prefix, so these links participate in the same cache/version boundary as
- * the rest of the module graph.
+ * Load CSS that belongs to the current route without making the landing page
+ * wait for workspace, chat, admin, CLI, or directory styles. The server keeps
+ * this module and its sibling assets under one immutable release directory.
  */
-const coreStyles = [
-  'app.css',
-  'theme-palettes.css',
-  'theme.css',
-  'navigation.css',
-  'controls.css',
-];
 const assetBase = new URL('./', import.meta.url);
+const loaded = new Map();
 
-const routeStyles = path => {
-  // The feedback controller is shared by every rendered page, but its small
-  // stylesheet is still allowed to arrive after the core shell.
-  const styles = new Set(['feedback.css']);
+const routeStyleNames = path => {
+  const styles = new Set();
   const add = (...names) => names.forEach(name => styles.add(name));
 
-  if (path === '/') {
-    add('particle-type.css', 'brand-motion.css', 'promo.css');
-  } else if (path === '/login') {
-    add('auth.css');
-  } else if (path === '/discover' || /^\/discover\/(jobs|people)\/[^/]+$/.test(path)) {
-    add('public-directory.css');
-  } else if (path === '/cli') {
-    add('cli-guide.css', 'cli-auth.css');
-  } else if (path === '/downloads') {
-    add('downloads.css');
-  } else if (path === '/app' || path.startsWith('/app/')) {
-    add('workspace.css');
+  if (path === '/' || path === '/for-employers' || path === '/for-job-tools') {
+    add('promo.css', 'particle-type.css', 'brand-motion.css');
+  }
+  if (
+    path === '/discover' ||
+    /^\/discover\/(jobs|people)\/[^/]+$/.test(path) ||
+    /^\/u\/[A-Za-z0-9_-]+$/.test(path)
+  ) {
+    add('people-jobs.css', 'public-directory.css');
+  }
+  if (path === '/cli') add('cli-guide.css', 'cli-auth.css');
+  if (path === '/downloads') add('downloads.css');
+  if (path === '/app' || path.startsWith('/app/')) {
+    add('workspace.css', 'people-jobs.css', 'promo.css');
     const tab = new URLSearchParams(location.search).get('tab');
     if (!tab || tab === 'messages') add('conversation.css', 'chat-renderer.css');
-    if (tab === 'promos') add('promo.css');
-  } else if (path === '/admin') {
-    add('auth.css', 'workspace.css');
-    const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'messages') add('conversation.css', 'chat-renderer.css');
-    if (['users', 'jobs', 'matches', 'mandates'].includes(tab)) add('people-jobs.css');
-    if (['overview', 'orders'].includes(tab)) add('finance.css');
-    if (['team', 'staff'].includes(tab)) add('staff.css');
+  }
+  if (path === '/admin' || path.startsWith('/staff/invite/')) {
+    add(
+      'workspace.css',
+      'staff.css',
+      'finance.css',
+      'people-jobs.css',
+      'conversation.css',
+      'chat-renderer.css',
+      'promo.css',
+    );
   }
 
   return [...styles];
 };
 
-const loaded = new Set();
+function assetUrl(name) {
+  return new URL(name, assetBase).href;
+}
 
-function loadStyle(name, {async = true} = {}) {
-  if (loaded.has(name) || document.querySelector(`link[data-route-style="${name}"], link[rel="stylesheet"][href$="/${name}"]`)) {
-    loaded.add(name);
-    return;
-  }
-  const link = document.createElement('link');
-  link.dataset.routeStyle = name;
-  link.href = new URL(name, assetBase).href;
-  if (async) {
-    link.rel = 'preload';
-    link.as = 'style';
-    link.addEventListener('load', () => { link.rel = 'stylesheet'; }, {once: true});
-    link.addEventListener('error', () => { loaded.delete(name); link.remove(); }, {once: true});
-  } else {
+function loadStylesheet(name) {
+  if (loaded.has(name)) return loaded.get(name);
+
+  let link = document.head.querySelector(
+    `link[data-route-style="${name}"], link[rel="stylesheet"][href$="/${name}"]`,
+  );
+  if (!link) {
+    link = document.createElement('link');
     link.rel = 'stylesheet';
+    link.dataset.routeStyle = name;
+    link.href = assetUrl(name);
+    document.head.append(link);
   }
-  document.head.append(link);
-  loaded.add(name);
+
+  const promise = new Promise(resolve => {
+    if (link.sheet) {
+      resolve({name, ok: true});
+      return;
+    }
+    link.addEventListener('load', () => resolve({name, ok: true}), {once: true});
+    link.addEventListener('error', () => resolve({name, ok: false}), {once: true});
+  });
+  loaded.set(name, promise);
+  return promise;
 }
 
-export function loadRouteStyles(path = location.pathname) {
-  coreStyles.forEach(name => loadStyle(name, {async: false}));
-  routeStyles(path).forEach(name => loadStyle(name));
+export function routeStyles(pathname = location.pathname) {
+  return routeStyleNames(pathname).map(loadStylesheet);
 }
 
-window.hireferryLoadRouteStyles = loadRouteStyles;
-loadRouteStyles();
+export async function ensureRouteStyles(pathname = location.pathname) {
+  const results = await Promise.all(routeStyles(pathname));
+  return {failed: results.filter(result => !result.ok).map(result => result.name)};
+}
+
+// Keep a small compatibility hook for browser diagnostics and future shell
+// code. The application render path is the authority and awaits the promise.
+window.hireferryEnsureRouteStyles = ensureRouteStyles;
+window.hireferryLoadRouteStyles = path => void ensureRouteStyles(path);
