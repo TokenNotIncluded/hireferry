@@ -40,6 +40,12 @@ body:has(.workspace-layout) { overflow: hidden; }
 }
 .workspace-layout > .app-content { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 40px clamp(28px, 4vw, 64px) 56px; scrollbar-gutter: stable; }
 .workspace-layout > .app-content:focus { outline: none; }
+.workspace-profile-claim { display:flex; align-items:center; gap:12px; margin:0 0 28px; padding:13px 16px; border:1px solid var(--line); border-radius:8px; background:var(--accent-soft); color:var(--muted); }
+.workspace-profile-claim > svg { width:17px; height:17px; flex:none; color:var(--accent); }
+.workspace-profile-claim > div { display:grid; gap:3px; min-width:0; flex:1; }
+.workspace-profile-claim strong { color:var(--ink); font:600 12px/1.4 var(--font); }
+.workspace-profile-claim span { font:11px/1.6 var(--font); }
+.workspace-profile-claim .button { flex:none; }
 .workspace-activation { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 28px; color: var(--muted); font-size: 12px; }
 .workspace-activation .text-button { min-height: 44px; }
 .workspace-layout[data-workspace-page="messages"] .workspace-activation { margin: 0; padding: 0 20px; background: var(--surface); }
@@ -205,6 +211,8 @@ body:has(.workspace-layout) { overflow: hidden; }
   .workspace-header .language { font-size: 11px; padding: 7px; }
   .app-layout.workspace-layout { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .workspace-layout > .app-content { grid-row: 1; padding: 28px 20px 36px; }
+  .workspace-profile-claim { align-items:flex-start; margin-bottom:20px; padding:13px 14px; }
+  .workspace-profile-claim .button { margin-left:auto; }
   .workspace-sidebar { grid-row: 2; padding: 0 8px env(safe-area-inset-bottom); border: 0; background: var(--surface); z-index: 5; }
   .workspace-sidebar-top, .workspace-sidebar > .workspace-nav-label, .workspace-secondary, .workspace-sidebar-foot { display: none; }
   .workspace-sidebar .sidebar-nav { display: flex; flex-direction: row; align-items: stretch; overflow: visible; gap: 2px; height: 62px; }
