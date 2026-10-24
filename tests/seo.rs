@@ -57,7 +57,7 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
         .filter(|n| n.has_tag_name(("http://www.sitemaps.org/schemas/sitemap/0.9", "loc")))
         .map(|n| n.text().unwrap().to_owned())
         .collect();
-    assert_eq!(urls.len(), 10);
+    assert_eq!(urls.len(), 11);
     let mut titles = std::collections::BTreeSet::new();
     for url in urls {
         let path = url.strip_prefix("https://hireferry.example").unwrap();
@@ -80,6 +80,12 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
         if path == "/for-employers" {
             assert_eq!(title, "招聘方免费发布岗位 · HireFerry · 聘渡");
             assert!(!title.contains("聘渡 HireFerry · HireFerry"));
+        }
+        if path == "/for-job-tools" {
+            assert_eq!(
+                title,
+                "本地求职工具与 HireFerry 公开发现层 · HireFerry · 聘渡"
+            );
         }
         assert!(titles.insert(title), "unique page title: {path}");
     }
