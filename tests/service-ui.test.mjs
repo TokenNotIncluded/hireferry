@@ -381,7 +381,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,openDialog,closeDialog};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,openDialog,closeDialog};')(
     document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -833,6 +833,15 @@ test('local-first job tools landing keeps private applications local and exposes
   assert.match(html, /for-employers/);
   assert.match(html, /utm_campaign=local_first_integration/);
   assert.match(html, /docs\/mcp-public\.md/);
+});
+
+test('employer landing previews the open-source role template before login', () => {
+  const { app } = webmcp();
+  app.state.lang = 'en';
+  const html = app.employerLandingPage();
+  assert.match(html, /What does the open-source template cover\?/);
+  assert.match(html, /public code, issue, documentation, or release evidence/i);
+  assert.match(html, /template%3Dopensource/);
 });
 
 test('generated sign-up handles still show the custom-name onboarding path', () => {
