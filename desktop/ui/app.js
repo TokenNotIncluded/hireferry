@@ -8,7 +8,7 @@ const messages = {
     connectDescription:'使用官方服务，或连接你自己的聘渡站点。',
     serverLabel:'服务地址', serverHelp:'使用 HTTPS 地址。本机开发可使用 http://localhost:3000。',
     connectButton:'进入工作台', browserButton:'在浏览器中打开',
-    loginNote:'桌面内可使用邮箱验证码登录。Google 登录请在浏览器中完成；浏览器与桌面的登录状态各自独立。',
+    loginNote:'桌面内可使用邮箱验证码登录。Google 登录请在浏览器中确认账号并批准，再切回此应用继续。自托管站点需支持应用登录授权。',
     footer:'人类 HR 与 AI，协作同行。', footerHelp:'连接设置可随时在应用菜单中重新打开。',
     opening:'正在打开工作台…', opened:'工作台已打开。若页面未加载，可在应用菜单中刷新或切换服务地址。',
     browserOpened:'已在默认浏览器中打开。', invalid_server:'请输入完整的 HTTPS 站点地址，不包含账号、路径、查询参数或片段。本机允许 HTTP。',
@@ -24,7 +24,7 @@ const messages = {
     connectDescription:'Use the official service or connect to your own HireFerry deployment.',
     serverLabel:'Server address', serverHelp:'Use HTTPS. Local development can use http://localhost:3000.',
     connectButton:'Open workspace', browserButton:'Open in browser',
-    loginNote:'Email-code sign-in works in the app. Use your browser for Google sign-in. Browser and desktop sessions stay separate.',
+    loginNote:'Use email-code sign-in in the app. For Google, confirm your account and approve in your browser, then switch back to this app. Self-hosted servers need app sign-in support.',
     footer:'Human HR and AI, working together.', footerHelp:'Reopen connection settings from the application menu.',
     opening:'Opening your workspace…', opened:'Workspace opened. Use the application menu to reload or change servers if the page does not load.',
     browserOpened:'Opened in your default browser.', invalid_server:'Enter a full HTTPS origin without credentials, paths, query parameters or fragments. HTTP is allowed on loopback only.',
@@ -34,21 +34,55 @@ const messages = {
     unavailable:'Open this page in the HireFerry desktop application.', unexpected:'The action did not complete. Please try again.'
   }
 };
+const mobile = window.__HIREFERRY_MOBILE__ === true;
+if (mobile) {
+  document.documentElement.dataset.platform = 'mobile';
+  document.getElementById('platform-label').textContent = /Android/i.test(navigator.userAgent) ? 'ANDROID' : 'iOS';
+  Object.assign(messages.zh, {
+    eyebrow:'随身的聘渡工作台',
+    lead:'在手机上，继续每一次沟通。\n连接你的聘渡，开启下一段旅程。',
+    serverHelp:'使用 HTTPS 站点地址。自托管站点需要可信的 TLS 证书。',
+    loginNote:'可在应用内使用邮箱验证码登录。Google 登录会打开系统浏览器，确认账号并批准后，点击“返回应用”即可继续。自托管站点需支持应用登录授权。',
+    footerHelp:'站点左下方的“连接”可返回这里。若登录返回时看到此页，请连接站点并重新发起登录。',
+    opened:'正在进入工作台。',
+    not_allowed:'只能在聘渡应用的连接页面执行此操作。',
+    unavailable:'请在 HireFerry 应用中打开此页面。'
+  });
+  Object.assign(messages.en, {
+    eyebrow:'YOUR WORKSPACE, ON THE GO',
+    lead:'Keep the conversation moving.\nConnect to HireFerry, wherever you are.',
+    serverHelp:'Use an HTTPS origin. Self-hosted services need a trusted TLS certificate.',
+    loginNote:'Use email-code sign-in in the app. For Google, confirm your account and approve in your browser, then tap “Return to app”. Self-hosted servers need app sign-in support.',
+    footerHelp:'Use “Connection” near the bottom-left to return here. If sign-in returns to this screen, reconnect and start sign-in again.',
+    opened:'Opening your workspace…',
+    not_allowed:'This action is available only from the HireFerry connection screen.',
+    unavailable:'Open this page in the HireFerry application.'
+  });
+}
 const storage = {
   get(key) { try { return localStorage.getItem(key); } catch { return null; } },
-  set(key, value) { try { localStorage.setItem(key, value); } catch { /* A session still works without storage. */ } }
+  set(key, value) { try { localStorage.setItem(key, value); } catch { /* A session still works without storage. */ } },
+  remove(key) { try { localStorage.removeItem(key); } catch { /* A session still works without storage. */ } }
 };
 let language = storage.get('hireferry.desktop.language') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
 if (!messages[language]) language = 'en';
 let statusKey = '', statusError = false;
 const server = document.getElementById('server');
-server.value = storage.get('hireferry.desktop.server') || 'https://hireferry.lmm.best';
+const canonicalServerOrigin = window.HireFerryConnection.canonicalServerOrigin;
+try {
+  server.value = canonicalServerOrigin(storage.get('hireferry.desktop.server') || 'https://hireferry.lmm.best');
+} catch {
+  // Remove invalid legacy values rather than displaying credentials or query
+  // tokens saved by an earlier build in the connection form.
+  storage.remove('hireferry.desktop.server');
+  server.value = 'https://hireferry.lmm.best';
+}
 
 function render() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   for (const element of document.querySelectorAll('[data-i18n]')) {
     const lines = messages[language][element.dataset.i18n].split('\n');
-    element.replaceChildren(...lines.flatMap((text, index) => index ? [document.createElement('br'), document.createTextNode(text)] : [document.createTextNode(text)]));
+    element.replaceChildren(...lines.flatMap((text, index) => index ? [document.createTextNode(language === 'en' ? ' ' : ''), document.createElement('br'), document.createTextNode(text)] : [document.createTextNode(text)]));
   }
   const toggle = document.getElementById('language');
   toggle.textContent = language === 'zh' ? 'EN' : '中文';
@@ -67,7 +101,10 @@ async function run(command) {
   buttons.forEach(button => { button.disabled = true; });
   if (command === 'connect') status('opening');
   try {
-    const address = server.value.trim();
+    const address = canonicalServerOrigin(server.value);
+    // Mobile navigation may unload before invoke resolves. Persist only the
+    // canonical origin, after rejecting credentials, paths, query and fragment.
+    if (mobile) storage.set('hireferry.desktop.server', address);
     await invoke(command, { server: address });
     storage.set('hireferry.desktop.server', address);
     status(command === 'connect' ? 'opened' : 'browserOpened');
