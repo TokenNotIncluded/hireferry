@@ -467,6 +467,10 @@ function currencyFeeTable() {
   return `<div class="table-wrap"><table class="data-table"><thead><tr><th>${t('币种','Currency')}</th><th>${t('发布费','Publication')}</th><th>${t('每次描述修改','Each description update')}</th></tr></thead><tbody>${currencies().map(meta=>`<tr><th scope="row">${esc(meta.currency)}</th><td data-refresh-key="fee-publish-${esc(meta.currency)}">${feeRule('publish',meta)}</td><td data-refresh-key="fee-edit-${esc(meta.currency)}">${feeRule('edit',meta)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
+function publicDiscoveryPromo() {
+  return `<section class="public-discovery-promo" aria-labelledby="public-discovery-promo-title"><div><div class="pricing-kicker">${t('公开目录 · MCP 就绪','OPEN DIRECTORY · MCP READY')}</div><h2 id="public-discovery-promo-title">${t('先浏览公开机会，再决定注册。','Browse public opportunities before you register.')}</h2><p>${t('岗位和公开主页无需登录即可查看。找到方向后，再免费注册独一无二的名字，持续接收 AI 匹配。','Browse public roles and profiles without an account. When you find your direction, register a unique name for free and let AI keep matching.')}</p></div><div class="public-discovery-promo-actions"><a href="/discover" data-nav class="button secondary">${t('浏览公开目录','Browse public directory')}${icon('arrow')}</a><a href="/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile" data-nav class="button">${t('免费创建个人主页','Create a free profile')}${icon('arrow')}</a><a href="/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew" data-nav class="button ghost">${t('免费发布岗位','Post a free role')}${icon('arrow')}</a></div></section>`;
+}
+
 function home() {
   const activationFree=Number(pricing().onboarding_minor??pricing().onboarding_cents)===0;
   const publishFree=feeSettings('publish').mode==='free'||feeSettings('publish').discount_percent===100;
@@ -510,6 +514,7 @@ function home() {
         </div>
       </section>
       ${pricingSection()}
+      ${publicDiscoveryPromo()}
       <section class="home-bottom"><h2>${t('从这里开始','Start here')}</h2><a href="/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile" data-nav class="button">${t('注册独一无二的名字','Register a unique name')}${icon('arrow')}</a></section>
     </div>
   </main>`;
