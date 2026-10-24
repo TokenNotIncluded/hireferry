@@ -2104,6 +2104,20 @@ test('platform chats expose résumé and recommended-role shortcuts with async A
   } finally { service.stopChat(); }
 });
 
+test('platform chat notices use the configured localized auto-reply copy safely', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    search: '?tab=messages&conversation=platform_seeker-one',
+    state: { lang: 'zh', config: { ...structuredClone(defaultConfig), chat: { auto_reply: { title: '自定义标题 <script>', body_md: '自定义正文\n第二行', title_en: 'Custom title', body_md_en: 'Custom body' } } } },
+  });
+  try {
+    const html = await service.messagesPage();
+    assert.match(html, /自定义标题 &lt;script&gt;/);
+    assert.match(html, /自定义正文<br>第二行/);
+    assert.doesNotMatch(html, /<script>/);
+  } finally { service.stopChat(); }
+});
+
 test('administrator platform chats expose résumé, recommendation and role-card actions', async () => {
   const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
   const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {

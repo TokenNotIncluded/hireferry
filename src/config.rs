@@ -73,6 +73,10 @@ pub struct ChatAutoReply {
     pub delay_seconds: u64,
     pub poll_seconds: u64,
     pub max_attempts: u32,
+    pub title: String,
+    pub title_en: String,
+    pub body_md: String,
+    pub body_md_en: String,
 }
 
 impl Default for ChatAutoReply {
@@ -82,6 +86,10 @@ impl Default for ChatAutoReply {
             delay_seconds: 2,
             poll_seconds: 5,
             max_attempts: 3,
+            title: "已收到，平台 AI 会异步处理".into(),
+            title_en: "Received — HireFerry AI will process this asynchronously".into(),
+            body_md: "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：它会在后台读取你主动提供的资料和需求，继续做初步匹配；有新进展时会主动回到这里。先用下面入口查看资料和机会。\n\n当前这条消息由自动接待确认，具体建议和岗位匹配需要等后台处理或平台工作人员跟进。".into(),
+            body_md_en: "HireFerry is still in the early stage. Platform AI works asynchronously and proactively; it is not a 24/7 live support channel. It reads the information and needs you provide, continues an initial match in the background, and comes back here when there is progress. Use the shortcuts below to review your profile and opportunities.\n\nThis message is an automatic acknowledgement. Specific advice and job matching may need background processing or follow-up from the HireFerry team.".into(),
         }
     }
 }
@@ -112,6 +120,31 @@ impl Chat {
                 "Invalid asynchronous chat auto-reply settings",
             ));
         }
+        let check_auto = |value: &str, max: usize, label: &str| -> AppResult<()> {
+            if value.trim().is_empty()
+                || value.chars().count() > max
+                || value
+                    .chars()
+                    .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+            {
+                return Err(AppError::bad_request(format!(
+                    "{label} is empty, too long, or contains invalid characters"
+                )));
+            }
+            Ok(())
+        };
+        check_auto(&self.auto_reply.title, 160, "Chat auto-reply title")?;
+        check_auto(
+            &self.auto_reply.title_en,
+            160,
+            "English chat auto-reply title",
+        )?;
+        check_auto(&self.auto_reply.body_md, 8000, "Chat auto-reply body")?;
+        check_auto(
+            &self.auto_reply.body_md_en,
+            8000,
+            "English chat auto-reply body",
+        )?;
         for (audience, welcome) in &self.welcome {
             if !matches!(
                 audience.as_str(),

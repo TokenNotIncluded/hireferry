@@ -114,6 +114,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     crate::admin_ai::migrate(db)?;
     crate::chat::migrate(db)?;
     crate::chat_ai::migrate(db)?;
+    crate::announcements::migrate(db)?;
     crate::commerce::migrate(db)?;
     crate::webhooks::migrate(db)?;
     crate::workbench::migrate(db)?;
