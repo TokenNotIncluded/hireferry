@@ -788,6 +788,7 @@ test('employer and seeker return targets survive role selection without allowing
   const employer = webmcp({ search: '?role=employer&return_to=%2Fapp%2Fjobs%2Fnew' });
   assert.equal(employer.app.safeJobReturn('/app/jobs/new'), '/app/jobs/new');
   assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=ai_uiux'), '/app/jobs/new?template=ai_uiux');
+  assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=opensource'), '/app/jobs/new?template=opensource');
   assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=evil'), '');
   assert.equal(employer.app.safeJobReturn('https://evil.example/app/jobs/new'), '');
   employer.app.rememberBillingReturn();
@@ -931,6 +932,15 @@ test('new roles default to one planned hire and validate zero and the exact inte
   const html = await app.jobEditor();
   assert.match(html, /name="headcount"[^>]*min="0"[^>]*max="1000000"[^>]*step="1"[^>]*value="1"/);
   assert.match(html, /does not change the publication fee/);
+});
+
+test('open-source employer template reduces the blank-role start', async () => {
+  const { app } = webmcp({ role: 'employer', search: '?template=opensource' });
+  app.state.lang = 'en';
+  const html = await app.jobEditor();
+  assert.match(html, /Open-source maintainer \/ contributor/);
+  assert.match(html, /An open-source role template is loaded/);
+  assert.match(html, /public code, issues, documentation, or release history/i);
 });
 
 test('free headcount changes send only the target, with no order or paid description request', async () => {
