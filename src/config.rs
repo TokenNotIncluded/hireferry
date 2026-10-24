@@ -471,6 +471,9 @@ impl Waffo {
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Pricing {
+    /// `fees` keeps the configured charge rules; `donation` makes new service
+    /// operations permanently free while the site may invite voluntary support.
+    pub billing_mode: String,
     pub currency: String,
     pub allowed_currencies: Vec<String>,
     pub onboarding_cents: i64,
@@ -491,6 +494,7 @@ pub struct Pricing {
 impl Default for Pricing {
     fn default() -> Self {
         Self {
+            billing_mode: "fees".into(),
             currency: "CNY".into(),
             allowed_currencies: Vec::new(),
             onboarding_cents: 10000,
@@ -1035,6 +1039,7 @@ impl Config {
         }
         let p = &self.pricing;
         if !p.permits_currency(&p.currency)
+            || !matches!(p.billing_mode.as_str(), "fees" | "donation")
             || !matches!(p.publish_mode.as_str(), "salary_percent" | "fixed" | "free")
             || !matches!(p.edit_mode.as_str(), "salary_percent" | "fixed" | "free")
             || (p.publish_mode == "salary_percent" && p.publish_bps == 0)
@@ -1042,7 +1047,7 @@ impl Config {
             || (p.edit_mode == "salary_percent" && p.edit_bps == 0)
         {
             return Err(AppError::bad_request(
-                "Invalid pricing currency or charge mode; use free for a zero charge",
+                "Invalid pricing currency or billing mode; use fees or donation",
             ));
         }
         let currencies = p.currencies();

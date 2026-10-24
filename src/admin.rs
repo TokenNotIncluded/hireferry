@@ -19,6 +19,10 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/admin/overview", get(overview))
         .route(
+            "/api/admin/pricing",
+            get(pricing_settings).post(change_pricing_mode),
+        )
+        .route(
             "/api/admin/payments/waffo",
             get(waffo_settings).post(change_waffo_mode),
         )
@@ -1070,6 +1074,60 @@ fn waffo_settings_data(s: &AppState, db: &Connection) -> AppResult<Value> {
         "test_ready":w.enabled && w.for_mode("test").is_ok(),
         "production_ready":w.enabled && w.for_mode("prod").is_ok()}),
     )
+}
+
+fn pricing_settings_data(s: &AppState, db: &Connection) -> AppResult<Value> {
+    let mode = commerce::billing_mode(s, db)?;
+    Ok(json!({
+        "mode": mode,
+        "donation": mode == "donation",
+        "configured_mode": s.cfg.pricing.billing_mode.clone(),
+    }))
+}
+async fn pricing_settings(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, false)?;
+    let db = s.conn()?;
+    access::ensure_admin(&db, &p)?;
+    Ok(Json(pricing_settings_data(&s, &db)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PricingModeInput {
+    mode: String,
+    expected_mode: String,
+}
+async fn change_pricing_mode(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<PricingModeInput>,
+) -> AppResult<Json<Value>> {
+    if !matches!(input.mode.as_str(), "fees" | "donation") {
+        return Err(AppError::bad_request("Choose fees or donation mode"));
+    }
+    let p = access::principal(&s, &h, true)?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    access::ensure_admin(&tx, &p)?;
+    let previous = commerce::billing_mode(&s, &tx)?;
+    if previous != input.expected_mode {
+        return Err(AppError::conflict(
+            "Billing mode changed; refresh and retry",
+        ));
+    }
+    tx.execute(
+        "INSERT INTO pricing_settings(id,mode) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET mode=excluded.mode",
+        [&input.mode],
+    )?;
+    audit(
+        &tx,
+        &p.actor,
+        "pricing_mode_change",
+        "pricing",
+        &json!({"from":previous,"to":input.mode}).to_string(),
+    )?;
+    let result = pricing_settings_data(&s, &tx)?;
+    tx.commit()?;
+    Ok(Json(result))
 }
 async fn waffo_settings(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let p = access::principal(&s, &h, false)?;

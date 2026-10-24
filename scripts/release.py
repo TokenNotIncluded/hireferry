@@ -24,6 +24,7 @@ ARCH_LABELS = {'x86_64':'x64', 'aarch64':'ARM64'}
 GROUPS = ('desktop', 'flatpak', 'cli', 'server')
 PRODUCTS = ('desktop', 'cli', 'server')
 PRODUCT_LABELS = {'desktop': '桌面版', 'cli': 'hfy CLI', 'server': '服务端'}
+CHANNELS = ('mobile', 'nix')
 
 
 def group_product(group):
@@ -47,14 +48,43 @@ def repository(value):
     return value
 
 
+def validate_channels(data):
+    """Validate non-archive distribution channels kept beside package targets."""
+    channels = data.get('channels', {})
+    if not isinstance(channels, dict) or set(channels) - set(CHANNELS):
+        raise ValueError('Unexpected release channel fields')
+    mobile = channels.get('mobile')
+    if mobile is not None:
+        if (not isinstance(mobile, dict) or set(mobile) != {'kind', 'platforms', 'url', 'docs'} or
+                mobile.get('kind') != 'responsive-web' or
+                mobile.get('platforms') != ['Android', 'iOS'] or
+                not isinstance(mobile.get('url'), str) or
+                not re.fullmatch(r'https://[A-Za-z0-9][A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]{0,240}', mobile['url']) or
+                not isinstance(mobile.get('docs'), str) or not re.fullmatch(r'docs/[A-Za-z0-9._/-]+\.md', mobile['docs'])):
+            raise ValueError('Invalid mobile release channel')
+    nix = channels.get('nix')
+    if nix is not None:
+        if (not isinstance(nix, dict) or set(nix) != {'kind', 'systems', 'packages', 'flake', 'docs'} or
+                nix.get('kind') != 'flake' or
+                not isinstance(nix.get('systems'), list) or
+                nix['systems'] != ['x86_64-linux', 'aarch64-linux'] or
+                not isinstance(nix.get('packages'), list) or
+                nix['packages'] != ['server', 'cli'] or
+                not isinstance(nix.get('flake'), str) or
+                not re.fullmatch(r'github:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', nix['flake']) or
+                not isinstance(nix.get('docs'), str) or not re.fullmatch(r'docs/[A-Za-z0-9._/-]+\.md', nix['docs'])):
+            raise ValueError('Invalid Nix release channel')
+
+
 def validate_catalog(data):
     """Validate both checked-in targets and lower-trust published snapshots."""
     if not isinstance(data, dict) or data.get('schema_version') != 1:
         raise ValueError('Unsupported release catalog schema')
     required = {'schema_version', 'repository', 'desktop', 'flatpak', 'cli'}
-    if not required <= set(data) or set(data) - required - {'server'}:
+    if not required <= set(data) or set(data) - required - {'server', 'channels'}:
         raise ValueError('Unexpected release catalog fields')
     repository(data['repository'])
+    validate_channels(data)
     native_formats = {'Windows':{'exe','msi'}, 'macOS':{'dmg','app.tar.gz'},
                       'Linux':{'deb','rpm','AppImage'}}
     system_marker = {'Windows':'-pc-windows-', 'macOS':'-apple-darwin', 'Linux':'-unknown-linux-'}
@@ -338,6 +368,10 @@ def merge_manifests(current, incoming):
     merged = {'schema_version':1, 'repository':repo,
               'catalog':{'schema_version':1, 'repository':repo, **{group:[] for group in GROUPS}},
               'source_commit':'', 'source_commits':{}, 'versions':{}, 'releases':{}, 'assets':[]}
+    for source in (incoming, current):
+        if source and source['catalog'].get('channels'):
+            merged['catalog']['channels'] = json.loads(json.dumps(source['catalog']['channels']))
+            break
     for product in PRODUCTS:
         if product not in selected:
             continue
@@ -383,8 +417,10 @@ def svg(data, manifest=None):
         architectures = ' + '.join(dict.fromkeys(ARCH_LABELS.get(row['architecture'], row['architecture']) for row in desktop_rows + cli_rows + server_rows))
         products = ' + '.join(label for label, present in (('Desktop', desktop_rows), ('hfy CLI', cli_rows), ('Server', server_rows)) if present) or 'No published packages'
         cards.append(f'<rect x="{x}" y="112" width="278" height="206" rx="18" fill="#343b35"/>{mark}<text x="{x+24}" y="200" class="platform">{platform}</text><text x="{x+24}" y="225" class="detail">{html.escape(architectures)}</text><text x="{x+24}" y="258" class="formats">{html.escape(formats)}</text><text x="{x+24}" y="286" class="detail">{products}</text>')
+    channels = data.get('channels', {})
+    channel_note = ' · Mobile Web · Nix Flake' if channels.get('mobile') and channels.get('nix') else ''
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" role="img" aria-labelledby="title description">
-<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
+<title id="title">HireFerry release matrix</title><desc id="description">Package availability by operating system and architecture; {count} package variants{channel_note}. {'Published package checksums are verified.' if manifest else 'Configured build targets, not a claim of published or tested packages.'}</desc>
 <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f5f2e9"/><stop offset="1" stop-color="#e2e6db"/></linearGradient></defs>
 <style>text{{font-family:Inter,system-ui,sans-serif}}.platform{{font-size:25px;font-weight:650;fill:#fbfaf6}}.detail{{font-size:14px;fill:#bfcac0}}.formats{{font-size:12px;fill:#dce6de}}</style>
 <rect width="960" height="392" rx="24" fill="url(#paper)"/>
@@ -392,7 +428,7 @@ def svg(data, manifest=None):
 <text x="94" y="47" font-size="26" font-weight="650" fill="#29332c">{headline}</text>
 <text x="38" y="82" font-size="10.5" letter-spacing="1.2" fill="#526455">{subtitle}</text>
 {''.join(cards)}
-<text x="38" y="353" font-size="13" fill="#455747">{count} package variants · SHA-256 verification · one release catalog</text><path d="M682 350h236" stroke="#809484" stroke-dasharray="3 7"/><circle cx="918" cy="350" r="4" fill="#526d59"/>
+<text x="38" y="353" font-size="13" fill="#455747">{count} package variants · SHA-256 verification · one release catalog{channel_note}</text><path d="M682 350h236" stroke="#809484" stroke-dasharray="3 7"/><circle cx="918" cy="350" r="4" fill="#526d59"/>
 </svg>
 '''
 
@@ -402,9 +438,13 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
     repo = manifest['repository'] if manifest else data['repository']
     guide = docs_url + 'desktop.md'
     cli_guide = docs_url + 'cli.md'
+    mobile = data.get('channels', {}).get('mobile')
+    nix = data.get('channels', {}).get('nix')
+    mobile_guide = docs_url + 'mobile.md'
+    nix_guide = docs_url + 'nix.md'
     lines = ['<!-- Generated by scripts/release.py; edit release/targets.json, not this file. -->',
-             '# 聘渡 · 桌面版、CLI 与服务端下载', '', f'![HireFerry 发布矩阵]({image})', '',
-             f'[安装与发布说明]({guide}) · [CLI 使用指南]({cli_guide}) · '
+             '# 聘渡 · 桌面版、移动版、CLI、服务端与 Nix', '', f'![HireFerry 发布矩阵]({image})', '',
+             f'[安装与发布说明]({guide}) · [移动版说明]({mobile_guide}) · [Nix 安装]({nix_guide}) · [CLI 使用指南]({cli_guide}) · '
              f'[所有 Releases](https://github.com/{repo}/releases)', '']
     if manifest:
         lines += ['下表来自已汇总校验的发布资产；大小为实际下载体积，SHA-256 见对应 Release 的 `SHA256SUMS`。', '']
@@ -416,7 +456,13 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
                 lines.append(f"- **{PRODUCT_LABELS[product]} {manifest['versions'][product]}**：[Release](https://github.com/{repo}/releases/tag/{tag}) · [校验文件](https://github.com/{repo}/releases/download/{tag}/SHA256SUMS)")
     else:
         lines += ['**当前展示 CI 配置的构建目标，尚未记录一次完整桌面 Release。** 这些条目不是实机验证记录；完整构建、校验并发布后，工作流会替换为实际下载链接、版本和包大小。', '']
-    lines += ['', '| 组件 | 系统 | 架构 | 软件包 | 下载体积 |', '| --- | --- | --- | --- | --- |']
+    lines += ['', '## 渠道矩阵', '', '| 渠道 | 当前交付 | 入口 |', '| --- | --- | --- |']
+    if mobile:
+        lines.append(f"| 移动版 Web（Android / iOS 浏览器） | 已提供响应式工作台；当前没有原生 APK / IPA | [打开移动版]({mobile['url']}) · [说明]({mobile_guide}) |")
+    if nix:
+        lines.append(f"| Nix / NixOS | Flake 提供 `server` 与 `cli`，支持 x86_64-linux / aarch64-linux | [`{nix['flake']}`]({nix_guide}) |")
+    lines.append('| 原生 Android / iOS | 当前没有可验证的正式安装包 | 继续使用移动版 Web |')
+    lines += ['', '## 已发布安装包', '', '| 组件 | 系统 | 架构 | 软件包 | 下载体积 |', '| --- | --- | --- | --- | --- |']
     if manifest:
         for a in sorted(manifest['assets'], key=lambda a:(a['product'],a['platform'],a['architecture'],a['format'])):
             lines.append(f"| {PRODUCT_LABELS[a['product']]} | {a['platform']} | {ARCH_LABELS.get(a['architecture'], a['architecture'])} | [{LABELS[a['format']]}]({a['url']}) | {human_size(a['size'])} |")
@@ -436,12 +482,13 @@ def markdown(data, manifest=None, image='assets/release-matrix.svg', docs_url=''
               '| Ubuntu、Debian、Linux Mint、Pop!_OS、Zorin、elementary | `.deb`；依赖不匹配时用 Flatpak | Ubuntu 22.04 / Debian 12 基线及提供 WebKitGTK 4.1 的后续版本 |',
               '| Fedora、openSUSE、RHEL / Rocky / Alma 衍生版 | `.rpm`；缺少所需库时用 Flatpak | 安装器依赖检查通过的版本；旧企业版不承诺原生运行 |',
               '| Arch、Manjaro、EndeavourOS、Gentoo | AppImage 或 Flatpak | AppImage 仍受宿主 glibc 与图形环境限制 |',
-              '| NixOS、不可变桌面、SteamOS | Flatpak | 先配置发行版支持的 Flatpak 服务、运行时和桌面 portal |',
+              '| NixOS | Nix Flake 的 `server` / `cli`；桌面版可用 Flatpak | `nix profile install github:TokenNotIncluded/hireferry#cli`；桌面版仍需图形运行时 |',
+              '| 不可变桌面、SteamOS | Flatpak | 先配置发行版支持的 Flatpak 服务、运行时和桌面 portal |',
               '| Alpine / musl 系统 | CLI 使用 musl 包；桌面优先 Flatpak | 原生 glibc 桌面包不适用；Flatpak 可用性取决于发行版配置 |',
               '', 'Linux CLI 的静态 musl 包可用于 glibc 与 musl 发行版；桌面版需要图形会话。Flatpak 首次安装共享运行时需要额外空间，后续应用可复用。',
               '', 'Windows 的 NSIS 包按需下载 WebView2；macOS 使用系统 WebKit。桌面版不附带服务器或数据库，业务页面连接所选 HireFerry 站点。',
               '', f'**兼容范围不是“所有历史发行版本均实测”。** 架构、运行时和系统依赖满足要求才适用；具体要求、安装命令与签名说明见 [桌面版文档]({guide})。',
-              '', '维护者：`release/targets.json` 定义下一次构建目标；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版、CLI 与服务端按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
+              '', '维护者：`release/targets.json` 同时定义二进制目标和移动 Web / Nix 渠道；已发布下载表固定使用 `release/latest.json` 内的目录快照。桌面版、CLI 与服务端按各自的稳定版本更新，旧版本不会覆盖较新的产品条目；修改构建目标不会改写历史包。运行 `python3 scripts/release.py docs --check` 检查生成文件。', '']
     return '\n'.join(lines)
 
 

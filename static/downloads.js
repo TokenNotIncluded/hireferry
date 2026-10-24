@@ -244,6 +244,17 @@ function sourceMessage(result, lang) {
   return messages[result.status] || messages.unavailable;
 }
 
+function channelMarkup(lang, icon) {
+  const t = text(lang);
+  return `<section class="download-channels" aria-labelledby="download-channels-title">
+    <div class="download-section-heading"><div><p class="eyebrow">WEB & NIX</p><h2 id="download-channels-title">${t('移动版与 Nix','Mobile & Nix')}</h2></div></div>
+    <div class="download-channel-grid">
+      <article class="download-channel"><span class="download-product-icon">${icon('panel')}</span><div><h3>${t('移动版 Web','Mobile web')}</h3><p>${t('Android 与 iOS 浏览器直接打开，页面会适配手机和平板。当前没有原生 APK / IPA。','Open in an Android or iOS browser. The workspace adapts to phones and tablets; native APK / IPA packages are not published.')}</p><a class="download-guide" href="https://hireferry.lmm.best/" target="_blank" rel="noopener noreferrer">${t('打开移动版','Open mobile web')} ↗</a><a class="download-guide" href="https://github.com/${DOWNLOAD_REPOSITORY}/blob/main/docs/mobile.md" target="_blank" rel="noopener noreferrer">${t('移动版说明','Mobile guide')} ↗</a></div></article>
+      <article class="download-channel"><span class="download-product-icon">${icon('terminal')}</span><div><h3>Nix / NixOS</h3><p>${t('Flake 提供服务端与 hfy CLI，支持 x86_64-linux 和 aarch64-linux。','The flake provides the server and hfy CLI for x86_64-linux and aarch64-linux.')}</p><pre><code>nix profile install github:${DOWNLOAD_REPOSITORY}#cli</code></pre><a class="download-guide" href="https://github.com/${DOWNLOAD_REPOSITORY}/blob/main/docs/nix.md" target="_blank" rel="noopener noreferrer">${t('Nix 安装说明','Nix guide')} ↗</a></div></article>
+    </div>
+  </section>`;
+}
+
 export function renderDownloads({lang = 'zh', icon = () => ''} = {}) {
   const t = text(lang);
   return `<main id="main" class="page-width downloads-page" data-downloads-page>
@@ -252,7 +263,7 @@ export function renderDownloads({lang = 'zh', icon = () => ''} = {}) {
       <div class="download-filters" role="group" aria-label="${t('按系统筛选下载','Filter downloads by system')}">${['all',...PLATFORMS].map(platform => `<button type="button" data-download-platform="${platform}" aria-pressed="${platform === 'all'}">${platform === 'all' ? t('全部系统','All systems') : platform}</button>`).join('')}</div>
       <div class="download-source"><p role="status" aria-live="polite" data-download-source>${sourceMessage(null,lang)}</p><button type="button" class="download-refresh" data-download-refresh>${t('检查 GitHub 发布','Check GitHub releases')}</button></div>
       <div class="download-products" data-download-results aria-busy="true"><p class="download-loading">${t('正在读取轻量发布清单…','Loading the small release catalog…')}</p></div>
-    </section>
+    </section>${channelMarkup(lang, icon)}
     <section class="download-source-build" aria-labelledby="download-source-title"><span class="download-product-icon">${icon('file')}</span><div><h2 id="download-source-title">${t('Arch Linux / AUR 与源码','Arch Linux / AUR & source')}</h2><p>${t('AUR 的 PKGBUILD 是社区构建配方，需要自行构建或获取它指定的上游包。源码配方不等于官方安装包；AUR 上架状态请以包页面为准。','AUR PKGBUILDs are community build recipes. They build from source or fetch a specified upstream package. A source recipe is not an official installer; check the package page for AUR availability.')}</p><div><a href="https://github.com/${DOWNLOAD_REPOSITORY}/blob/main/docs/aur.md" target="_blank" rel="noopener noreferrer">${t('AUR 安装说明','AUR instructions')} ↗</a><a href="https://github.com/${DOWNLOAD_REPOSITORY}" target="_blank" rel="noopener noreferrer">${t('查看源代码','View source')} ↗</a></div></div></section>
     <p class="download-footnote">${t('默认只读取小型发布清单，不加载完整附件列表。检查更新由你主动触发；限流或离线时保留可用缓存（最多 7 天）。校验值用于核对文件完整性，不代表平台签名或公证。','The page loads a small release catalog by default, not the full attachment list. Update checks run only on request; usable cached checks last up to 7 days. Checksums verify file integrity, not platform signing or notarization.')}</p>
   </main>`;

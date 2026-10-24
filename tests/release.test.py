@@ -301,5 +301,19 @@ class ReleaseTests(unittest.TestCase):
         manifest, _ = self.released_fixture(self.versions, 'desktop-v0.1.0', old)
         self.assertEqual(release.validate_manifest(manifest), manifest)
 
+    def test_mobile_and_nix_channels_are_catalogued_without_fake_packages(self):
+        self.assertEqual(self.data['channels']['mobile']['kind'], 'responsive-web')
+        self.assertEqual(self.data['channels']['nix']['packages'], ['server', 'cli'])
+        manifest, _ = self.released_fixture({'cli':'0.1.3'}, 'cli-v0.1.3')
+        output = release.markdown(self.data, manifest)
+        self.assertIn('移动版 Web（Android / iOS 浏览器）', output)
+        self.assertIn('Nix / NixOS', output)
+        self.assertIn('当前没有原生 APK / IPA', output)
+        for key, value in [('kind', 'script'), ('url', 'http://evil.test')]:
+            invalid = json.loads(json.dumps(self.data))
+            invalid['channels']['mobile'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                release.validate_catalog(invalid)
+
 
 if __name__=='__main__': unittest.main()

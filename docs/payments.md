@@ -64,6 +64,12 @@ or replace role-publication and description-update orders.
 
 ## Configurable charges and currency
 
+`[pricing].billing_mode` selects whether new service operations use `fees` or
+`donation`. In donation mode activation, publication and description edits are
+permanently free; a donation is voluntary and does not gate access. The admin
+settings page can switch the mode for future operations without restarting.
+Historical orders retain their recorded provider, amount and terms.
+
 `[pricing]` selects `currency` and `allowed_currencies`. The default template
 keeps CNY for compatibility; the operator can select another supported currency.
 New jobs may choose an enabled currency. Recruiter activation defaults to the configured
