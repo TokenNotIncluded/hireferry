@@ -12,6 +12,7 @@ pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/privacy",
     "/discover",
     "/for-employers",
+    "/for-job-tools",
 ];
 
 pub(crate) fn escape(value: &str) -> String {
@@ -274,6 +275,14 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
             "Free job publishing for recruiters",
             "Post roles for free during early access and let candidates and AI read your explicit public hiring needs, with less noise.",
         ),
+        ("/for-job-tools", false) => (
+            "本地求职工具与 HireFerry 公开发现层",
+            "让 JobSync、Ollama、CLI 和 Agent 保留私密投递与草稿，HireFerry 只承接主动公开的主页、岗位和只读 MCP，帮助人与 AI 发现真实机会。",
+        ),
+        ("/for-job-tools", true) => (
+            "Local-first job tools and HireFerry public discovery",
+            "Keep private applications and drafts in JobSync, Ollama, CLIs or Agents. HireFerry adds explicit public profiles, roles and read-only MCP so people and AI can discover real opportunities.",
+        ),
         ("/humangrant", false) => (
             "HumanGrant 人类辅助登录",
             "了解 HireFerry HumanGrant：由本人审核 AI 助手请求的账户权限，确认授权范围并管理或撤销授权。",
@@ -447,6 +456,29 @@ pub(crate) fn page(
                 ),
                 t("免费发布一个岗位", "Post one role free"),
                 t("先看公开目录", "View public directory")
+            ),
+            "/for-job-tools" => format!(
+                "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><p><a class=\"button\" href=\"/discover\">{}</a> <a class=\"button secondary\" href=\"/login?role=seeker&amp;return_to=%2Fapp%3Ftab%3Dprofile\">{}</a></p>",
+                t(
+                    "让本地工具负责私密投递，让公开层负责被发现。",
+                    "Let local tools keep applications private. Let the public layer make people discoverable."
+                ),
+                description,
+                t("互补关系", "Complementary layers"),
+                t(
+                    "私密资料、草稿和投递记录继续留在本地工具。",
+                    "Private data, drafts and applications stay in local tools."
+                ),
+                t(
+                    "HireFerry 只接收用户明确公开的主页和岗位。",
+                    "HireFerry receives only profiles and roles people explicitly publish."
+                ),
+                t(
+                    "公共 MCP 无需登录、只读，只返回明确公开内容。",
+                    "Public MCP needs no login, is read-only and returns only explicit public content."
+                ),
+                t("查看公开目录", "View public directory"),
+                t("创建公开主页", "Create a public profile")
             ),
             "/cli" => format!(
                 "<h1>{title}</h1><p>{description}</p><h2>{}</h2><p>Linux / macOS / Windows</p><p><a href=\"/install.sh\">install.sh</a> · <a href=\"/install.ps1\">install.ps1</a></p><h2>{}</h2><pre><code>hfy --server {} auth login --oauth\nhfy --server {} whoami\nhfy --server {} capabilities</code></pre>",
