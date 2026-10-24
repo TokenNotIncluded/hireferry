@@ -269,6 +269,9 @@ const configCache = createPublicConfigCache(() => api('/api/config',{fresh:true}
 const cachedConfig = configCache.peek();
 if(cachedConfig){applyConfig(cachedConfig);state.configCached=true;}
 const publicPages = new Set(['/','/cli','/downloads','/contact','/refunds']);
+const isPublicDirectoryPage = path => path==='/discover'||/^\/discover\/(?:jobs|people)\/[^/]+$/.test(path);
+const isPublicProfilePage = path => /^\/u\/[A-Za-z0-9_-]+$/.test(path);
+const isPublicPagePath = path => publicPages.has(path)||isPublicDirectoryPage(path)||isPublicProfilePage(path);
 function applyConfig(config) {
   state.config=config;state.configCached=false;
   if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
@@ -784,7 +787,7 @@ async function render({navigation=false}={}) {
   const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';updatePageMetadata();
   state.downloads?.dispose();state.downloads=null;
   const path=location.pathname,tab=qs().get('tab');
-  const publicPage=publicPages.has(path)||path==='/discover'||/^\/discover\/(?:jobs|people)\/[^/]+$/.test(path)||/^\/u\/[A-Za-z0-9_-]+$/.test(path);
+  const publicPage=isPublicPagePath(path);
   const pageKey=pageIdentity(path,tab);
   const placeholderTab=path.startsWith('/human/')?'human-review':path.startsWith('/app/jobs/')?'editor':tab||(path==='/admin'?'overview':'messages');
   const pendingBody=()=>{const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
@@ -1120,8 +1123,8 @@ async function refreshVisibleSession() {
   catch(error){sessionReader.invalidate();requests.invalidate();if(error.status===401&&(state.user||state.admin)){resetPrivateView();void render();}}
 }
 window.addEventListener('storage',event=>{if(event.key==='hireferry-session-change'){resetPrivateView();void render();}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else void refreshVisibleSession();});
-window.addEventListener('online',()=>{if(publicPages.has(location.pathname))void refreshPublicPage(state.render);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else if(isPublicPagePath(location.pathname))void render();else void refreshVisibleSession();});
+window.addEventListener('online',()=>{if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else if(isPublicPagePath(location.pathname))void render();});
 window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView();void render();}});
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
