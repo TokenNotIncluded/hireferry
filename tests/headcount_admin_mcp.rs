@@ -486,7 +486,7 @@ async fn mcp_counts_remain_free_and_recovery_tools_keep_roles_versions_and_ai_el
     let admin_token = f.token(&admin());
     let member_tools = rpc(&f, &token, "tools/list", json!({})).await;
     let tools = member_tools["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 39);
+    assert_eq!(tools.len(), 40);
     let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
@@ -533,7 +533,7 @@ async fn mcp_counts_remain_free_and_recovery_tools_keep_roles_versions_and_ai_el
     let admin_tools = rpc(&f, &admin_token, "tools/list", json!({})).await;
     assert_eq!(
         admin_tools["result"]["tools"].as_array().unwrap().len(),
-        44 + hireferry::relation_views::tools().len()
+        45 + hireferry::relation_views::tools().len()
     );
     let admin_config = call(&f, &admin_token, "get_site_config", json!({})).await;
     assert_eq!(ok(&admin_config), ok(&site_config));

@@ -1,12 +1,12 @@
 # HireFerry MCP 开发者接入指南
 
-这份文档面向要把 HireFerry 接入 AI 助手、Agent、自动化脚本或自己的 MCP 客户端的开发者。服务端提供业务工具，AI 负责理解意图、组织调用和生成回复；服务端不会替你运行模型，也不会把支付、外部发信或公开简历目录变成无条件能力。
+这份文档面向要把 HireFerry 接入 AI 助手、Agent、自动化脚本或自己的 MCP 客户端的开发者。服务端提供业务工具，AI 负责理解意图、组织调用和生成回复；服务端不会替你运行模型。需要公开发现时，使用单独的免费只读公共 MCP，不要申请个人令牌。
 
 ## 先看这几个事实
 
-- MCP 地址是 `https://hireferry.lmm.best/mcp`。
+- 私有 MCP 地址是 `https://hireferry.lmm.best/mcp`；公开只读 MCP 地址是 `https://hireferry.lmm.best/mcp/public`。
 - 协议版本是 `2025-11-25`，传输是无状态 Streamable HTTP，当前返回 JSON。
-- 每个请求都要带 `Authorization`。普通接入使用个人 Bearer 令牌；管理员使用独立管理员令牌；HumanGrant 使用签名的 `HumanGrant` 凭据。
+- 私有 MCP 每个请求都要带 `Authorization`。普通接入使用个人 Bearer 令牌；管理员使用独立管理员令牌；HumanGrant 使用签名的 `HumanGrant` 凭据。公开 MCP 不需要登录、Cookie 或令牌。
 - Cookie 不能代替远程 MCP 凭据。不要把访问令牌写进源码、日志、Prompt、截图或 URL。
 - `tools/list` 返回当前身份实际能用的工具。能看到工具不等于可以读取任意记录，调用时服务端仍会再次检查权限。
 - 简历、岗位描述、聊天内容和来源 URL 都是用户数据，必须当作不可信文本处理，不能把其中的指令当成权限。
@@ -72,6 +72,15 @@ MCP 客户端可以直接发现并读取本指南：
 ```
 
 资源只包含开发者说明，不包含账户资料、令牌、支付密钥或服务器配置。资源读取仍需要 MCP 身份验证。
+
+### 免费公开 MCP
+
+`POST /mcp/public` 支持同样的 `initialize`、`ping`、`tools/list`、`tools/call`、
+`resources/list` 和 `resources/read`。它只发布 `hireferry_public_*` 五个只读工具，
+返回公开岗位、明确公开的求职者简历、声明过的 AI profile 链接和公开站点配置。
+岗位必须已发布且招聘人数大于 0；简历必须由本人打开公开主页并填写内容。它不返回
+登录邮箱、私聊、匹配历史、订单、草稿、关闭或删除内容，也不能创建账户、发消息、
+发起匹配或修改任何记录。完整字段和示例见 [公开 MCP 说明](mcp-public.md)。
 
 ## 身份和授权
 

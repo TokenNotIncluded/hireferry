@@ -1,4 +1,4 @@
-# Authentication / 认证与管理员 Passkey
+# Authentication / 认证与 Passkey
 
 This document describes the implemented service behavior. Configuration lives in
 TOML; changing it requires restarting HireFerry. It is not editable in the web
@@ -74,6 +74,25 @@ Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
 
 参考：[Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect)。
 
+### 普通用户 Passkey
+
+普通用户仍可用邮箱验证码或 Google 首次登录。登录后，在「我的资料 / My
+résumé」页面的「登录 Passkey」区域绑定设备 Passkey。浏览器会调用标准
+WebAuthn：可以使用设备指纹、面容、系统 PIN、同步密码管理器或实体安全密钥。
+私密部分不会上传到 HireFerry，服务端只保存公钥、凭证 ID、计数器和使用时间。
+
+绑定与删除要求当前浏览器会话在最近 10 分钟内完成过认证。每个普通账户最多绑定
+20 把；普通用户可以删除自己的最后一把，之后仍可用邮箱或 Google 登录。删除只会
+影响该账户的凭证，并会撤销未完成的普通用户 Passkey 登录挑战，不会删除当前会话。
+
+登录页会显示「使用 Passkey 登录」。登录挑战只包含普通用户凭证，不会把管理员
+Passkey 暴露给普通用户；管理员仍使用独立的 `/api/admin/passkeys/*` 流程。登录成功
+后会建立普通用户会话，并重新检查账户是否已被停用。
+
+生产环境必须使用 HTTPS，`webauthn_rp_id` 必须等于 `public_url` 的主机名；本地
+开发使用 `http://localhost:3000` 与 RP ID `localhost`。Passkey 是浏览器原生能力，
+不需要额外安装 HireFerry 插件；浏览器不支持 WebAuthn 时仍可使用邮箱或 Google。
+
 ### HumanGrant：由本人确认的 AI 访问
 
 登录页仅在 HTML 中保留隐藏的 **人类辅助登录 / Human Login** 链接供 AI 发现，不显示独立按钮；`/humangrant` 说明如何让 AI 发起申请。本人仍通过现有 Google 或邮箱验证码登录。打开 `/human/{link}` 时，已有有效登录会直接进入权限确认；未登录时先登录，再返回原申请。
@@ -148,6 +167,12 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 | `GET /api/session` | 返回 `user`、`admin`、`super_admin`、`staff`、`bootstrap`、`csrf`；`admin` 表示业务工作台权限，`super_admin` 仅代表 Passkey 超管；未登录时 `user`、`staff` 和 `csrf` 为 null |
 | `POST /api/auth/email/start` | `{ "email": "name@example.com" }`；设置浏览器挑战 Cookie |
 | `POST /api/auth/email/verify` | `{ "email": "name@example.com", "code": "12345678" }`；消费挑战并建立会话 |
+| `POST /api/auth/passkeys/login/start` | `{}`；为普通用户凭证创建一次性登录挑战 |
+| `POST /api/auth/passkeys/login/finish` | `{ "credential": <WebAuthn authentication JSON> }`；验证凭证并建立普通用户会话 |
+| `GET /api/auth/passkeys` | 当前普通用户读取自己已绑定 Passkey 的 ID、名称、创建时间和最后使用时间 |
+| `POST /api/auth/passkeys/register/start` | `{ "name": "My laptop" }`；需要普通用户会话、CSRF 和最近认证 |
+| `POST /api/auth/passkeys/register/finish` | `{ "credential": <WebAuthn registration JSON> }`；验证并绑定当前用户的 Passkey |
+| `DELETE /api/auth/passkeys/{id}` | 需要当前用户、CSRF 和最近认证；只能删除自己的凭证 |
 | `GET /api/auth/google/start` | 发起 Google 授权并设置挑战 Cookie |
 | `GET /auth/google/callback` | 消费 state；成功以 303 跳转 `/app` |
 | `POST /api/auth/logout` | CSRF 验证后删除当前会话 |
@@ -166,13 +191,13 @@ HumanGrant 的代理请求、本人确认、凭据领取与撤销接口见 [Huma
 
 ## 验证范围
 
-`cargo test --test auth_flows` 覆盖真实 HTTP 路由、SQLite 会话与权限、验证码重试、首次管理员注册、后续登录、多把 Passkey、删除/撤销和跨来源/CSRF 拒绝。WebAuthn 测试使用软件认证器产生并验证真实密码学签名。`cargo test auth::tests` 覆盖限流、哈希、挑战一次性、过期以及封禁后的 Google 授权代次校验。`cargo test --test account_access` 覆盖管理员权限、CSRF、原因校验、凭据和 Webhook 撤销、解除封禁后旧凭据不能复活，以及不影响其他账户。
+`cargo test --test auth_flows` 覆盖真实 HTTP 路由、SQLite 会话与权限、验证码重试、普通用户 Passkey 绑定/登录/删除、首次管理员注册、后续登录、多把 Passkey、删除/撤销和跨来源/CSRF 拒绝。WebAuthn 测试使用软件认证器产生并验证真实密码学签名。`cargo test auth::tests` 覆盖限流、哈希、挑战一次性、过期以及封禁后的 Google 授权代次校验。`cargo test --test account_access` 覆盖管理员权限、CSRF、原因校验、凭据和 Webhook 撤销、解除封禁后旧凭据不能复活，以及不影响其他账户。
 
 这些测试没有发送真实邮件、访问真实 Google 账户、操作实体认证器或调用真实商户扣款。上线前仍需用实际 HTTPS 域名检查 SMTP 投递、Google 回调、至少两把独立 Passkey 的注册和登录，以及浏览器跨设备行为。需要保持服务器时钟准确。
 
 ## English overview
 
-Users authenticate with a browser-bound, one-time email code or Google's server-side authorization-code flow with state and PKCE. Profiles and roles have no public directory. Contact details and résumés are shared only with the platform and explicitly introduced counterparties; earlier private conversations remain separate. Sign-in addresses are visible to the account owner, an AI authorized to read that owner's profile, and platform administrators. Existing accounts are not automatically merged by an email returned from a new Google identity.
+Users authenticate with a browser-bound, one-time email code, Google’s server-side authorization-code flow with state and PKCE, or a bound Passkey. A separate public directory and free read-only public MCP expose only published roles and résumés explicitly marked public. Private contact details, matching history and conversations remain restricted to the platform and explicitly introduced counterparties. Sign-in addresses are visible to the account owner, an AI authorized to read that owner's profile, and platform administrators. Existing accounts are not automatically merged by an email returned from a new Google identity.
 
 The production origin is `https://hireferry.lmm.best`, with the exact Google callback `https://hireferry.lmm.best/auth/google/callback`. SMTP messages default to `Reply-To: support@lmm.best`; the sending address is configured separately. These defaults do not establish a live provider connection. The two supplied credential-file paths were unavailable in the delivery environment, and no production credentials were imported from them.
 

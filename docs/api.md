@@ -166,6 +166,20 @@ HumanGrant 的完整请求字段、取消、会话检查、签名与有效权限
 
 姓名≤120 UTF-8 字节，简历/Markdown≤80000 字节，拒绝 NUL。联系邮箱可为空，否则须有效；仅求职者可写非空简历。图片只接受 PNG/JPEG/WebP，原始字节≤2 MiB，宽高 1–2048 像素；解码并重编码为不超过 256×256 的 PNG，去除元数据与附加内容。SVG≤64000 字节，只允许静态白名单；脚本、事件属性、外链/xlink 引用拒绝。最终头像写入事务再次检查封禁。
 
+### 公开目录与公开 MCP
+
+这些接口不需要登录，只返回招聘方已发布且仍在招聘的岗位，以及求职者明确打开公开个人主页后的简历。公开简历的 AI profile 链接由本人填写；登录邮箱、私聊、匹配历史、订单、草稿和关闭内容不会返回。
+
+| 方法与路径 | 输入 | 返回 / 范围 |
+| --- | --- | --- |
+| GET `/api/public/jobs` | query `q?`、`page?` | 公开招聘岗位；返回 `jd_md`、清洗后的 `jd_html`、薪资、人数和有限的招聘方公开信息 |
+| GET `/api/public/jobs/{id}` | 无 | 单个仍在招聘的公开岗位；暂停、关闭、删除或未付款岗位返回 404 |
+| GET `/api/public/people` | query `q?`、`page?` | 明确公开的求职者简历摘要、handle、公开邮箱和 AI profile 链接 |
+| GET `/api/public/people/{handle}` | 唯一 handle | 单个公开简历；handle 不区分大小写 |
+| POST `/mcp/public` | MCP `2025-11-25` JSON-RPC | 无需 Authorization；只读公开工具 `hireferry_public_*`，免费且有界限流 |
+
+公开 MCP 的资源 `hireferry://docs/mcp-public` 提供客户端说明。网页 `/discover` 也会在支持 `document.modelContext` 或 `navigator.modelContext` 的浏览器中注册同一组原生 WebMCP 只读工具。完整字段、调用示例和隐私边界见 [公开 MCP 开发者说明](mcp-public.md)。
+
 ### 岗位、匹配与订单
 
 | 方法与路径 | 输入 | 返回 / 范围 |

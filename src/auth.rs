@@ -1,4 +1,5 @@
-//! Cookie authentication and the administrator's passkey-only sign-in.
+//! Cookie authentication, member passkeys, and the administrator's
+//! passkey-only sign-in.
 //!
 //! Challenges stay on the server, expire, are browser-bound, and can be consumed
 //! once. The command-line bootstrap password cannot grant console access.
@@ -30,6 +31,7 @@ const SESSION_COOKIE: &str = "hf_session";
 const EMAIL_COOKIE: &str = "hf_email_challenge";
 const GOOGLE_COOKIE: &str = "hf_google_challenge";
 const PASSKEY_COOKIE: &str = "hf_passkey_challenge";
+const USER_PASSKEY_COOKIE: &str = "hf_user_passkey_challenge";
 const CHALLENGE_TTL: i64 = 300;
 const EMAIL_TTL: i64 = 600;
 const RECENT_AUTH_SECONDS: i64 = 600;
@@ -121,6 +123,24 @@ pub fn routes() -> Router<AppState> {
         .route("/api/session", get(get_session))
         .route("/api/auth/email/start", post(email_start))
         .route("/api/auth/email/verify", post(email_verify))
+        .route(
+            "/api/auth/passkeys/login/start",
+            post(user_passkey_login_start),
+        )
+        .route(
+            "/api/auth/passkeys/login/finish",
+            post(user_passkey_login_finish),
+        )
+        .route(
+            "/api/auth/passkeys/register/start",
+            post(user_passkey_register_start),
+        )
+        .route(
+            "/api/auth/passkeys/register/finish",
+            post(user_passkey_register_finish),
+        )
+        .route("/api/auth/passkeys", get(user_passkeys_list))
+        .route("/api/auth/passkeys/{id}", delete(user_passkey_delete))
         .route("/api/auth/google/start", get(google_start))
         .route("/auth/google/callback", get(google_callback))
         .route("/api/auth/logout", post(logout))
@@ -178,6 +198,16 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             created_at INTEGER NOT NULL, last_used_at INTEGER,
             counter INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS user_passkeys (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            credential_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            last_used_at INTEGER,
+            counter INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS user_passkeys_user ON user_passkeys(user_id,created_at,id);
         CREATE TABLE IF NOT EXISTS account_access_clock (
             id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL DEFAULT 0
         );
@@ -350,6 +380,15 @@ fn require_recent(s: &Session) -> AppResult<()> {
     if now().saturating_sub(s.recent_auth_at) > RECENT_AUTH_SECONDS {
         return Err(AppError::forbidden(
             "Sign in with a passkey again before changing passkeys",
+        ));
+    }
+    Ok(())
+}
+
+fn require_recent_member(s: &Session) -> AppResult<()> {
+    if now().saturating_sub(s.recent_auth_at) > RECENT_AUTH_SECONDS {
+        return Err(AppError::forbidden(
+            "Sign in again before changing passkeys",
         ));
     }
     Ok(())
@@ -1443,6 +1482,376 @@ async fn passkey_login_finish(
         false,
     )?;
     with_cookie(response, &state.cfg, PASSKEY_COOKIE, "", 0)
+}
+
+#[derive(Deserialize, Serialize)]
+struct UserRegistrationPending {
+    state: PasskeyRegistration,
+    name: String,
+    user_id: String,
+}
+
+fn load_user_passkeys(db: &Connection, user_id: Option<&str>) -> AppResult<Vec<Passkey>> {
+    let mut statement = if user_id.is_some() {
+        db.prepare(
+            "SELECT credential_json FROM user_passkeys WHERE user_id=?1 ORDER BY created_at,id",
+        )?
+    } else {
+        db.prepare("SELECT credential_json FROM user_passkeys ORDER BY created_at,id")?
+    };
+    let rows = match user_id {
+        Some(user_id) => statement
+            .query_map([user_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+        None => statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    rows.into_iter()
+        .map(|value| serde_json::from_str(&value).map_err(AppError::from))
+        .collect()
+}
+
+fn webauthn_user_uuid(user_id: &str) -> Uuid {
+    if let Ok(id) = Uuid::parse_str(user_id) {
+        return id;
+    }
+    // Imported databases may contain non-UUID user identifiers. Keep the
+    // WebAuthn user handle stable without putting the raw identifier in the
+    // authenticator payload.
+    let digest = Sha256::digest(user_id.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+async fn user_passkey_register_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<PasskeyName>,
+) -> AppResult<Response> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    let name = input.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(AppError::bad_request(
+            "Name this passkey using 1 to 80 characters",
+        ));
+    }
+    let id = random_token();
+    let options = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let (email, display_name): (String, String) = db.query_row(
+            "SELECT email,name FROM users WHERE id=?1 AND banned=0 AND role IN ('unassigned','seeker','employer')",
+            [&user_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let keys = load_user_passkeys(&db, Some(&user_id))?;
+        if keys.len() >= 20 {
+            return Err(AppError::conflict("Up to 20 passkeys can be registered"));
+        }
+        let exclude = keys.iter().map(|key| key.cred_id().clone()).collect();
+        let (options, pending) = state
+            .auth
+            .webauthn
+            .start_passkey_registration(
+                webauthn_user_uuid(&user_id),
+                &email,
+                if display_name.trim().is_empty() {
+                    &email
+                } else {
+                    display_name.trim()
+                },
+                Some(exclude),
+            )
+            .map_err(|_| AppError::bad_request("Could not start passkey registration"))?;
+        let payload = serde_json::to_string(&UserRegistrationPending {
+            state: pending,
+            name: name.to_owned(),
+            user_id: user_id.clone(),
+        })?;
+        db.execute(
+            "DELETE FROM auth_challenges WHERE kind='user-passkey-register' AND subject=?1",
+            [&s.token_hash],
+        )?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'user-passkey-register',?2,?3,?4)",
+            params![hash_token(&id), s.token_hash, payload, now() + CHALLENGE_TTL],
+        )?;
+        options
+    };
+    with_cookie(
+        Json(json!({"options":options})).into_response(),
+        &state.cfg,
+        USER_PASSKEY_COOKIE,
+        &id,
+        CHALLENGE_TTL,
+    )
+}
+
+async fn user_passkey_register_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<RegisterFinish>,
+) -> AppResult<Response> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    let id = cookie(&headers, USER_PASSKEY_COOKIE)
+        .ok_or_else(|| AppError::unauthorized("Start passkey registration again"))?;
+    let credential_id = {
+        let mut db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let data = consume_challenge(&db, &id, "user-passkey-register", Some(&s.token_hash))?;
+        let pending: UserRegistrationPending = serde_json::from_str(&data)?;
+        if pending.user_id != user_id {
+            return Err(AppError::unauthorized("Passkey session changed"));
+        }
+        let key = state
+            .auth
+            .webauthn
+            .finish_passkey_registration(&input.credential, &pending.state)
+            .map_err(|_| AppError::unauthorized("Passkey registration could not be verified"))?;
+        let credential_id = passkey_id(&key);
+        let tx = db.transaction()?;
+        require_active_session(&tx, &s)?;
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM user_passkeys WHERE user_id=?1",
+            [&user_id],
+            |row| row.get(0),
+        )?;
+        if count >= 20 {
+            return Err(AppError::conflict("Passkey list changed; try again"));
+        }
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE id=?1) OR EXISTS(SELECT 1 FROM admin_passkeys WHERE id=?1)",
+            [&credential_id],
+            |row| row.get(0),
+        )?;
+        if duplicate {
+            return Err(AppError::conflict("This passkey is already registered"));
+        }
+        tx.execute(
+            "INSERT INTO user_passkeys(id,user_id,name,credential_json,created_at) VALUES(?1,?2,?3,?4,?5)",
+            params![
+                credential_id,
+                user_id,
+                pending.name,
+                serde_json::to_string(&key)?,
+                now()
+            ],
+        )?;
+        crate::db::audit(&tx, &user_id, "user_passkey_added", &credential_id, "")?;
+        tx.commit()?;
+        credential_id
+    };
+    let response = Json(json!({"ok":true,"passkey":{"id":credential_id}})).into_response();
+    with_cookie(response, &state.cfg, USER_PASSKEY_COOKIE, "", 0)
+}
+
+async fn user_passkey_login_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let id = random_token();
+    let options = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        cleanup(&db)?;
+        rate_limit(&db, "user-passkey-login", 100, 300)?;
+        let keys = load_user_passkeys(&db, None)?;
+        if keys.is_empty() {
+            return Err(AppError::conflict(
+                "No member passkey is registered; use email or Google sign-in",
+            ));
+        }
+        let (options, pending) = state
+            .auth
+            .webauthn
+            .start_passkey_authentication(&keys)
+            .map_err(|_| AppError::bad_request("Could not start passkey sign-in"))?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'user-passkey-login','',?2,?3)",
+            params![hash_token(&id), serde_json::to_string(&pending)?, now() + CHALLENGE_TTL],
+        )?;
+        options
+    };
+    with_cookie(
+        Json(json!({"options":options})).into_response(),
+        &state.cfg,
+        USER_PASSKEY_COOKIE,
+        &id,
+        CHALLENGE_TTL,
+    )
+}
+
+async fn user_passkey_login_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<LoginFinish>,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let id = cookie(&headers, USER_PASSKEY_COOKIE)
+        .ok_or_else(|| AppError::unauthorized("Start passkey sign-in again"))?;
+    let (raw, csrf, user) = {
+        let mut db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let data = consume_challenge(&db, &id, "user-passkey-login", None)?;
+        let pending: PasskeyAuthentication = serde_json::from_str(&data)?;
+        let result = state
+            .auth
+            .webauthn
+            .finish_passkey_authentication(&input.credential, &pending)
+            .map_err(|_| AppError::unauthorized("Passkey sign-in could not be verified"))?;
+        if !result.user_verified() {
+            return Err(AppError::unauthorized(
+                "Passkey user verification is required",
+            ));
+        }
+        let credential_id = URL_SAFE_NO_PAD.encode(result.cred_id().as_ref());
+        let tx = db.transaction()?;
+        let stored = tx
+            .query_row(
+                "SELECT credential_json,counter,user_id FROM user_passkeys WHERE id=?1",
+                [&credential_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::unauthorized("This passkey is no longer registered"))?;
+        if (stored.1 != 0 || result.counter() != 0) && result.counter() <= stored.1 {
+            return Err(AppError::unauthorized(
+                "Passkey counter did not advance; use another passkey",
+            ));
+        }
+        let mut key: Passkey = serde_json::from_str(&stored.0)?;
+        key.update_credential(&result)
+            .ok_or_else(|| AppError::unauthorized("Passkey credential mismatch"))?;
+        tx.execute(
+            "UPDATE user_passkeys SET credential_json=?1,counter=?2,last_used_at=?3 WHERE id=?4",
+            params![
+                serde_json::to_string(&key)?,
+                result.counter(),
+                now(),
+                credential_id
+            ],
+        )?;
+        let user = crate::models::load_user(&tx, &stored.2)?;
+        crate::db::audit(&tx, &stored.2, "user_passkey_sign_in", &credential_id, "")?;
+        if let Some(old) = cookie(&headers, SESSION_COOKIE) {
+            tx.execute(
+                "DELETE FROM sessions WHERE token_hash=?1",
+                [hash_token(&old)],
+            )?;
+        }
+        let values = new_session(&tx, &state.cfg, Some(&stored.2), false, false)?;
+        tx.commit()?;
+        (values.0, values.1, user)
+    };
+    let response = session_response(
+        &state,
+        &raw,
+        json!({"ok":true,"user":user,"csrf":csrf}),
+        false,
+    )?;
+    with_cookie(response, &state.cfg, USER_PASSKEY_COOKIE, "", 0)
+}
+
+async fn user_passkeys_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<Value>> {
+    let user_id = require_user(&state, &headers)?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::internal("Database lock failed"))?;
+    let mut statement = db.prepare(
+        "SELECT id,name,created_at,last_used_at FROM user_passkeys WHERE user_id=?1 ORDER BY created_at,id",
+    )?;
+    let keys = statement
+        .query_map([&user_id], |row| {
+            Ok(json!({
+                "id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "created_at": row.get::<_, i64>(2)?,
+                "last_used_at": row.get::<_, Option<i64>>(3)?
+            }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(json!({"passkeys":keys})))
+}
+
+async fn user_passkey_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    if id.is_empty() || id.len() > 200 {
+        return Err(AppError::bad_request("Invalid passkey"));
+    }
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::internal("Database lock failed"))?;
+    let tx = db.unchecked_transaction()?;
+    require_active_session(&tx, &s)?;
+    let removed = tx.execute(
+        "DELETE FROM user_passkeys WHERE id=?1 AND user_id=?2",
+        params![id, user_id],
+    )?;
+    if removed == 0 {
+        return Err(AppError::not_found("Passkey not found"));
+    }
+    tx.execute(
+        "DELETE FROM auth_challenges WHERE kind='user-passkey-login'",
+        [],
+    )?;
+    crate::db::audit(&tx, &user_id, "user_passkey_removed", &id, "")?;
+    tx.commit()?;
+    Ok(Json(json!({"ok":true})))
 }
 
 async fn passkeys_list(

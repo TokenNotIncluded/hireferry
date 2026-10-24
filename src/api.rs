@@ -21,6 +21,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/ai/eligibility", get(ai_eligibility))
         .route("/api/profile", get(profile).put(update_profile))
         .route("/api/public-profiles/{handle}", get(public_profile))
+        .route("/api/public/jobs", get(public_jobs))
+        .route("/api/public/jobs/{id}", get(public_job))
+        .route("/api/public/people", get(public_people))
+        .route("/api/public/people/{handle}", get(public_person))
         .route("/api/profile/avatar", post(upload_avatar).put(svg_avatar))
         .route("/api/avatars/{id}", get(avatar))
         .route("/api/role", post(role))
@@ -85,7 +89,13 @@ pub struct ProfileInput {
 }
 pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<User> {
     safety::bounded_text(&input.name, 120, "Name")?;
-    let handle = input.handle.trim().to_lowercase();
+    let db = s.conn()?;
+    let user = models::load_user(&db, id)?;
+    let handle = if input.handle.trim().is_empty() {
+        user.handle.clone()
+    } else {
+        input.handle.trim().to_lowercase()
+    };
     if !matches!(handle.len(), 3..=32)
         || !handle
             .bytes()
@@ -101,8 +111,6 @@ pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<Us
     } else {
         safety::email(&input.public_email)?
     };
-    let db = s.conn()?;
-    let user = models::load_user(&db, id)?;
     if user.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
@@ -176,6 +184,157 @@ async fn public_profile(
     Ok(Json(
         json!({"profile":{"id":user.id,"name":user.name,"handle":user.handle,"avatar":user.avatar,"public_email":user.public_email,"resume_html":safety::markdown(&user.resume_md),"ai_profile_links":user.ai_profile_links,"created_at":user.created_at},"url":format!("{}/u/{}",s.cfg.public_url,user.handle)}),
     ))
+}
+
+fn public_job_value(s: &AppState, db: &rusqlite::Connection, job: models::Job) -> AppResult<Value> {
+    let owner = models::load_user(db, &job.owner_id)?;
+    let employer_public = owner.public_profile && !owner.banned;
+    Ok(json!({
+        "id": job.id,
+        "url": format!("{}/discover/jobs/{}", s.cfg.public_url, job.id),
+        "title": job.title,
+        "jd_md": job.jd_md,
+        "jd_html": safety::markdown(&job.jd_md),
+        "salary_cents": job.salary_cents,
+        "currency": job.currency,
+        "currency_decimals": job.currency_decimals,
+        "headcount": job.headcount,
+        "status": job.status,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "employer": {
+            "name": if employer_public { owner.name } else { "公开招聘方".to_owned() },
+            "handle": if employer_public { Some(owner.handle.clone()) } else { None::<String> },
+            "profile_url": if employer_public && !owner.handle.is_empty() { Some(format!("{}/u/{}", s.cfg.public_url, owner.handle)) } else { None::<String> }
+        }
+    }))
+}
+
+pub fn public_job_data(s: &AppState, id: &str) -> AppResult<Value> {
+    let db = s.conn()?;
+    let job = db
+        .query_row(
+            "SELECT j.* FROM jobs j JOIN users u ON u.id=j.owner_id WHERE j.id=?1 AND j.status='published' AND j.headcount>0 AND u.banned=0",
+            [id],
+            models::job_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public job not found"))?;
+    public_job_value(s, &db, job)
+}
+
+pub fn list_public_jobs(s: &AppState, q: &ListQuery) -> AppResult<Value> {
+    let db = s.conn()?;
+    let (limit, offset) = pagination(s, q);
+    let search = format!(
+        "%{}%",
+        q.q.as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(100)
+            .collect::<String>()
+    );
+    let clause = "j.status='published' AND j.headcount>0 AND u.banned=0 AND (j.title LIKE ?1 OR j.jd_md LIKE ?1 OR u.name LIKE ?1)";
+    let jobs = db
+        .prepare(&format!(
+            "SELECT j.* FROM jobs j JOIN users u ON u.id=j.owner_id WHERE {clause} ORDER BY j.created_at DESC,j.id LIMIT ?2 OFFSET ?3"
+        ))?
+        .query_map(params![search, limit, offset], models::job_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let items = jobs
+        .into_iter()
+        .map(|job| public_job_value(s, &db, job))
+        .collect::<AppResult<Vec<_>>>()?;
+    let total: i64 = db.query_row(
+        &format!("SELECT count(*) FROM jobs j JOIN users u ON u.id=j.owner_id WHERE {clause}"),
+        params![search],
+        |row| row.get(0),
+    )?;
+    Ok(json!({"items":items,"total":total,"limit":limit,"page":offset/limit+1}))
+}
+
+async fn public_jobs(
+    State(s): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_public_jobs(&s, &q)?))
+}
+
+async fn public_job(State(s): State<AppState>, Path(id): Path<String>) -> AppResult<Json<Value>> {
+    Ok(Json(public_job_data(&s, &id)?))
+}
+
+fn public_person_value(s: &AppState, user: User) -> Value {
+    json!({
+        "id": user.id,
+        "name": user.name,
+        "handle": user.handle,
+        "url": format!("{}/discover/people/{}", s.cfg.public_url, user.handle),
+        "avatar": user.avatar,
+        "public_email": user.public_email,
+        "resume_md": user.resume_md,
+        "resume_html": safety::markdown(&user.resume_md),
+        "ai_profile_links": user.ai_profile_links,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at
+    })
+}
+
+pub fn public_person_data(s: &AppState, handle: &str) -> AppResult<Value> {
+    let db = s.conn()?;
+    let user = db
+        .query_row(
+            "SELECT * FROM users WHERE handle=?1 COLLATE NOCASE AND role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>''",
+            [handle],
+            models::user_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public résumé not found"))?;
+    Ok(public_person_value(s, user))
+}
+
+pub fn list_public_people(s: &AppState, q: &ListQuery) -> AppResult<Value> {
+    let db = s.conn()?;
+    let (limit, offset) = pagination(s, q);
+    let search = format!(
+        "%{}%",
+        q.q.as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(100)
+            .collect::<String>()
+    );
+    let clause = "role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>'' AND (name LIKE ?1 OR handle LIKE ?1 OR resume_md LIKE ?1)";
+    let users = db
+        .prepare(&format!(
+            "SELECT * FROM users WHERE {clause} ORDER BY updated_at DESC,id LIMIT ?2 OFFSET ?3"
+        ))?
+        .query_map(params![search, limit, offset], models::user_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let items = users
+        .into_iter()
+        .map(|user| public_person_value(s, user))
+        .collect::<Vec<_>>();
+    let total: i64 = db.query_row(
+        &format!("SELECT count(*) FROM users WHERE {clause}"),
+        params![search],
+        |row| row.get(0),
+    )?;
+    Ok(json!({"items":items,"total":total,"limit":limit,"page":offset/limit+1}))
+}
+
+async fn public_people(
+    State(s): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_public_people(&s, &q)?))
+}
+
+async fn public_person(
+    State(s): State<AppState>,
+    Path(handle): Path<String>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(public_person_data(&s, &handle)?))
 }
 async fn update_profile(
     State(s): State<AppState>,
@@ -290,7 +449,10 @@ async fn avatar(
             e
         }
     })?;
-    let allowed = if let Some(p) = principal {
+    let public_profile_avatar = !user.banned && user.public_profile;
+    let allowed = if public_profile_avatar {
+        true
+    } else if let Some(p) = principal {
         access::ensure_active(&db, &p)?;
         p.admin
             || (!user.banned && p.user_id.as_deref().is_some_and(|v| v == id))

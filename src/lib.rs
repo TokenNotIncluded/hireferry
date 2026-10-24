@@ -183,7 +183,8 @@ async fn security(State(state): State<AppState>, req: Request, next: Next) -> Re
         }
     }
     let indexable = seo::PUBLIC_PAGES.contains(&req.uri().path())
-        || seo::is_public_profile_path(req.uri().path());
+        || seo::is_public_profile_path(req.uri().path())
+        || seo::is_public_directory_path(req.uri().path());
     let mut res = next.run(req).await;
     let h = res.headers_mut();
     if !indexable {

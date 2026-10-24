@@ -9,6 +9,7 @@ pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/refunds",
     "/terms",
     "/privacy",
+    "/discover",
 ];
 
 pub(crate) fn escape(value: &str) -> String {
@@ -47,6 +48,7 @@ pub(crate) fn sitemap(cfg: &Config) -> String {
 pub(crate) fn known_page(path: &str) -> bool {
     PUBLIC_PAGES.contains(&path)
         || is_public_profile_path(path)
+        || is_public_directory_path(path)
         || matches!(
             path,
             "/login"
@@ -67,6 +69,18 @@ pub(crate) fn known_page(path: &str) -> bool {
                 path.strip_prefix(prefix)
                     .is_some_and(|id| !id.is_empty() && !id.contains('/'))
             })
+}
+
+pub(crate) fn is_public_directory_path(path: &str) -> bool {
+    if path == "/discover" {
+        return true;
+    }
+    ["/discover/jobs/", "/discover/people/"]
+        .iter()
+        .any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+        })
 }
 
 pub(crate) fn is_public_profile_path(path: &str) -> bool {
@@ -104,6 +118,14 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
         ("/downloads", true) => (
             "Software downloads and installation",
             "Download released HireFerry CLI and server packages. Check platforms, architectures, versions, checksums and desktop or mobile release availability.",
+        ),
+        ("/discover", false) => (
+            "公开岗位与简历目录 · HireFerry",
+            "浏览明确公开的招聘岗位和求职简历，也可以通过免费公开 MCP 让 AI 读取这些信息。",
+        ),
+        ("/discover", true) => (
+            "Public jobs and résumés · HireFerry",
+            "Browse explicitly public roles and résumés, or let an AI read the same information through the free public MCP endpoint.",
         ),
         ("/humangrant", false) => (
             "HumanGrant 人类辅助登录",
@@ -159,7 +181,9 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
 pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String> {
     let en = cfg.site.default_language == "en";
     let t = |zh, english| if en { english } else { zh };
-    let public = PUBLIC_PAGES.contains(&path) || is_public_profile_path(path);
+    let public = PUBLIC_PAGES.contains(&path)
+        || is_public_profile_path(path)
+        || is_public_directory_path(path);
     let (title, description) = metadata(path, en);
     let title = escape(&format!("{title} · {}", cfg.site.name));
     let description = escape(description);
@@ -207,7 +231,7 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     .to_owned()
             }
             "/" => format!(
-                "<div itemscope itemtype=\"https://schema.org/WebSite\"><meta itemprop=\"name\" content=\"HireFerry\"><meta itemprop=\"alternateName\" content=\"聘渡\"><link itemprop=\"url\" href=\"{}\"><h1>{}</h1><p>{description}</p><h2>{}</h2><p>{}</p><h2>{}</h2><p>{}</p><a class=\"button\" href=\"/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile\">{}</a> <a class=\"button secondary\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a></div>",
+                "<div itemscope itemtype=\"https://schema.org/WebSite\"><meta itemprop=\"name\" content=\"HireFerry\"><meta itemprop=\"alternateName\" content=\"聘渡\"><link itemprop=\"url\" href=\"{}\"><h1>{}</h1><p>{description}</p><h2>{}</h2><p>{}</p><h2>{}</h2><p>{}</p><p>{}</p><a class=\"button\" href=\"/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile\">{}</a> <a class=\"button secondary\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a></div>",
                 escape(&cfg.public_url),
                 t(
                     "聘渡 HireFerry · AI 简历初筛与人才匹配",
@@ -223,6 +247,7 @@ pub(crate) fn page(template: &str, path: &str, cfg: &Config) -> AppResult<String
                     "先与平台私聊。匹配后共享资料并开始交流，在工作台查看匹配与沟通进展。",
                     "Start with a private conversation. Share profiles after a match and track introductions and conversations in your workspace."
                 ),
+                t("求职者免费使用", "Free for job seekers"),
                 t("注册独一无二的名字", "Register a unique name"),
                 t("免费创建岗位", "Create a free role")
             ),
