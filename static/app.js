@@ -979,6 +979,7 @@ function contactPage() {
 
 async function render({navigation=false}={}) {
   const navigationStarted=performance.now();
+  window.hireferryLoadRouteStyles?.(location.pathname);
   const fast=sessionReader.fresh()?service.navigateChat?.(new URL(location.href),{onlyIfChanged:!navigation}):null;
   if(fast){
     requests.cancel(`navigation:${state.render}`);

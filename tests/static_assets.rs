@@ -70,6 +70,7 @@ async fn release_urls_cache_the_entire_module_graph_without_changing_legacy_asse
     let revision = revision(&app).await;
     for asset in [
         "app.js",
+        "route-styles.js",
         "cli-guide.js",
         "runtime/timeline.js",
         "theme.css",
@@ -107,6 +108,26 @@ async fn release_urls_cache_the_entire_module_graph_without_changing_legacy_asse
     .await;
     assert_eq!(html.status(), StatusCode::OK);
     assert_eq!(html.headers()["cache-control"], "no-cache");
+}
+
+#[tokio::test]
+async fn home_shell_keeps_route_css_out_of_the_blocking_head() {
+    let response = request(&app(), Method::GET, "/", &[]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(body(response).await).unwrap();
+    assert_eq!(html.matches("rel=\"stylesheet\"").count(), 5);
+    assert!(html.contains("route-styles.js"));
+    for route_style in [
+        "workspace.css",
+        "conversation.css",
+        "public-directory.css",
+        "auth.css",
+    ] {
+        assert!(
+            !html.contains(route_style),
+            "{route_style} leaked into home shell"
+        );
+    }
 }
 
 #[tokio::test]
