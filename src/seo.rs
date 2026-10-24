@@ -258,11 +258,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
             "Download released HireFerry CLI and server packages. Check platforms, architectures, versions, checksums and desktop or mobile release availability.",
         ),
         ("/discover", false) => (
-            "公开岗位与简历目录 · HireFerry",
+            "公开岗位与简历目录",
             "浏览明确公开的招聘岗位和求职简历，也可以通过免费公开 MCP 让 AI 读取这些信息。",
         ),
         ("/discover", true) => (
-            "Public jobs and résumés · HireFerry",
+            "Public jobs and résumés",
             "Browse explicitly public roles and résumés, or let an AI read the same information through the free public MCP endpoint.",
         ),
         ("/humangrant", false) => (
@@ -477,12 +477,12 @@ pub(crate) fn page(
                 let detail = public_detail.expect("checked above");
                 if p.starts_with("/discover/jobs/") {
                     format!(
-                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开岗位</h2><p>{}</p></article>",
+                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开岗位</h2>{}</article>",
                         detail["jd_html"].as_str().unwrap_or_default()
                     )
                 } else {
                     format!(
-                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开简历</h2><p>{}</p></article>",
+                        "<h1>{title}</h1><p>{description}</p><article class=\"markdown\"><h2>公开简历</h2>{}</article>",
                         detail["resume_html"].as_str().unwrap_or_default()
                     )
                 }
