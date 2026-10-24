@@ -290,7 +290,7 @@ pub fn public_tools() -> Vec<Value> {
         ),
         tool(
             "hireferry_public_get_person",
-            "Read one explicitly public seeker résumé by its unique handle, including declared AI profile links.",
+            "Read one explicitly public seeker résumé by its unique handle, including declared AI, GitHub, X and personal website links.",
             json!({"handle":{"type":"string","pattern":"^[a-z0-9_-]{3,32}$"}}),
             &["handle"],
             true,

@@ -220,6 +220,125 @@ async fn email_auth_creates_private_user_hashes_session_and_logs_out_with_csrf()
 }
 
 #[tokio::test]
+async fn email_magic_link_is_cross_device_single_use_and_passwordless() {
+    let state = state();
+    let mut requester = Client::new(&state);
+    let (status, start) = requester
+        .request(
+            "POST",
+            "/api/auth/email/start",
+            json!({"email":"magic@example.test"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{start}");
+    let magic = url::Url::parse(start["dev_magic_link"].as_str().unwrap()).unwrap();
+    let path = format!("{}?{}", magic.path(), magic.query().unwrap());
+
+    // The link does not depend on the browser that requested it.
+    let mut other_device = Client::new(&state);
+    let (status, body) = other_device.request("GET", &path, json!({})).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let (_, session) = other_device.request("GET", "/api/session", json!({})).await;
+    assert_eq!(session["user"]["email"], "magic@example.test");
+
+    // A consumed link cannot be replayed.
+    assert_eq!(
+        other_device.request("GET", &path, json!({})).await.0,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM auth_challenges", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let mut invalid = Client::new(&state);
+    assert_eq!(
+        invalid
+            .request("GET", "/auth/email/magic?token=invalid.invalid", json!({}))
+            .await
+            .0,
+        StatusCode::SEE_OTHER
+    );
+}
+
+#[tokio::test]
+async fn email_change_notifies_old_address_cancel_and_confirms_new_address() {
+    let state = state();
+    let mut client = Client::new(&state);
+    client.sign_in("old-email@example.test").await;
+
+    let (status, start) = client
+        .request(
+            "POST",
+            "/api/auth/email/change/start",
+            json!({"email":"new-email@example.test"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{start}");
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT email FROM users LIMIT 1", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "old-email@example.test"
+    );
+
+    // The old mailbox can cancel a pending change without a logged-in cookie.
+    let cancel = url::Url::parse(start["dev_cancel_link"].as_str().unwrap()).unwrap();
+    let cancel_path = format!("{}?{}", cancel.path(), cancel.query().unwrap());
+    let mut old_device = Client::new(&state);
+    assert_eq!(
+        old_device.request("GET", &cancel_path, json!({})).await.0,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM auth_challenges", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+
+    // Start a fresh change, then confirm it from a different device.
+    let (_, start) = client
+        .request(
+            "POST",
+            "/api/auth/email/change/start",
+            json!({"email":"new-email@example.test"}),
+        )
+        .await;
+    let confirm = url::Url::parse(start["dev_confirm_link"].as_str().unwrap()).unwrap();
+    let confirm_path = format!("{}?{}", confirm.path(), confirm.query().unwrap());
+    let mut new_device = Client::new(&state);
+    assert_eq!(
+        new_device.request("GET", &confirm_path, json!({})).await.0,
+        StatusCode::SEE_OTHER
+    );
+    let (_, session) = new_device.request("GET", "/api/session", json!({})).await;
+    assert!(session["user"].is_null());
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row(
+                "SELECT email FROM users WHERE email='new-email@example.test'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "new-email@example.test"
+    );
+}
+
+#[tokio::test]
 async fn email_code_is_browser_bound_single_use_and_limits_wrong_guesses() {
     let state = state();
     let mut a = Client::new(&state);
@@ -298,6 +417,64 @@ async fn email_code_is_browser_bound_single_use_and_limits_wrong_guesses() {
         b.request("POST", "/api/auth/email/verify", payload).await.0,
         StatusCode::UNAUTHORIZED
     );
+}
+
+#[tokio::test]
+async fn member_can_list_and_revoke_other_sessions() {
+    let state = state();
+    let mut first = Client::new(&state);
+    let mut second = Client::new(&state);
+    first.sign_in("sessions@example.test").await;
+    // The production resend guard is intentionally one request per address per
+    // minute. Reset only this synthetic test bucket so the second browser can
+    // create another session for the same member without weakening the guard.
+    let short_key = format!("email-short:{}", auth::hash_token("sessions@example.test"));
+    state
+        .conn()
+        .unwrap()
+        .execute("DELETE FROM auth_limits WHERE key=?1", [&short_key])
+        .unwrap();
+    second.sign_in("sessions@example.test").await;
+
+    let (status, list) = first.request("GET", "/api/auth/sessions", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["current"] == true)
+            .count(),
+        1
+    );
+    let other_id = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["current"] == false)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (status, revoked) = first
+        .request(
+            "DELETE",
+            &format!("/api/auth/sessions/{other_id}"),
+            json!({}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{revoked}");
+    assert!(second.request("GET", "/api/session", json!({})).await.1["user"].is_null());
+
+    let (status, list) = first.request("GET", "/api/auth/sessions", json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    let (status, revoked) = first
+        .request("POST", "/api/auth/sessions/revoke-others", json!({}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{revoked}");
+    assert_eq!(revoked["revoked"], 0);
 }
 
 #[tokio::test]
@@ -645,6 +822,29 @@ async fn member_passkeys_bind_login_list_and_remove_without_gateway_or_email() {
                 .get::<_, i64>(0))
             .unwrap(),
         0
+    );
+}
+
+#[tokio::test]
+async fn member_google_password_manager_passkey_requests_android_platform_resident_key() {
+    let state = state();
+    let mut member = Client::new(&state);
+    member.sign_in("google-passkey@example.test").await;
+    let (status, body) = member
+        .request(
+            "POST",
+            "/api/auth/passkeys/register/start",
+            json!({"name":"Google phone","kind":"google_password_manager"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["options"]["publicKey"]["authenticatorSelection"]["residentKey"],
+        "required"
+    );
+    assert_eq!(
+        body["options"]["publicKey"]["authenticatorSelection"]["authenticatorAttachment"],
+        "platform"
     );
 }
 

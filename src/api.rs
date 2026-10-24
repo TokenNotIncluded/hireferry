@@ -136,25 +136,24 @@ pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<Us
         .iter()
         .filter(|(_, url)| !url.trim().is_empty())
         .map(|(name, url)| {
-            if name.len() > 32
-                || !name
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-            {
-                return Err(AppError::bad_request("AI profile link names are invalid"));
+            let name = name.trim();
+            if name.is_empty() || name.chars().count() > 32 || name.chars().any(char::is_control) {
+                return Err(AppError::bad_request(
+                    "Profile link names must be 1–32 visible characters",
+                ));
             }
             let parsed = url::Url::parse(url.trim())
-                .map_err(|_| AppError::bad_request("AI profile links must be valid HTTPS URLs"))?;
+                .map_err(|_| AppError::bad_request("Profile links must be valid HTTPS URLs"))?;
             if parsed.scheme() != "https"
                 || parsed.host_str().is_none()
                 || !parsed.username().is_empty()
                 || parsed.password().is_some()
             {
                 return Err(AppError::bad_request(
-                    "AI profile links must be public HTTPS URLs",
+                    "Profile links must be public HTTPS URLs",
                 ));
             }
-            Ok((name.clone(), url.trim().to_owned()))
+            Ok((name.to_owned(), url.trim().to_owned()))
         })
         .collect::<AppResult<std::collections::BTreeMap<_, _>>>()?;
     if links.len() > 12 {

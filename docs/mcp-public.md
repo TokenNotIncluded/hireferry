@@ -23,7 +23,7 @@ The endpoint exposes five tools:
 Published jobs appear while they are open for hiring (`status=published` and a
 positive hiring target). A résumé appears only after its owner chooses the
 public profile setting and has written résumé content. The response can include
-Markdown, rendered HTML and declared AI profile links. Login email, private
+Markdown, rendered HTML and declared public profile links such as GitHub, X and personal websites. Login email, private
 messages, matching history, payment records, drafts, closed roles and deleted
 content are never returned.
 

@@ -78,7 +78,7 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
             .unwrap()
             .to_owned();
         if path == "/for-employers" {
-            assert_eq!(title, "招聘方免费发布岗位 · HireFerry · 聘渡");
+            assert_eq!(title, "AI 自动筛简历与免费发布岗位 · HireFerry · 聘渡");
             assert!(!title.contains("聘渡 HireFerry · HireFerry"));
         }
         if path == "/for-job-tools" {

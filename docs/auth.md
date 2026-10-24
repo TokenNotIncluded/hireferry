@@ -18,17 +18,17 @@ console.
 
 ## 用户登录与隐私
 
-普通用户使用 Google 或邮箱验证码。首次登录创建 `unassigned` 账户，再通过界面选择求职者或招聘方。选择招聘方会创建开通订单，收到有效支付通知后才开通招聘权限。
+普通用户使用 Google OAuth、邮箱魔法链接或已绑定的 Passkey。整个流程不设置密码；邮箱邮件同时提供一次性备用验证码，便于无法打开链接时完成登录。首次登录创建 `unassigned` 账户，再通过界面选择求职者或招聘方。选择招聘方会创建开通订单，收到有效支付通知后才开通招聘权限。
 
 资料、简历、头像和岗位不进入公开目录。`public_email` 是历史字段名，表示供平台及明确匹配对象使用的联系邮箱；旧 `visible` 字段不授予公开访问。平台建立明确匹配后，双方才能读取对应资料，并进入独立匹配会话，此前各自与平台的私聊不会复制给对方。
 
 登录邮箱是账户身份标识，不向匹配对象返回。本人、获得本人资料读取权限的 AI，以及平台管理员可以读取它。网站不要求手机号。管理员为服务运营可以查看账户及业务历史；普通会话和 MCP 身份仍受当前角色、匹配关系、封禁和资源权限约束。
 
-### 邮箱验证码
+### 邮箱魔法链接
 
-配置 `[smtp]` 的 `enabled`、`host`、`port`、`username`、`password`、`from`、`reply_to` 和 `starttls`。依据：[配置结构及校验](../src/config.rs)、[验证码邮件构建](../src/auth.rs)。
+配置 `[smtp]` 的 `enabled`、`host`、`port`、`username`、`password`、`from`、`reply_to` 和 `starttls`。依据：[配置结构及校验](../src/config.rs)、[登录邮件构建](../src/auth.rs)。
 
-`from` 是 SMTP 服务允许使用的发件邮箱；`reply_to` 是收件人点击「回复」时使用的地址，两者分别配置。`reply_to` 默认和示例值均为 `support@lmm.best`，当前验证码邮件会发送这个 Reply-To 头。可在 TOML 中改为另一个有效邮箱，或显式设为空字符串以省略该头；非空值会在配置加载时进行邮箱格式校验。更改后需要重启服务。
+`from` 是 SMTP 服务允许使用的发件邮箱；`reply_to` 是收件人点击「回复」时使用的地址，两者分别配置。`reply_to` 默认和示例值均为 `support@lmm.best`，当前登录邮件会发送这个 Reply-To 头。可在 TOML 中改为另一个有效邮箱，或显式设为空字符串以省略该头；非空值会在配置加载时进行邮箱格式校验。更改后需要重启服务。
 
 ```toml
 [smtp]
@@ -49,7 +49,7 @@ starttls = true
 - 生产环境关闭 SMTP 时，邮箱登录返回不可用。
 - 仅当 `development = true` 且 SMTP 关闭时，API 返回 `dev_code`，前端显示本地验证码。开发模式必须使用回环绑定与 localhost 来源，不能用于公网部署。
 
-验证码为 8 位随机数字，10 分钟有效，只能在发起请求的浏览器中使用。数据库保存验证码与随机挑战组合的哈希，不存储明文验证码。再次申请会使旧码失效；每个挑战最多尝试 5 次。
+登录邮件包含一个 10 分钟有效、只能消费一次的魔法链接。链接本身就是登录凭据，服务端只保存挑战 ID 和链接秘密的哈希，不保存明文链接秘密；它不要求发起链接的浏览器保留 Cookie，因此可以在手机或其他设备打开。邮件同时包含 8 位随机数字备用验证码；验证码与随机挑战组合的哈希只保存服务端，再次申请会使旧挑战失效，每个挑战最多尝试 5 次。
 
 服务端限制同邮箱 60 秒内最多申请 1 次、1 小时 10 次，并设置全局申请限制与验证请求限制。验证码不会写入应用日志。发信失败会撤销对应挑战，无法凭一个尚未投递的挑战继续登录。
 
@@ -76,7 +76,7 @@ Google 登录仍从 `/api/auth/google/start` 发起；授权回调固定为
 
 ### 普通用户 Passkey
 
-普通用户仍可用邮箱验证码或 Google 首次登录。登录后，在「我的资料 / My
+普通用户仍可用邮箱魔法链接或 Google 首次登录。登录后，在「我的资料 / My
 résumé」页面的「登录 Passkey」区域绑定设备 Passkey。浏览器会调用标准
 WebAuthn：可以使用设备指纹、面容、系统 PIN、同步密码管理器或实体安全密钥。
 私密部分不会上传到 HireFerry，服务端只保存公钥、凭证 ID、计数器和使用时间。
@@ -89,13 +89,27 @@ WebAuthn：可以使用设备指纹、面容、系统 PIN、同步密码管理�
 Passkey 暴露给普通用户；管理员仍使用独立的 `/api/admin/passkeys/*` 流程。登录成功
 后会建立普通用户会话，并重新检查账户是否已被停用。
 
+绑定界面不伪造网页端的 provider 选择器。Android 会打开 Google Password Manager，
+或系统设置中当前启用的密码管理器；标准流程请求可发现凭据，浏览器和系统决定
+最终使用哪个 provider。如果当前设备或浏览器不支持，界面会显示可重试的失败提示，
+仍可使用邮箱或 Google 登录。
+
 生产环境必须使用 HTTPS，`webauthn_rp_id` 必须等于 `public_url` 的主机名；本地
 开发使用 `http://localhost:3000` 与 RP ID `localhost`。Passkey 是浏览器原生能力，
 不需要额外安装 HireFerry 插件；浏览器不支持 WebAuthn 时仍可使用邮箱或 Google。
 
+### 换绑登录邮箱
+
+登录后的「个人资料」页面可以发起换绑。换绑请求要求当前会话最近完成过认证、
+CSRF 和来源校验，并且新邮箱不能被其他账户占用。系统同时向新邮箱发送确认链接、
+向当前旧邮箱发送取消链接；只有新邮箱链接被消费后才更新账户邮箱。旧邮箱的取消
+链接在同一有效期内可以撤销整个待处理变更。任一链接只能使用一次；换绑完成后保留
+当前会话并撤销其他普通用户会话。邮件投递失败会删除两条待处理挑战，不留下可用的
+半完成状态。
+
 ### HumanGrant：由本人确认的 AI 访问
 
-登录页仅在 HTML 中保留隐藏的 **人类辅助登录 / Human Login** 链接供 AI 发现，不显示独立按钮；`/humangrant` 说明如何让 AI 发起申请。本人仍通过现有 Google 或邮箱验证码登录。打开 `/human/{link}` 时，已有有效登录会直接进入权限确认；未登录时先登录，再返回原申请。
+登录页仅在 HTML 中保留隐藏的 **人类辅助登录 / Human Login** 链接供 AI 发现，不显示独立按钮；`/humangrant` 说明如何让 AI 发起申请。本人仍通过现有 Google 或邮箱魔法链接登录。打开 `/human/{link}` 时，已有有效登录会直接进入权限确认；未登录时先登录，再返回原申请。
 
 确认页显示当前账户、原申请 AI 的身份、服务、用途、具体权限、资源和期限。权限默认不勾选，用户还须明确同意。服务器在提交时重新检查账户与申请，并验证绑定该登录、账户和申请的 `X-HG-CSRF`；仅打开链接或切换账户不能取得授权。
 
@@ -166,7 +180,11 @@ WebMCP 使用当前浏览器会话，通过草案 `modelContext` API 提供工�
 | `POST /api/admin/users/{id}/access` | `{ "banned": true, "reason": "原因" }`；事务内停用或恢复并写入审计 |
 | `GET /api/session` | 返回 `user`、`admin`、`super_admin`、`staff`、`bootstrap`、`csrf`；`admin` 表示业务工作台权限，`super_admin` 仅代表 Passkey 超管；未登录时 `user`、`staff` 和 `csrf` 为 null |
 | `POST /api/auth/email/start` | `{ "email": "name@example.com" }`；设置浏览器挑战 Cookie |
-| `POST /api/auth/email/verify` | `{ "email": "name@example.com", "code": "12345678" }`；消费挑战并建立会话 |
+| `POST /api/auth/email/verify` | `{ "email": "name@example.com", "code": "12345678" }`；消费备用验证码并建立会话 |
+| `GET /auth/email/magic?token=...` | 消费邮件魔法链接，以 303 跳转 `/app` 并建立会话 |
+| `POST /api/auth/email/change/start` | `{ "email": "new@example.com" }`；向新邮箱发确认链接，向旧邮箱发取消链接 |
+| `GET /auth/email/change?token=...` | 消费新邮箱确认链接并完成换绑 |
+| `GET /auth/email/change/cancel?token=...` | 消费旧邮箱取消链接并撤销待处理换绑 |
 | `POST /api/auth/passkeys/login/start` | `{}`；为普通用户凭证创建一次性登录挑战 |
 | `POST /api/auth/passkeys/login/finish` | `{ "credential": <WebAuthn authentication JSON> }`；验证凭证并建立普通用户会话 |
 | `GET /api/auth/passkeys` | 当前普通用户读取自己已绑定 Passkey 的 ID、名称、创建时间和最后使用时间 |
@@ -197,7 +215,7 @@ HumanGrant 的代理请求、本人确认、凭据领取与撤销接口见 [Huma
 
 ## English overview
 
-Users authenticate with a browser-bound, one-time email code, Google’s server-side authorization-code flow with state and PKCE, or a bound Passkey. A separate public directory and free read-only public MCP expose only published roles and résumés explicitly marked public. Private contact details, matching history and conversations remain restricted to the platform and explicitly introduced counterparties. Sign-in addresses are visible to the account owner, an AI authorized to read that owner's profile, and platform administrators. Existing accounts are not automatically merged by an email returned from a new Google identity.
+Users authenticate with a one-time magic email link (with a fallback code), Google’s server-side authorization-code flow with state and PKCE, or a bound Passkey. No password is created. A separate public directory and free read-only public MCP expose only published roles and résumés explicitly marked public. Private contact details, matching history and conversations remain restricted to the platform and explicitly introduced counterparties. Sign-in addresses are visible to the account owner, an AI authorized to read that owner's profile, and platform administrators. Existing accounts are not automatically merged by an email returned from a new Google identity.
 
 The production origin is `https://hireferry.lmm.best`, with the exact Google callback `https://hireferry.lmm.best/auth/google/callback`. SMTP messages default to `Reply-To: support@lmm.best`; the sending address is configured separately. These defaults do not establish a live provider connection. The two supplied credential-file paths were unavailable in the delivery environment, and no production credentials were imported from them.
 

@@ -198,7 +198,7 @@ fn public_detail_metadata(path: &str, detail: &Value) -> (&'static str, String, 
             .unwrap_or_else(|| detail["handle"].as_str().unwrap_or("公开简历"));
         let handle = detail["handle"].as_str().unwrap_or_default();
         let description = format!(
-            "{name} 的公开求职主页（@{handle}），包含本人主动公开的简历内容和 AI profile 链接。"
+            "{name} 的公开求职主页（@{handle}），包含本人主动公开的简历内容和个人主页链接。"
         );
         let same_as = detail["ai_profile_links"]
             .as_object()
@@ -237,7 +237,7 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
             "投了几百份简历石沉大海？让 AI 持续帮你找工作",
-            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接 HireFerry AI 后 7×24 持续筛选岗位、匹配机会。早期阶段求职和招聘都免费。",
+            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接 HireFerry AI 后 7×24 持续筛选岗位，做简历与岗位匹配。早期阶段求职和招聘都免费。",
         ),
         ("/", true) => (
             "Hundreds of résumés and no reply? Let AI keep looking",
@@ -268,12 +268,12 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
             "Browse explicitly public roles and résumés, or let an AI read the same information through the free public MCP endpoint.",
         ),
         ("/for-employers", false) => (
-            "招聘方免费发布岗位",
-            "早期阶段招聘方免费发布岗位，让求职者和 AI 读取明确公开的招聘需求，减少无效申请。",
+            "AI 自动筛简历与免费发布岗位",
+            "正在找 AI 自动筛简历、智能简历筛选或人岗匹配工具？HireFerry 让招聘方早期免费发布岗位，授权 AI 按岗位要求整理公开候选人线索；不抓取 BOSS 直聘等第三方平台，邮箱、订单和私聊保持私密。",
         ),
         ("/for-employers", true) => (
-            "Free job publishing for recruiters",
-            "Post roles for free during early access and let candidates and AI read your explicit public hiring needs, with less noise.",
+            "AI resume screening and free job publishing",
+            "Looking for AI resume screening, intelligent candidate filtering or job matching? HireFerry lets recruiters publish roles free during early access and authorize AI to organize public candidate signals; it does not scrape BOSS Zhipin or other third-party platforms, and keeps email, orders and private chats private.",
         ),
         ("/for-job-tools", false) => (
             "本地求职工具与 HireFerry 公开发现层",
@@ -435,7 +435,7 @@ pub(crate) fn page(
                 t("免费创建岗位", "Create a free role")
             ),
             "/for-employers" => format!(
-                "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><p><a class=\"button\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a> <a class=\"button secondary\" href=\"/discover\">{}</a></p>",
+                "<h1>{}</h1><p>{}</p><h2>{}</h2><ul><li>{}</li><li>{}</li><li>{}</li></ul><h2>{}</h2><p>{}</p><p><a class=\"button\" href=\"/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew\">{}</a> <a class=\"button secondary\" href=\"/discover\">{}</a></p>",
                 t(
                     "把岗位交给 AI，少收一堆不匹配简历。",
                     "Let AI sort the signal from the noise."
@@ -453,6 +453,14 @@ pub(crate) fn page(
                 t(
                     "公开 MCP 可让 AI 直接读取岗位",
                     "The public MCP lets AI read the role directly"
+                ),
+                t(
+                    "AI 自动筛简历，先看公开证据",
+                    "AI resume screening starts with public evidence"
+                ),
+                t(
+                    "如果你正在找 BOSS 直聘自动筛简历、AI 自动筛简历或人岗匹配工具，HireFerry 走的是自己的公开岗位与公开主页路径：不抓取第三方简历、不自动打招呼，只有本人主动公开的内容才会被 AI 读取。",
+                    "If you are looking for BOSS Zhipin resume screening, AI resume screening or job matching, HireFerry uses its own public roles and profiles: it does not scrape third-party résumés or send automatic greetings, and AI reads only what people explicitly publish."
                 ),
                 t("免费发布一个岗位", "Post one role free"),
                 t("先看公开目录", "View public directory")
