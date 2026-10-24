@@ -707,7 +707,46 @@ function login() {
   const googleHref=state.config?.google_enabled?`/api/auth/google/start${googleParams.toString()?`?${googleParams}`:''}`:'#';
   const intentContext=intent==='employer'?`<p class="auth-context">${t('招聘方 · 免费发布一个岗位。登录后继续创建岗位。','Employer · post one role free. Sign in to continue to the editor.')}</p>`:intent==='seeker'?`<p class="auth-context">${t('求职者 · 创建独一无二的名字和公开主页。','Job seeker · create a unique name and public homepage.')}</p>`:'';
   const emailLinkStatus=qs().get('email_link')==='expired'?`<p class="notice error" role="alert">${icon('info')}<span>${t('这个登录链接已过期、已使用或无效。请重新发送一个新的链接。','This sign-in link expired, was already used, or is invalid. Request a new one.')}</span></p>`:'';
-  return `<main id="main" class="page-width auth-wrap"><section class="auth-intro"><h1>${t('从认识你<br>开始匹配','Start with you<br>Find the fit')}</h1><p>${t('不用设置密码。<br>用 OAuth 或邮箱魔法链接登录。','No password to set.<br>Use OAuth or an email magic link.')}</p></section><section class="auth-card"><h2>${t('欢迎来到聘渡','Welcome to HireFerry')}</h2><p class="subtitle">${t('登录或创建账户','Sign in or create an account')}</p>${intentContext}${emailLinkStatus}<a href="${googleHref}" class="button secondary full" data-google-sign-in ${!state.config?.google_enabled?'aria-disabled="true" data-action="google-unavailable"':''}><span class="google-mark">G</span>${t('使用 Google 继续','Continue with Google')}</a><button type="button" class="button secondary full" data-action="user-passkey-login">${icon('key')}${t('使用 Passkey 登录','Sign in with a passkey')}</button><p class="help">${t('使用此设备、同步的密码管理器或安全密钥中的 Passkey。','Use a passkey from this device, a synced password manager, or a security key.')}</p>${state.config?.humangrant_enabled?humanGrant().loginButton():''}<div class="separator">${t('或使用邮箱魔法链接','or use an email magic link')}</div><form data-form="email-start" aria-describedby="email-status"><div class="field"><label for="login-email">${t('邮箱地址','Email address')}</label><input class="input" id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required maxlength="254"></div>${referral?`<p class="notice">${icon('person')}<span>${t('你正通过成员邀请链接注册。','You are joining through a member invitation link.')}</span></p>`:''}<button type="submit" class="button full" ${state.config?.email_enabled===false?'disabled':''}>${t('发送登录链接','Send magic link')}${icon('arrow')}</button><p id="email-status" class="help" role="status" aria-live="polite" aria-atomic="true">${t('不需要设置密码，链接只能使用一次。','No password is needed. The link works once.')}</p></form>${state.config?.email_enabled===false?`<p class="help">${t('邮箱登录暂未开放。','Email sign-in is not available yet.')}</p>`:''}<div class="auth-legal">${t('继续即表示你已阅读并同意','By continuing, you agree to our')} <a href="/terms" data-nav>${t('服务条款','Terms')}</a> ${t('及','and')} <a href="/privacy" data-nav>${t('隐私说明','Privacy notice')}</a>。</div></section></main>`;
+  return `<main id="main" class="page-width auth-wrap">
+    <section class="auth-intro">
+      <p class="auth-eyebrow">${t('聘渡 · AI 人才匹配','HIREFERRY · AI TALENT MATCHING')}</p>
+      <h1>${t('从认识你<br>开始匹配','Start with you<br>Find the fit')}</h1>
+      <p>${t('不用设置密码。<br>用 Google、Passkey 或邮箱魔法链接登录。','No password to set.<br>Use Google, Passkey or an email magic link.')}</p>
+      <ul class="auth-points" aria-label="${t('聘渡特点','HireFerry highlights')}">
+        <li><span>01</span>${t('求职免费，先浏览公开机会','Free for job seekers. Browse public opportunities first.')}</li>
+        <li><span>02</span>${t('岗位和主页由本人主动公开','People choose what to publish.')}</li>
+      </ul>
+    </section>
+    <section class="auth-card">
+      <div class="auth-card-heading">
+        <div>
+          <p class="auth-kicker">WELCOME TO HIREFERRY</p>
+          <h2>${t('欢迎来到聘渡','Welcome to HireFerry')}</h2>
+        </div>
+        <span class="auth-card-symbol" aria-hidden="true">↗</span>
+      </div>
+      <p class="subtitle">${t('登录或创建账户','Sign in or create an account')}</p>
+      ${intentContext}${emailLinkStatus}
+      <div class="auth-methods">
+        <a href="${googleHref}" class="button auth-google-button full" data-google-sign-in ${!state.config?.google_enabled?'aria-disabled="true" data-action="google-unavailable"':''}><span class="google-mark">G</span>${t('使用 Google 继续','Continue with Google')}</a>
+        <button type="button" class="button auth-passkey-button secondary full" data-action="user-passkey-login">${icon('key')}${t('使用 Passkey 登录','Sign in with Passkey')}</button>
+      </div>
+      <p class="help auth-method-help">${t('使用此设备、同步的密码管理器或安全密钥中的 Passkey。','Use a passkey from this device, a synced password manager, or a security key.')}</p>
+      ${state.config?.humangrant_enabled?humanGrant().loginButton():''}
+      <div class="separator">${t('或使用邮箱魔法链接','or use an email magic link')}</div>
+      <form data-form="email-start" aria-describedby="email-status">
+        <div class="field">
+          <label for="login-email">${t('邮箱地址','Email address')}</label>
+          <input class="input" id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required maxlength="254">
+        </div>
+        ${referral?`<p class="notice">${icon('person')}<span>${t('你正通过成员邀请链接注册。','You are joining through a member invitation link.')}</span></p>`:''}
+        <button type="submit" class="button auth-submit full" ${state.config?.email_enabled===false?'disabled':''}>${t('发送登录链接','Send sign-in link')}${icon('arrow')}</button>
+        <p id="email-status" class="help" role="status" aria-live="polite" aria-atomic="true">${t('不需要设置密码，链接只能使用一次。','No password is needed. The link works once.')}</p>
+      </form>
+      ${state.config?.email_enabled===false?`<p class="help">${t('邮箱登录暂未开放。','Email sign-in is not available yet.')}</p>`:''}
+      <div class="auth-legal">${t('继续即表示你已阅读并同意','By continuing, you agree to our')} <a href="/terms" data-nav>${t('服务条款','Terms')}</a> ${t('及','and')} <a href="/privacy" data-nav>${t('隐私说明','Privacy notice')}</a>。</div>
+    </section>
+  </main>`;
 }
 function emailCode(email,devCode,devMagicLink) {const card=document.querySelector('.auth-card');card.innerHTML=`<h2>${t('查收你的邮箱','Check your inbox')}</h2><p class="subtitle">${t('登录链接已发送至','A magic sign-in link was sent to')}<br><span class="auth-email">${esc(email)}</span></p><div class="notice auth-magic-note">${icon('mail')}<div><strong>${t('打开邮件里的登录链接即可继续','Open the sign-in link in the email to continue')}</strong><p>${t('链接短期有效且只能使用一次。如果你暂时无法打开链接，可以使用下面的备用验证码。','The link expires soon and works once. If you cannot open it, use the fallback code below.')}</p>${devMagicLink?`<a class="button secondary small" href="${esc(devMagicLink)}">${t('开发测试：打开魔法链接','Development: open magic link')}</a>`:''}</div></div><form data-form="email-verify"><input type="hidden" name="email" value="${esc(email)}"><details class="section-disclosure auth-code-fallback"${devCode?' open':''}><summary>${t('改用备用验证码','Use the fallback code')}</summary><div class="disclosure-content"><div class="field"><label for="email-code">${t('登录验证码','Sign-in code')}</label><input class="input code-input" id="email-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" maxlength="12" placeholder="· · · · · ·" required><p class="help">${t('验证码短期有效，且只能使用一次。','This code expires soon and can only be used once.')}</p></div>${devCode?notice(`${t('仅开发测试环境','Development environment only')}: <strong>${esc(devCode)}</strong>`,'warning'):''}<button class="button full" type="submit">${t('用验证码继续','Continue with code')}${icon('arrow')}</button></div></details></form><div class="auth-legal"><button class="text-button" data-action="restart-login">${t('换一个邮箱','Use a different email')}</button></div>`;if(devCode)document.querySelector('#email-code')?.focus();}
 function chooseRole() {
