@@ -874,6 +874,8 @@ test('published profiles offer a copyable README badge', async () => {
   const html = await app.profilePage();
   assert.match(html, /README 徽章/);
   assert.match(html, /badge\.svg\?label=ada/);
+  assert.match(html, /utm_source=readme_badge/);
+  assert.match(html, /utm_campaign=profile_badge/);
   assert.match(html, /copy-profile-badge/);
   assert.match(html, /\[!\[ada AI profile\]/);
 });
