@@ -161,7 +161,8 @@ function afterSignIn() {
   const review=state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app';
   const direct=safeJobReturn(qs().get('return_to'))||safeProfileReturn(qs().get('return_to'))||safeJobReturn(jobSaved)||safeProfileReturn(profileSaved);
   if(direct&&currentRoleIntent())rememberRoleReturn(direct);
-  return direct||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
+  const profileOnboarding=state.user?.role==='seeker'&&isGeneratedHandle(state.user.handle)?defaultRoleReturn('seeker'):'';
+  return direct||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||profileOnboarding||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
 }
 const pricing = () => state.config?.pricing || {};
 function feeSettings(kind,record,terms=null) {

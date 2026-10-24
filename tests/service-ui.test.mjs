@@ -802,6 +802,14 @@ test('new role selection lands on the work surface that completes onboarding', (
   assert.equal(app.defaultRoleReturn('employer'), '/app?tab=jobs');
 });
 
+test('an existing seeker with an unclaimed generated handle returns to profile setup', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  app.state.user.handle = 'user_' + 'a'.repeat(16);
+  assert.equal(app.afterSignIn(), '/app?tab=profile');
+  app.state.user.handle = 'lightdot';
+  assert.equal(app.afterSignIn(), '/app');
+});
+
 test('contact, refund policy, and related notices are bilingual and use configured support details', () => {
   const { app, requests } = webmcp();
   app.state.config = { ...app.state.config, support_email: 'support@lmm.best', public_origin: 'https://hireferry.lmm.best' };
