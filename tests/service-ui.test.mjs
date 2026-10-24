@@ -381,8 +381,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', 'syncPageMetadata', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,publicJobPage,publicPersonPage,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, () => {}, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -842,6 +842,22 @@ test('employer landing previews the open-source role template before login', () 
   assert.match(html, /What does the open-source template cover\?/);
   assert.match(html, /public code, issue, documentation, or release evidence/i);
   assert.match(html, /template%3Dopensource/);
+});
+
+test('public role and résumé details expose native sharing with a copy fallback', async () => {
+  const { app } = webmcp({ responses: {
+    '/api/public/jobs/job-one': { id: 'job-one', title: 'Rust maintainer', employer: { name: 'Open Source Co' }, salary_cents: 600000, currency: 'CNY', headcount: 1, jd_html: '<p>Build public APIs.</p>' },
+    '/api/public/people/ada': { handle: 'ada', name: 'Ada', avatar: '', public_email: '', ai_profile_links: { chatgpt: 'https://chatgpt.com/g/ada' }, resume_html: '<p>Rust maintainer.</p>' },
+  } });
+  app.state.lang = 'en';
+  const role = await app.publicJobPage('job-one');
+  assert.match(role, /data-action="share-public-link"/);
+  assert.match(role, /Share role/);
+  assert.match(role, /data-share-text="Open role: Rust maintainer/);
+  const person = await app.publicPersonPage('ada');
+  assert.match(person, /data-action="share-public-link"/);
+  assert.match(person, /Share homepage/);
+  assert.match(person, /data-copy="https:\/\/hireferry\.test\/discover\/people\/ada"/);
 });
 
 test('generated sign-up handles still show the custom-name onboarding path', () => {
