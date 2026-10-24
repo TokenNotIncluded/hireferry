@@ -381,7 +381,7 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,profilePage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
     document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
@@ -839,6 +839,16 @@ test('unclaimed seekers see one workspace profile claim banner outside profile a
   assert.match(jobs, /先抢注你的独一无二名字/);
   assert.doesNotMatch(app.shell('<p>profile</p>', 'profile'), /workspace-profile-claim/);
   assert.doesNotMatch(app.shell('<p>messages</p>', 'messages'), /workspace-profile-claim/);
+});
+
+test('unclaimed profile setup offers an immediate save-name action beside the username field', async () => {
+  const profile = { email: 'seeker@example.test', name: 'A seeker', role: 'seeker', handle: 'user_' + 'a'.repeat(16), public_profile: false, public_email: '', resume_md: '', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const html = await app.profilePage();
+  assert.match(html, /<form id="profile-form" data-form="profile">/);
+  assert.match(html, /name="handle" form="profile-form" autofocus/);
+  assert.match(html, /profile-claim-actions/);
+  assert.match(html, /保存名字并继续/);
 });
 
 test('free early access remains available to an existing inactive employer', () => {
