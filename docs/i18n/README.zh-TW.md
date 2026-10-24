@@ -32,7 +32,7 @@
 
 伺服器端使用 **Rust + Axum + SQLite**。單一執行檔內嵌網頁，TOML 管理設定。求職者免費，徵才方費用依網站設定收取。
 
-**本頁導覽**：[功能](#features) · [服務流程](#workflow) · [快速開始](#quick-start) · [CLI 與 AI](#cli-and-ai) · [系統架構](#architecture) · [文件](#documentation) · [參與貢獻](#contributing)
+**本頁導覽**：[功能](#features) · [服務流程](#workflow) · [快速開始](#quick-start) · [CLI 與 AI](#cli-and-ai) · [公開目錄](#public-discovery) · [系統架構](#architecture) · [文件](#documentation) · [參與貢獻](#contributing)
 
 <a id="features"></a>
 
@@ -148,6 +148,20 @@ npx skills add TokenNotIncluded/hireferry --skill hireferry
 ```
 
 技能安裝需要 Node.js 22.20+。Windows PowerShell 可用 `npx.cmd`。AI 模型、外部搜尋與對外聯繫工具由營運者另行串接。
+
+<a id="public-discovery"></a>
+
+## 公開目錄與免費 MCP
+
+開啟[公開目錄](https://hireferry.lmm.best/discover)，即可瀏覽仍在招聘的公開職缺，以及主動公開履歷的求職者。私訊、配對歷史、訂單和登入信箱不會進入公開目錄。
+
+需要讓 AI 讀取公開機會時，直接呼叫免費的唯讀端點：
+
+```text
+POST https://hireferry.lmm.best/mcp/public
+```
+
+不需要登入、API token 或帳號。它提供讀取站點設定、搜尋和讀取公開職缺、搜尋和讀取公開履歷五個工具。支援原生 WebMCP 的瀏覽器開啟 `/discover` 後，也會註冊同一組唯讀工具。完整 JSON-RPC 範例與隱私界線見[公開 MCP 文件](../mcp-public.md)。
 
 <a id="architecture"></a>
 

@@ -32,7 +32,7 @@
 
 服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。求职者免费，招聘方费用按站点配置收取。
 
-**本页导航**：[桌面下载](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
+**本页导航**：[桌面下载](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [公开目录](#public-discovery) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
 
 <a id="features"></a>
 
@@ -152,6 +152,20 @@ npx skills add TokenNotIncluded/hireferry --skill hireferry
 ```
 
 技能安装需要 Node.js 22.20+。Windows PowerShell 可用 `npx.cmd`。AI 模型、外部搜索和外联工具由运营者另行接入。
+
+<a id="public-discovery"></a>
+
+## 公开目录与免费 MCP
+
+打开 [公开目录](https://hireferry.lmm.best/discover)，可以直接浏览仍在招聘的公开岗位，以及主动公开简历的求职者。求职者必须自己打开公开主页，岗位必须处于发布且仍有招聘人数的状态；私聊、匹配历史、订单和登录邮箱不会进入公开目录。
+
+需要让 AI 读取公开机会时，直接调用免费的只读端点：
+
+```text
+POST https://hireferry.lmm.best/mcp/public
+```
+
+无需登录、API token 或账号。它提供搜索岗位、读取岗位、搜索公开简历、读取公开简历和读取公开站点配置五个工具。支持原生 WebMCP 的浏览器打开 `/discover` 后，也会注册同一组只读工具。完整 JSON-RPC 示例、字段和隐私边界见 [公开 MCP 开发者说明](docs/mcp-public.md)。
 
 <a id="architecture"></a>
 
