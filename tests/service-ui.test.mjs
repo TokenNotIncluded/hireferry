@@ -793,6 +793,7 @@ test('generated sign-up handles still show the custom-name onboarding path', () 
   assert.equal(app.isGeneratedHandle('user_' + 'a'.repeat(27)), true);
   assert.equal(app.isGeneratedHandle('lightdot'), false);
   assert.equal(app.isGeneratedHandle('user_not-a-hex-handle'), false);
+  assert.match(app.requestErrorText('Claim a custom username before publishing your profile'), /抢注自定义用户名/);
 });
 
 test('contact, refund policy, and related notices are bilingual and use configured support details', () => {

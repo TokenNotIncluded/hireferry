@@ -2,7 +2,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use hireferry::{AppState, config::Config, models};
+use hireferry::{
+    AppState,
+    api::{self, ProfileInput},
+    config::Config,
+    models,
+};
 use http_body_util::BodyExt;
 use rusqlite::params;
 use serde_json::json;
@@ -55,4 +60,39 @@ async fn public_profile_is_opt_in_and_exposes_only_declared_ai_links() {
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
     let user = models::load_user(&state.conn().unwrap(), id).unwrap();
     assert_eq!(user.handle, "ada");
+}
+
+#[test]
+fn generated_placeholder_handle_cannot_be_published() {
+    let state = AppState::new(Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    let id = "generated-profile-user";
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'Ada','user_0123456789abcdef','seeker',1,1)",
+            params![id, "ada-generated@example.invalid"],
+        )
+        .unwrap();
+    let error = api::save_profile(
+        &state,
+        id,
+        ProfileInput {
+            name: "Ada".into(),
+            handle: String::new(),
+            public_email: String::new(),
+            resume_md: "## Hello".into(),
+            visible: false,
+            public_profile: true,
+            ai_profile_links: std::collections::BTreeMap::new(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("Claim a custom username"));
 }
