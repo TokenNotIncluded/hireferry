@@ -57,7 +57,7 @@ async fn sitemap_discovers_only_public_canonical_pages_with_crawlable_content() 
         .filter(|n| n.has_tag_name(("http://www.sitemaps.org/schemas/sitemap/0.9", "loc")))
         .map(|n| n.text().unwrap().to_owned())
         .collect();
-    assert_eq!(urls.len(), 9);
+    assert_eq!(urls.len(), 10);
     let mut titles = std::collections::BTreeSet::new();
     for url in urls {
         let path = url.strip_prefix("https://hireferry.example").unwrap();
