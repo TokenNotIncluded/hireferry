@@ -24,15 +24,15 @@
 <p align="center">
   <a href="https://hireferry.lmm.best">官网</a> ·
   <a href="docs/README.md">文档</a> ·
-  <a href="docs/downloads.md">下载桌面版 / CLI</a> ·
+  <a href="docs/downloads.md">下载桌面版 / 移动版 / CLI</a> ·
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">问题反馈</a>
 </p>
 
-聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由通过 MCP 连接的获授权 AI agent 自动整理需求、筛选简历、建立匹配与跟进进展。持续运行的 agent 客户端负责自动化循环，服务器提供权限、业务接口与记录。双方在匹配后查看对应资料，并进入独立会话。
+聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由通过 MCP 连接的获授权 AI agent 自动整理需求、筛选简历、建立匹配与跟进进展。持续运行的 agent 客户端负责自动化循环，服务器提供权限、业务接口与记录。双方在匹配后查看对应资料，并进入独立会话。当前默认捐赠模式：求职和招聘永久免费；如果聘渡帮你找到了工作或招到了人，欢迎捐赠支持我们的工作。
 
 服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。求职者免费，招聘方费用按站点配置收取。
 
-**本页导航**：[桌面下载](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [公开目录](#public-discovery) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
+**本页导航**：[桌面、移动与 Nix](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [公开目录](#public-discovery) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
 
 <a id="features"></a>
 
@@ -102,13 +102,13 @@ cargo run --locked -- --config config.toml serve
 
 <a id="desktop"></a>
 
-## 桌面版与 CLI 下载
+## 桌面版、移动版、CLI、服务端与 Nix
 
 <img src="docs/assets/release-matrix.svg" alt="Windows、macOS、Linux 的 x64 与 ARM64 桌面版和用户 CLI 发布矩阵" width="100%">
 
-Tauri 2 桌面版复用系统 WebView，连接官方或自托管站点。Windows 提供 NSIS / MSI，macOS 提供 DMG，Linux 提供 deb、rpm、AppImage 和 Flatpak；`hfy` 用户 CLI 独立打包。文档由同一份发布目录自动生成，成功发布后展示实际包版本、大小与下载链接。
+Tauri 2 桌面版复用系统 WebView，连接官方或自托管站点。Windows 提供 NSIS / MSI，macOS 提供 DMG，Linux 提供 deb、rpm、AppImage 和 Flatpak；`hfy` 用户 CLI 与服务端独立打包。手机和平板使用响应式 Web 工作台，Nix / NixOS 可从 Flake 安装 `server` 或 `cli`。文档由同一份发布目录自动生成，成功发布后展示实际包版本、大小与下载链接；没有原生移动包时不会伪造 APK / IPA 链接。
 
-**[下载矩阵 →](docs/downloads.md)** · [桌面安装与发行版兼容说明](docs/desktop.md) · [发布工作流](.github/workflows/desktop-release.yml)
+**[下载矩阵 →](docs/downloads.md)** · [移动版说明](docs/mobile.md) · [Nix 安装](docs/nix.md) · [桌面安装与发行版兼容说明](docs/desktop.md) · [发布工作流](.github/workflows/desktop-release.yml)
 
 <a id="cli-and-ai"></a>
 

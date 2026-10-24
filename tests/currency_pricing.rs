@@ -105,6 +105,42 @@ fn activation_currency_uses_configured_prices_and_never_reprices_an_existing_ord
 }
 
 #[test]
+fn donation_mode_makes_new_employer_services_free_forever() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.billing_mode = "donation".into();
+    cfg.validate().unwrap();
+    let state = AppState::new(cfg).unwrap();
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO users(id,email,created_at,updated_at) VALUES('donor','donor@example.invalid',1,1)",
+            [],
+        )
+        .unwrap();
+    let (user, activation) =
+        commerce::choose_role(&state, "donor", "employer", Some("stripe")).unwrap();
+    assert!(activation.is_none());
+    assert!(user.employer_paid);
+    let (job, order) = commerce::new_job(
+        &state,
+        "donor",
+        "Donation mode role",
+        "No payment is required",
+        300_000,
+        "stripe",
+    )
+    .unwrap();
+    assert_eq!(order.provider, "free");
+    assert_eq!(order.amount_cents, 0);
+    assert_eq!(order.status, "paid");
+    assert_eq!(job.status, "published");
+    let public = api::public_config(&state);
+    assert_eq!(public["pricing"]["billing_mode"], "donation");
+}
+
+#[test]
 fn waffo_regions_are_configured_independently_and_accept_new_method_codes() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(&dir);

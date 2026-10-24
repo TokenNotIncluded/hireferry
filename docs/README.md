@@ -20,8 +20,10 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [桌面版、CLI 与服务端下载矩阵](downloads.md) | 自动生成的系统、软件包、架构、大小和下载链接 |
+| [桌面版、移动版、CLI、服务端与 Nix 下载矩阵](downloads.md) | 自动生成的系统、渠道、软件包、架构、大小和下载链接 |
 | [桌面安装与发布](desktop.md) | Tauri 2、Linux 兼容范围、签名与 Release 流程 |
+| [移动版](mobile.md) | Android / iOS 浏览器的响应式 Web 工作台与原生包边界 |
+| [Nix / NixOS](nix.md) | Flake 提供服务端与 `hfy` CLI 的安装、构建和检查 |
 | [Arch Linux / AUR](aur.md) | 服务端与 CLI 分开安装、-git / -bin、systemd 初始化与自动发布 |
 | [命令行客户端 `hfy`](cli.md) | 安装、登录、JSON、连接管理、升级与卸载 |
 | [Agent Skill](../skills/hireferry/SKILL.md) | AI 使用 CLI 的操作约定 |
@@ -46,6 +48,7 @@
 | [CI 工作流](../.github/workflows/ci.yml) | Rust、网页资源和 CLI 的验证步骤 |
 | [桌面发布工作流](../.github/workflows/desktop-release.yml) | 桌面版与 CLI 完整发布、校验与矩阵更新 |
 | [CLI 发布工作流](../.github/workflows/cli-release.yml) | 六平台构建及版本发布 |
+| [`flake.nix`](../flake.nix) | Nix / NixOS 的服务端与 CLI 构建入口 |
 
 ## 验收记录与进展
 

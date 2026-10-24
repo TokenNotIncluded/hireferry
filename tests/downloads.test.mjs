@@ -101,3 +101,11 @@ test('public page distinguishes AUR source recipes, checksum integrity, and expl
     assert.match(html,/AUR/);assert.doesNotMatch(html,/actions\/runs|latest\/download|href="[^"]+\.(apk|ipa)"/);
   }
 });
+
+test('downloads page exposes mobile web and Nix channels without inventing native assets',()=>{
+  const html=renderDownloads({lang:'zh',icon:name=>`<i data-icon="${name}"></i>`});
+  assert.match(html,/移动版与 Nix/);
+  assert.match(html,/当前没有原生 APK \/ IPA/);
+  assert.match(html,/nix profile install github:TokenNotIncluded\/hireferry#cli/);
+  assert.match(html,/docs\/mobile\.md/);
+});

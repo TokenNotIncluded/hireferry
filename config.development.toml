@@ -62,6 +62,7 @@ mode = "test"
 # Currency codes are explicit. Existing jobs/orders keep their original currency.
 # Empty allowed_currencies means only currency; add per-currency amounts below
 # before enabling additional currencies. No automatic exchange conversion.
+billing_mode = "donation" # fees or donation; donation keeps job services free.
 currency = "CNY"
 allowed_currencies = ["CNY"]
 onboarding_cents = 10000 # Original integer minor units.

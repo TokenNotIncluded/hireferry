@@ -167,5 +167,29 @@
       ],
       "runner": "ubuntu-22.04-arm"
     }
-  ]
+  ],
+  "channels": {
+    "mobile": {
+      "kind": "responsive-web",
+      "platforms": [
+        "Android",
+        "iOS"
+      ],
+      "url": "https://hireferry.lmm.best/",
+      "docs": "docs/mobile.md"
+    },
+    "nix": {
+      "kind": "flake",
+      "systems": [
+        "x86_64-linux",
+        "aarch64-linux"
+      ],
+      "packages": [
+        "server",
+        "cli"
+      ],
+      "flake": "github:TokenNotIncluded/hireferry",
+      "docs": "docs/nix.md"
+    }
+  }
 }

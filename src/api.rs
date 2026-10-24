@@ -58,7 +58,17 @@ pub fn public_config(s: &AppState) -> Value {
     if s.cfg.payments.waffo.enabled {
         providers.push("waffo");
     }
-    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"email_notifications_enabled":s.cfg.smtp.enabled,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"payment_modes":{"waffo":s.conn().and_then(|db| crate::payments::waffo_mode(s, &db)).unwrap_or_else(|_| "unavailable".into()),"stripe":if s.cfg.payments.stripe.live_mode {"prod"} else {"test"}},"waffo_regions":s.cfg.payments.waffo.checkout_regions,"cli_distribution":s.cfg.cli_distribution,"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits,"chat":s.cfg.chat.public()})
+    let mut pricing = s.cfg.pricing.public();
+    if let Ok(db) = s.conn() {
+        pricing["billing_mode"] = json!(
+            crate::commerce::billing_mode(s, &db).unwrap_or_else(|_| s
+                .cfg
+                .pricing
+                .billing_mode
+                .clone())
+        );
+    }
+    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"email_notifications_enabled":s.cfg.smtp.enabled,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"payment_modes":{"waffo":s.conn().and_then(|db| crate::payments::waffo_mode(s, &db)).unwrap_or_else(|_| "unavailable".into()),"stripe":if s.cfg.payments.stripe.live_mode {"prod"} else {"test"}},"waffo_regions":s.cfg.payments.waffo.checkout_regions,"cli_distribution":s.cfg.cli_distribution,"pricing":pricing,"limits":s.cfg.limits,"chat":s.cfg.chat.public()})
 }
 async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let id = user_id(&s, &h, false)?;

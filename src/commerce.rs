@@ -175,10 +175,28 @@ fn provider_live(state: &AppState, db: &Connection, provider: &str) -> AppResult
     })
 }
 
+/// Return the current operator-selected billing mode. The setting is stored in
+/// SQLite so an administrator can change donation mode without editing TOML or
+/// restarting the service. Historical orders keep their own immutable terms.
+pub fn billing_mode(state: &AppState, db: &Connection) -> AppResult<String> {
+    let saved: Option<String> = db
+        .query_row("SELECT mode FROM pricing_settings WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    let mode = saved.unwrap_or_else(|| state.cfg.pricing.billing_mode.clone());
+    if !matches!(mode.as_str(), "fees" | "donation") {
+        return Err(AppError::conflict("Invalid billing mode"));
+    }
+    Ok(mode)
+}
+
 fn employer(db: &Connection, id: &str) -> AppResult<User> {
     let u = models::load_user(db, id)?;
     if u.banned || u.role != "employer" || !u.employer_paid {
-        return Err(AppError::forbidden("A paid employer account is required"));
+        return Err(AppError::forbidden(
+            "An active employer account is required",
+        ));
     }
     Ok(u)
 }
@@ -266,7 +284,11 @@ pub fn choose_role_with_promo(
             .optional()?;
         let requested_currency = currency;
         let currency = currency.unwrap_or(&state.cfg.pricing.currency);
-        let amount = state.cfg.pricing.onboarding_amount(currency)?;
+        let amount = if billing_mode(state, &tx)? == "donation" {
+            0
+        } else {
+            state.cfg.pricing.onboarding_amount(currency)?
+        };
         if let Some(existing) = existing {
             if requested_currency.is_some_and(|code| existing.currency != code)
                 || provider.is_some_and(|p| p != existing.provider)
@@ -360,10 +382,18 @@ pub fn new_job_with_currency(
     )
 }
 
-pub(crate) fn publication_amount(state: &AppState, salary: i64, currency: &str) -> AppResult<i64> {
+pub(crate) fn publication_amount(
+    state: &AppState,
+    db: &Connection,
+    salary: i64,
+    currency: &str,
+) -> AppResult<i64> {
     let pricing = &state.cfg.pricing;
     if !pricing.permits_currency(currency) {
         return Err(AppError::bad_request("Choose an enabled salary currency"));
+    }
+    if billing_mode(state, db)? == "donation" {
+        return Ok(0);
     }
     let amounts = pricing.amounts(currency)?;
     let original = configured_fee(
@@ -426,7 +456,7 @@ pub fn new_job_with_promo(
     validate_configured_headcount(state, headcount)?;
     let pricing = &state.cfg.pricing;
     let currency = currency.unwrap_or(&pricing.currency);
-    let original_amount = publication_amount(state, salary, currency)?;
+    let original_amount = publication_amount(state, &tx, salary, currency)?;
     let amounts = pricing.amounts(currency)?;
     let promo = promo_code
         .as_deref()
@@ -456,7 +486,7 @@ pub fn new_job_with_promo(
     }
     let id = uuid::Uuid::new_v4().to_string();
     tx.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,version,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",params![id,uid,title,jd,salary,currency,amounts.employer_ai_min_salary_minor,headcount,if amount == 0 {"published"} else {"draft"},if amount == 0 {1} else {0},now()])?;
-    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
+    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"billing_mode":billing_mode(state, &tx)?,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
     if let Some(code) = &promo {
         snapshot["promo"] = json!({"code_id":code.id,"code":code.code,"discount_percent":code.discount_percent,"original_amount_cents":original_amount});
     }
@@ -555,16 +585,25 @@ pub fn edit_job(
     let max_edits = terms["max_edits"].as_i64().unwrap_or(3);
     let edit_bps = terms["edit_bps"].as_i64().unwrap_or(100);
     let edit_mode = terms["edit_mode"].as_str().unwrap_or("salary_percent");
-    let original_amount = configured_fee(
-        job.salary_cents,
-        edit_mode,
-        edit_bps,
-        terms["edit_fixed_minor"].as_i64().unwrap_or(0),
-    )?;
-    let amount = Pricing::discount_amount(
-        original_amount,
-        terms["edit_discount_percent"].as_i64().unwrap_or(0),
-    )?;
+    let billing_mode = terms["billing_mode"].as_str().unwrap_or("fees");
+    let original_amount = if billing_mode == "donation" {
+        0
+    } else {
+        configured_fee(
+            job.salary_cents,
+            edit_mode,
+            edit_bps,
+            terms["edit_fixed_minor"].as_i64().unwrap_or(0),
+        )?
+    };
+    let amount = if billing_mode == "donation" {
+        0
+    } else {
+        Pricing::discount_amount(
+            original_amount,
+            terms["edit_discount_percent"].as_i64().unwrap_or(0),
+        )?
+    };
     if amount > 0 {
         provider_currency_enabled(state, provider, &job.currency)?;
     }
