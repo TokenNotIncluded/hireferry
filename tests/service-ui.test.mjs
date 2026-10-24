@@ -830,6 +830,17 @@ test('an existing seeker with an unclaimed generated handle returns to profile s
   assert.equal(app.afterSignIn(), '/app');
 });
 
+test('unclaimed seekers see one workspace profile claim banner outside profile and inbox', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  app.state.user.handle = 'user_' + 'a'.repeat(16);
+  const jobs = app.shell('<p>jobs</p>', 'jobs');
+  assert.match(jobs, /workspace-profile-claim/);
+  assert.match(jobs, /href="\/app\?tab=profile"[^>]*data-nav/);
+  assert.match(jobs, /先抢注你的独一无二名字/);
+  assert.doesNotMatch(app.shell('<p>profile</p>', 'profile'), /workspace-profile-claim/);
+  assert.doesNotMatch(app.shell('<p>messages</p>', 'messages'), /workspace-profile-claim/);
+});
+
 test('free early access remains available to an existing inactive employer', () => {
   const { app } = webmcp({ role: 'employer' });
   app.state.user.employer_paid = false;
