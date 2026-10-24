@@ -215,6 +215,8 @@ prompts = []
 
 `GET /api/config` 的 `chat.welcome` 与 `GET /api/chat/capabilities` 的 `welcome` 返回这些公开配置。服务器为 Markdown 正文生成清洗后的 `body_html` / `body_html_en`；页面按文本显示标题和按钮文字。点击提示按钮只填入可编辑草稿，由使用者决定是否发送。
 
+平台私聊的自动接待文案也可以在同一份配置中调整。`[chat.auto_reply]` 的 `title`、`title_en`、`body_md` 和 `body_md_en` 会同时用于聊天中的异步服务提示与后台自动确认；修改后重启服务。文案应明确平台 AI 是异步、主动式服务，仍处于早期阶段，并非 24/7 实时客服。正文最多 8000 字符，标题最多 160 字符。
+
 生产和开发配置模板都包含可取消注释的示例。可先验证配置：
 
 ```sh

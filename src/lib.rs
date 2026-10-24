@@ -1,6 +1,7 @@
 pub mod access;
 pub mod admin;
 pub mod admin_ai;
+pub mod announcements;
 pub mod api;
 mod assets;
 pub mod auth;
@@ -147,6 +148,7 @@ pub fn app(state: AppState) -> Router {
         .merge(cli_auth::routes())
         .merge(cli_distribution::routes())
         .merge(api::routes())
+        .merge(announcements::routes())
         .merge(badges::routes())
         .merge(feedback::routes())
         .merge(legal::routes())

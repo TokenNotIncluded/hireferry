@@ -237,6 +237,10 @@ enabled = true
 delay_seconds = 2
 poll_seconds = 5
 max_attempts = 3
+title = "已收到，平台 AI 会异步处理"
+title_en = "Received — HireFerry AI will process this asynchronously"
+body_md = "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：消息会进入后台队列，有进展时我们会主动回到这里。"
+body_md_en = "HireFerry is still in the early stage. Platform AI works asynchronously and proactively; it is not a 24/7 live support channel. Messages enter a background queue and we return when there is progress."
 
 # [chat.welcome.platform_seeker]
 # title = "先聊聊你的下一份工作"

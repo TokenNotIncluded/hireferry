@@ -436,7 +436,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
 
   function chatAiNotice(room) {
     if (room.kind !== 'platform') return '';
-    return `<aside class="chat-ai-notice" role="note">${icon('clock')}<span><strong>${t('平台 AI：异步、主动式服务', 'Platform AI: asynchronous and proactive')}</strong>${t('目前仍在早期阶段，不是时刻在线的实时客服。消息会进入后台队列，有进展时我们会主动回到这里。', 'We are still in the early stage. This is not a 24/7 live chat; messages enter a background queue and we will proactively return here when there is progress.')}</span></aside>`;
+    const copy = state.config?.chat?.auto_reply || {};
+    const title = state.lang === 'en' ? (copy.title_en || copy.title) : (copy.title || copy.title_en);
+    const body = state.lang === 'en' ? (copy.body_md_en || copy.body_md) : (copy.body_md || copy.body_md_en);
+    const fallbackTitle = t('平台 AI：异步、主动式服务', 'Platform AI: asynchronous and proactive');
+    const fallbackBody = t('目前仍在早期阶段，不是时刻在线的实时客服。消息会进入后台队列，有进展时我们会主动回到这里。', 'We are still in the early stage. This is not a 24/7 live chat; messages enter a background queue and we will proactively return here when there is progress.');
+    return `<aside class="chat-ai-notice" role="note">${icon('clock')}<span><strong>${esc(title || fallbackTitle)}</strong>${esc(body || fallbackBody).replace(/\r?\n/g, '<br>')}</span></aside>`;
   }
 
   function chatThread(current) {

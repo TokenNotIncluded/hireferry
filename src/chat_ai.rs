@@ -176,10 +176,8 @@ fn deterministic_reply(s: &AppState, conversation_id: &str) -> AppResult<String>
                 format!("{origin}/app?tab=matches"),
             )
         };
-    let title = quote("已收到，平台 AI 会异步处理");
-    let body = quote(
-        "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：它会在后台读取你主动提供的资料和需求，继续做初步匹配；有新进展时会主动回到这里。先用下面入口查看资料和机会。\n\n当前这条消息由自动接待确认，具体建议和岗位匹配需要等后台处理或平台工作人员跟进。",
-    );
+    let title = quote(&s.cfg.chat.auto_reply.title);
+    let body = quote(&s.cfg.chat.auto_reply.body_md);
     Ok(format!(
         "root = Col([intro, actions])\nintro = Card([title, copy], \"soft\", 5, 4)\ntitle = Title(\"{title}\", \"lg\")\ncopy = Markdown(\"{body}\")\nactions = Row([first, second], 3, \"start\", \"start\", true)\nfirst = Button(\"{}\", @OpenUrl(\"{}\"), \"outline\", \"primary\", \"md\", \"{}\")\nsecond = Button(\"{}\", @OpenUrl(\"{}\"), \"solid\", \"primary\", \"md\", \"{}\")",
         quote(first_label),
