@@ -267,11 +267,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
             "Browse explicitly public roles and résumés, or let an AI read the same information through the free public MCP endpoint.",
         ),
         ("/for-employers", false) => (
-            "招聘方免费发布岗位 · 聘渡 HireFerry",
+            "招聘方免费发布岗位",
             "早期阶段招聘方免费发布岗位，让求职者和 AI 读取明确公开的招聘需求，减少无效申请。",
         ),
         ("/for-employers", true) => (
-            "Free job publishing for recruiters · HireFerry",
+            "Free job publishing for recruiters",
             "Post roles for free during early access and let candidates and AI read your explicit public hiring needs, with less noise.",
         ),
         ("/humangrant", false) => (
@@ -434,8 +434,8 @@ pub(crate) fn page(
                 description,
                 t("招聘方早期阶段权益", "Early-access recruiter benefits"),
                 t(
-                    "免费开通和免费发布岗位",
-                    "Free activation and role publishing"
+                    "免费开通、无需月费，免费发布岗位",
+                    "Free activation and role publishing, with no monthly fee"
                 ),
                 t(
                     "只公开你主动发布的岗位内容",
