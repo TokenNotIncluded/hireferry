@@ -151,6 +151,7 @@ function clearRoleIntent() {try{sessionStorage.removeItem(roleIntentKey);}catch{
 function rememberRoleReturn(value) {if(!value)return;try{sessionStorage.setItem(roleReturnKey,value);}catch{}}
 function peekRoleReturn() {try{return safeJobReturn(sessionStorage.getItem(roleReturnKey))||safeProfileReturn(sessionStorage.getItem(roleReturnKey));}catch{return '';}}
 function consumeRoleReturn() {const value=peekRoleReturn();try{sessionStorage.removeItem(roleReturnKey);}catch{}return value;}
+const defaultRoleReturn = role => role==='seeker'?'/app?tab=profile':'/app?tab=jobs';
 function rememberBillingReturn() {rememberRoleIntent();const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}const job=safeJobReturn(qs().get('return_to'));if(job)try{sessionStorage.setItem(jobReturnKey,job);}catch{}const profile=safeProfileReturn(qs().get('return_to'));if(profile)try{sessionStorage.setItem(profileReturnKey,profile);}catch{}}
 function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
 function afterSignIn() {
@@ -1103,13 +1104,13 @@ document.addEventListener('click',async event=>{
     else if(action==='google-unavailable')notify(t('Google 登录暂未开放，请使用邮箱。','Google sign-in is not available yet. Please use email.'),true);
     else if(action==='restart-login')await render();
     else if(action==='logout'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});go('/');}
-    else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;clearRoleIntent();closeDialog();go(consumeRoleReturn()||'/app');}
+    else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;clearRoleIntent();closeDialog();go(consumeRoleReturn()||defaultRoleReturn('seeker'));}
     else if(action==='role-employer'){
       setBusy(button,true);
       if(state.user?.role==='unassigned'){const r=await api('/api/role',{method:'POST',body:{role:'employer'}});state.user=r.user;clearRoleIntent();closeDialog();await render();}
       else await session();
       clearRoleIntent();
-      if(state.user?.employer_paid)await go(consumeRoleReturn()||'/app?tab=jobs');
+      if(state.user?.employer_paid)await go(consumeRoleReturn()||defaultRoleReturn('employer'));
       else {const orders=await api('/api/orders');const recovery=activationRecovery(state.user,orders.items||[]);
         if(recovery.kind==='pending')await payOrder(recovery.order);
         else if(recovery.kind==='review'){await go('/app?tab=orders');notify(t('已有开通款项，请先联系平台核对。','An activation payment is recorded. Contact support for a review.'),true);}
