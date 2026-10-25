@@ -533,7 +533,14 @@ async fn mcp_counts_remain_free_and_recovery_tools_keep_roles_versions_and_ai_el
     let admin_tools = rpc(&f, &admin_token, "tools/list", json!({})).await;
     assert_eq!(
         admin_tools["result"]["tools"].as_array().unwrap().len(),
-        45 + hireferry::relation_views::tools().len()
+        46 + hireferry::relation_views::tools().len()
+    );
+    assert!(
+        admin_tools["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "get_chat_capabilities")
     );
     let admin_config = call(&f, &admin_token, "get_site_config", json!({})).await;
     assert_eq!(ok(&admin_config), ok(&site_config));

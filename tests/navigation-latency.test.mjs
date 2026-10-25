@@ -149,10 +149,11 @@ test('the actual route pipeline removes serial session and chat round trips',asy
     for(const [route,samples]of Object.entries(routes))summary[name][route]={shell:describe(samples.map(value=>value.shellMs)),content:describe(samples.map(value=>value.contentMs)),requestsBeforeContent:[...new Set(samples.map(value=>value.requestsBeforeContent))],totalRouteRequests:[...new Set(samples.map(value=>value.requests.length))]};
   }
   report.summary=summary;
-  assert.deepEqual(summary.revised.profile.requestsBeforeContent,[1]);
-  assert.deepEqual(summary.revised.messages.requestsBeforeContent,[2]);
-  assert.deepEqual(summary.revised.mandate.requestsBeforeContent,[2]);
   for(const samples of Object.values(report.variants.revised))for(const sample of samples){
+    assert.ok(sample.requests.length>0,'each uncached destination must read its content');
+    const firstResponse=Math.min(...sample.requests.map(value=>value.finishedMs));
+    assert.ok(sample.requests.every(value=>value.beganMs<firstResponse),'independent page reads start before any response returns');
+    assert.equal(new Set(sample.requests.map(value=>value.path)).size,sample.requests.length,'route reads must not be duplicated');
     assert.ok(sample.requests.every(value=>value.path!=='/api/session'),'no serial session recheck');
     assert.ok(sample.requests.every(value=>value.path!=='/api/chat/platform'),'no repeated room creation');
   }
@@ -171,11 +172,49 @@ test('rapid route changes cancel obsolete reads and cannot publish the old priva
   const harness=await createNavigationHarness(current,{latencyMs:30});
   try{
     await harness.prime();
-    const first=harness.app.go('/app?tab=profile');await pause(5);
+    const first=harness.app.go('/app?tab=profile');await until(()=>harness.network.some(value=>value.path==='/api/profile'));
     const second=harness.app.go('/app?tab=mandate');await Promise.all([first,second]);
     assert.match(harness.root.innerHTML,/QA_MANDATE_READY/);
     assert.doesNotMatch(harness.root.innerHTML,/QA_PROFILE_READY/);
     assert.ok(harness.network.some(value=>value.path==='/api/profile'&&value.aborted));
     assert.equal(harness.root.dataset.pageKey,'app:mandate');
   }finally{harness.dispose();}
+});
+
+test('a slow announcement does not block profile content and appears when it arrives',async()=>{
+  const announcement=deferred();
+  const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/announcement'?announcement.promise:undefined});
+  const slot={innerHTML:''};
+  const query=harness.root.querySelector;
+  harness.root.querySelector=selector=>selector==='[data-platform-announcement]'?slot:query(selector);
+  harness.overrides.set('/api/announcement',{announcement:{enabled:true,title_en:'Read this notice',body_html_en:'<p>A current notice.</p>',require_ack:true,version:3},acknowledged:false});
+  let navigation;
+  try{
+    await harness.prime();
+    navigation=harness.app.go('/app?tab=profile');
+    await until(()=>harness.root.innerHTML.includes('QA_PROFILE_READY'));
+    assert.ok(harness.network.some(value=>value.path==='/api/announcement'&&value.finished===null));
+    assert.equal(slot.innerHTML,'');
+    announcement.resolve();await navigation;
+    await until(()=>slot.innerHTML.includes('Read this notice'));
+    assert.match(slot.innerHTML,/data-action="ack-announcement" data-version="3"/);
+    assert.match(harness.root.innerHTML,/QA_PROFILE_READY/);
+  }finally{announcement.resolve();await navigation;harness.dispose();}
+});
+
+test('leaving the workspace cancels a pending announcement without publishing it elsewhere',async()=>{
+  const announcement=deferred();
+  const harness=await createNavigationHarness(current,{beforeResponse:path=>path==='/api/announcement'?announcement.promise:undefined});
+  const slot={innerHTML:''},query=harness.root.querySelector;
+  harness.root.querySelector=selector=>selector==='[data-platform-announcement]'?slot:query(selector);
+  harness.overrides.set('/api/announcement',{announcement:{enabled:true,title_en:'Former workspace notice',body_html_en:'<p>Private workspace notice.</p>'}});
+  try{
+    await harness.prime();
+    await harness.route('/app?tab=profile','QA_PROFILE_READY');
+    await harness.app.go('/contact');
+    announcement.resolve();
+    await until(()=>harness.network.some(value=>value.path==='/api/announcement'&&value.aborted));
+    assert.equal(slot.innerHTML,'');
+    assert.doesNotMatch(harness.root.innerHTML,/Former workspace notice|QA_PROFILE_READY/);
+  }finally{announcement.resolve();harness.dispose();}
 });
