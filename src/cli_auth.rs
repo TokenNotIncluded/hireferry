@@ -770,11 +770,19 @@ pub fn revoke_token_family_by_id(db: &Connection, id: &str, admin: bool) -> AppR
     }
     Ok(())
 }
-fn access_row(
-    db: &Connection,
-    hash: &str,
-) -> AppResult<Option<(String, Option<String>, bool, i64, bool)>> {
-    Ok(db.query_row("SELECT family_id,token_id,admin,expires_at,revoked FROM cli_tokens WHERE token_hash=?1",[hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?)
+#[derive(Debug)]
+struct AccessRecord {
+    family_id: String,
+    token_id: Option<String>,
+    admin: bool,
+    expires_at: i64,
+    revoked: bool,
+}
+
+fn access_row(db: &Connection, hash: &str) -> AppResult<Option<AccessRecord>> {
+    Ok(db.query_row("SELECT family_id,token_id,admin,expires_at,revoked FROM cli_tokens WHERE token_hash=?1",[hash],|r|Ok(AccessRecord {
+        family_id: r.get(0)?, token_id: r.get(1)?, admin: r.get(2)?, expires_at: r.get(3)?, revoked: r.get(4)?,
+    })).optional()?)
 }
 
 /// Identity-only CLI grants may submit feedback but do not gain MCP/business
@@ -784,7 +792,13 @@ pub(crate) fn feedback_identity(
     cfg: &Config,
     raw: &str,
 ) -> AppResult<(bool, Option<String>)> {
-    let (family_id, token_id, admin, expires, revoked) = access_row(db, &auth::hash_token(raw))?
+    let AccessRecord {
+        family_id,
+        token_id,
+        admin,
+        expires_at: expires,
+        revoked,
+    } = access_row(db, &auth::hash_token(raw))?
         .ok_or_else(|| AppError::unauthorized("A valid CLI connection is required"))?;
     let family = family(db, &family_id)?
         .ok_or_else(|| AppError::unauthorized("Client authorization expired or revoked"))?;
@@ -831,7 +845,13 @@ fn current_access_active(db: &Connection, family: &Family) -> AppResult<bool> {
     let Some(hash) = family.current_access_hash.as_deref() else {
         return Ok(false);
     };
-    let Some((_, id, admin, _, revoked)) = access_row(db, hash)? else {
+    let Some(AccessRecord {
+        token_id: id,
+        admin,
+        revoked,
+        ..
+    }) = access_row(db, hash)?
+    else {
         return Ok(false);
     };
     // An expired access token can be refreshed, but a missing or explicitly
@@ -841,7 +861,13 @@ fn current_access_active(db: &Connection, family: &Family) -> AppResult<bool> {
 /// Recheck CLI family and configured scope before existing business token code.
 /// This never turns an identity credential into a member or administrator token.
 pub fn check_business_token(db: &Connection, cfg: &Config, raw: &str) -> AppResult<()> {
-    let Some((family_id, id, admin, expires, revoked)) = access_row(db, &auth::hash_token(raw))?
+    let Some(AccessRecord {
+        family_id,
+        token_id: id,
+        admin,
+        expires_at: expires,
+        revoked,
+    }) = access_row(db, &auth::hash_token(raw))?
     else {
         return Ok(());
     };
@@ -1238,7 +1264,13 @@ async fn userinfo(State(state): State<AppState>, headers: HeaderMap) -> AppResul
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| AppError::unauthorized("A client bearer token is required"))?;
     let db = state.conn()?;
-    let (id, token_id, admin, expires, revoked) = access_row(&db, &auth::hash_token(raw))?
+    let AccessRecord {
+        family_id: id,
+        token_id,
+        admin,
+        expires_at: expires,
+        revoked,
+    } = access_row(&db, &auth::hash_token(raw))?
         .ok_or_else(|| AppError::unauthorized("Client token expired or revoked"))?;
     let family = family(&db, &id)?
         .ok_or_else(|| AppError::unauthorized("Client authorization expired or revoked"))?;

@@ -860,6 +860,11 @@ pub(crate) fn send_job_card(
         ));
     }
     let employer = crate::models::load_user(&db, &job.owner_id)?;
+    if employer.banned {
+        return Err(AppError::bad_request(
+            "Only open published roles can be sent as job cards",
+        ));
+    }
     let match_id: Option<String> = db
         .query_row(
             "SELECT id FROM matches WHERE seeker_id=?1 AND job_id=?2 AND status IN ('introduced','interview','hired')",
@@ -871,7 +876,10 @@ pub(crate) fn send_job_card(
     let detail_url = format!("{origin}/discover/jobs/{}", job.id);
     let intro = match_id.map(|id| format!("{origin}/app?tab=messages&conversation=match_{id}"));
     let title = openui_quote(&job.title);
-    let employer_name = openui_quote(&employer.name);
+    let employer_name = openui_quote(employer.public_employer_name().unwrap_or("公开招聘方"));
+    let salary = crate::payments::minor_to_decimal(job.salary_cents, &job.currency)
+        .ok_or_else(|| AppError::bad_request("Invalid job salary amount or currency"))?;
+    let salary = format!("{} {salary}", job.currency);
     let excerpt = openui_quote(
         &job.jd_md
             .split_whitespace()
@@ -883,10 +891,7 @@ pub(crate) fn send_job_card(
     );
     let action_text = openui_quote(&format!("我想了解这个岗位：{}", job.title));
     let action = if let Some(url) = intro {
-        format!(
-            "Button(\"进入匹配会话\", @OpenUrl(\"{}\"), \"solid\", \"primary\", \"md\", \"message\")",
-            openui_quote(&url)
-        )
+        format!("Link(\"进入匹配会话\", \"{}\")", openui_quote(&url))
     } else {
         format!(
             "Button(\"发起对话\", @ToAssistant(\"{}\"), \"solid\", \"primary\", \"md\", \"message\")",
@@ -894,10 +899,10 @@ pub(crate) fn send_job_card(
         )
     };
     let body = format!(
-        "root = Col([card])\ncard = Card([eyebrow, title, meta, excerpt, actions], \"outline\", 5, 4)\neyebrow = Badge(\"公开岗位 · 正在招聘\", \"success\")\ntitle = Title(\"{}\", \"lg\")\nmeta = Text(\"{} · {} / 月\", \"sm\", \"muted\", \"medium\")\nexcerpt = Markdown(\"{}\")\nactions = Row([details, contact], 3, \"start\", \"start\", true)\ndetails = Button(\"查看岗位详情\", @OpenUrl(\"{}\"), \"outline\", \"primary\", \"md\", \"briefcase\")\ncontact = {}",
+        "root = Col([card])\ncard = Card([eyebrow, title, meta, excerpt, actions], \"outline\", 5, 4)\neyebrow = Badge(\"公开岗位 · 正在招聘\", \"success\")\ntitle = Title(\"{}\", \"lg\")\nmeta = Text(\"{} · {} / 月\", \"sm\", \"muted\", \"medium\")\nexcerpt = Markdown(\"{}\")\nactions = Row([details, contact], 3, \"start\", \"start\", true)\ndetails = Link(\"查看岗位详情\", \"{}\")\ncontact = {}",
         title,
         employer_name,
-        format!("{} {}", job.currency, job.salary_cents),
+        salary,
         excerpt,
         openui_quote(&detail_url),
         action
@@ -1174,14 +1179,14 @@ pub fn save_outreach(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     require_admin(&tx, p)?;
     let user = target_seeker(&tx, p, Some(target))?;
-    if let Some(id) = record_id {
-        if !tx.query_row(
+    if let Some(id) = record_id
+        && !tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM outreach WHERE id=?1 AND user_id=?2)",
             params![id, user],
             |r| r.get::<_, bool>(0),
-        )? {
-            return Err(AppError::not_found("Progress record not found"));
-        }
+        )?
+    {
+        return Err(AppError::not_found("Progress record not found"));
     }
     let allowed: bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM mandates m JOIN users u ON u.id=m.user_id WHERE m.user_id=?1 AND m.status='active' AND m.allow_external=1 AND m.consented_at IS NOT NULL AND u.banned=0)",[&user],|r|r.get(0))?;
     if !allowed && !(record_id.is_some() && input.stage == "closed") {

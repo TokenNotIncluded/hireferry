@@ -557,10 +557,9 @@ fn waffo_receipt(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<
     if let Some(metadata_id) = data
         .pointer("/orderMetadata/hireferry_order_id")
         .and_then(Value::as_str)
+        && metadata_id != order_id
     {
-        if metadata_id != order_id {
-            return Err(AppError::bad_request("Payment order references disagree"));
-        }
+        return Err(AppError::bad_request("Payment order references disagree"));
     }
     Ok(Some(PaymentReceipt {
         provider: "waffo".into(),
@@ -605,10 +604,10 @@ fn waffo_refund(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<R
         return Err(AppError::bad_request("Refund identifiers disagree"));
     }
     let order_id = required_string(data, "orderMerchantExternalId")?;
-    if let Some(metadata_id) = data.pointer("/orderMetadata/hireferry_order_id") {
-        if metadata_id.as_str() != Some(order_id.as_str()) {
-            return Err(AppError::bad_request("Refund order references disagree"));
-        }
+    if let Some(metadata_id) = data.pointer("/orderMetadata/hireferry_order_id")
+        && metadata_id.as_str() != Some(order_id.as_str())
+    {
+        return Err(AppError::bad_request("Refund order references disagree"));
     }
     let currency = required_string(data, "currency")?;
     if crate::config::currency_decimals(&currency).is_none() {

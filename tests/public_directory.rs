@@ -39,14 +39,15 @@ async fn json_request(
 #[tokio::test]
 async fn public_directory_only_exposes_explicit_resumes_and_active_published_roles() {
     let state = state();
-    let db = state.conn().unwrap();
-    db.execute("INSERT INTO users(id,email,name,handle,role,public_email,resume_md,public_profile,ai_profile_links,created_at,updated_at) VALUES('seeker-public','public-seeker@example.test','Ada','ada','seeker','ada-public@example.test','## Rust\n\nI build APIs.',1,?1,1,1)", [json!({"chatgpt":"https://chatgpt.com/g/ada"}).to_string()]).unwrap();
-    db.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES('seeker-private','private-seeker@example.test','Private','private','seeker',1,1)", []).unwrap();
-    db.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES('employer','employer@example.test','Open Source Co','opensource','employer',1,1)", []).unwrap();
-    db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-public','employer','Rust API maintainer','## Build public APIs',250000,'CNY',300000,2,'published',1,1)", []).unwrap();
-    db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-paused','employer','Paused role','Paused',250000,'CNY',300000,0,'published',1,1)", []).unwrap();
-    db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-closed','employer','Closed role','Closed',250000,'CNY',300000,0,'closed',1,1)", []).unwrap();
-    drop(db);
+    {
+        let db = state.conn().unwrap();
+        db.execute("INSERT INTO users(id,email,name,handle,role,public_email,resume_md,public_profile,ai_profile_links,created_at,updated_at) VALUES('seeker-public','public-seeker@example.test','Ada','ada','seeker','ada-public@example.test','## Rust\n\nI build APIs.',1,?1,1,1)", [json!({"chatgpt":"https://chatgpt.com/g/ada"}).to_string()]).unwrap();
+        db.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES('seeker-private','private-seeker@example.test','Private','private','seeker',1,1)", []).unwrap();
+        db.execute("INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES('employer','employer@example.test','Open Source Co','opensource','employer',1,1)", []).unwrap();
+        db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-public','employer','Rust API maintainer','## Build public APIs',250000,'CNY',300000,2,'published',1,1)", []).unwrap();
+        db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-paused','employer','Paused role','Paused',250000,'CNY',300000,0,'published',1,1)", []).unwrap();
+        db.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,created_at,updated_at) VALUES('job-closed','employer','Closed role','Closed',250000,'CNY',300000,0,'closed',1,1)", []).unwrap();
+    }
 
     let app = hireferry::app(state);
     let response = app
@@ -177,7 +178,7 @@ async fn public_mcp_is_unauthenticated_read_only_and_documented() {
             .iter()
             .any(|tool| tool["name"] == "hireferry_public_search_people")
     );
-    assert!(listed.to_string().contains("Authorization") == false);
+    assert!(!listed.to_string().contains("Authorization"));
 
     let (status, called) = json_request(
         &app,

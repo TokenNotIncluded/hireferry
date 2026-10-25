@@ -32,13 +32,15 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.development = true;
-        cfg.database = directory
-            .path()
-            .join("commerce.sqlite3")
-            .to_string_lossy()
-            .into_owned();
+        let mut cfg = Config {
+            development: true,
+            database: directory
+                .path()
+                .join("commerce.sqlite3")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        };
         cfg.payments.stripe.enabled = true;
         // Never sent to Stripe. These tests exercise local database settlement.
         cfg.payments.stripe.secret_key = "sk_test_local_fixture_not_a_real_key".into();

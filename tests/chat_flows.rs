@@ -121,6 +121,142 @@ fn mandate(allowed: bool) -> MandateInput {
     }
 }
 
+async fn post_job_card(
+    f: &Fixture,
+    cookie: &str,
+    csrf: &str,
+    seeker: &Principal,
+    job: &str,
+) -> (StatusCode, Value) {
+    let response = hireferry::app(f.state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/chat/conversations/{}/job-card",
+                    platform(seeker)
+                ))
+                .header("content-type", "application/json")
+                .header("origin", "http://localhost:3000")
+                .header("cookie", cookie)
+                .header("x-csrf-token", csrf)
+                .body(Body::from(json!({"job_id": job}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    (status, body)
+}
+
+#[tokio::test]
+async fn recommended_job_cards_follow_public_employer_visibility_and_bans() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let other_seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let (_, job) = f.matched(&other_seeker, &employer);
+    let (cookie, csrf) = f.browser(&f.admin());
+    chat::platform_conversation(&f.state, &seeker, None).unwrap();
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE users SET name='PRIVATE_EMPLOYER_NAME',public_profile=0 WHERE id=?1",
+            [uid(&employer)],
+        )
+        .unwrap();
+    let (status, body) = post_job_card(&f, &cookie, &csrf, &seeker, &job).await;
+    assert_eq!(status, StatusCode::OK);
+    let text = body["body"].as_str().unwrap();
+    assert!(
+        !text.contains("PRIVATE_EMPLOYER_NAME"),
+        "Unmatched recipients must not receive private employer names"
+    );
+    assert!(text.contains("公开招聘方"));
+    f.state
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE users SET public_profile=1 WHERE id=?1",
+            [uid(&employer)],
+        )
+        .unwrap();
+    let (status, body) = post_job_card(&f, &cookie, &csrf, &seeker, &job).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["body"]
+            .as_str()
+            .unwrap()
+            .contains("PRIVATE_EMPLOYER_NAME")
+    );
+    f.state
+        .conn()
+        .unwrap()
+        .execute("UPDATE users SET banned=1 WHERE id=?1", [uid(&employer)])
+        .unwrap();
+    let before: i64 = f
+        .state
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM chat_messages", [], |row| row.get(0))
+        .unwrap();
+    let (status, _) = post_job_card(&f, &cookie, &csrf, &seeker, &job).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let after: i64 = f
+        .state
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM chat_messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        before, after,
+        "Banned employers must not generate new job cards"
+    );
+}
+
+#[tokio::test]
+async fn recommended_job_cards_display_salary_in_the_jobs_currency_units() {
+    let f = Fixture::new();
+    let seeker = f.user("seeker");
+    let employer = f.user("employer");
+    let (cookie, csrf) = f.browser(&f.admin());
+    chat::platform_conversation(&f.state, &seeker, None).unwrap();
+    for (currency, amount, expected) in [
+        ("CNY", 600_001, "CNY 6000.01 / 月"),
+        ("USD", 100_025, "USD 1000.25 / 月"),
+        ("JPY", 600_001, "JPY 600001 / 月"),
+    ] {
+        let (matched, job) = f.matched(&seeker, &employer);
+        f.state
+            .conn()
+            .unwrap()
+            .execute(
+                "UPDATE jobs SET currency=?2,salary_cents=?3 WHERE id=?1",
+                params![job, currency, amount],
+            )
+            .unwrap();
+        let (status, body) = post_job_card(&f, &cookie, &csrf, &seeker, &job).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["format"], "openui");
+        let content = body["body"].as_str().unwrap();
+        assert!(content.contains(&format!("/discover/jobs/{job}")));
+        assert!(content.contains(&format!("conversation=match_{matched}")));
+        assert!(content.contains("details = Link("));
+        assert!(content.contains("contact = Link("));
+        assert!(
+            !content.contains("@OpenUrl"),
+            "Navigation must use the renderer's supported safe links"
+        );
+        assert!(
+            body["body"].as_str().unwrap().contains(expected),
+            "salary for {currency}: {body}"
+        );
+    }
+}
+
 #[test]
 fn mandate_salary_keeps_its_currency_and_uses_config_default_for_new_records() {
     let mut cfg = Config {

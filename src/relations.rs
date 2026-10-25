@@ -337,10 +337,10 @@ pub(crate) fn normalized(input: &Query) -> AppResult<Query> {
     if q.mode == Mode::Neighbors && q.focus.is_none() {
         return Err(AppError::bad_request("neighbors requires a focus"));
     }
-    if let Some(focus) = &q.focus {
-        if focus.id.is_empty() || focus.id.len() > 80 || focus.id.chars().any(char::is_control) {
-            return Err(AppError::bad_request("Invalid focus ID"));
-        }
+    if let Some(focus) = &q.focus
+        && (focus.id.is_empty() || focus.id.len() > 80 || focus.id.chars().any(char::is_control))
+    {
+        return Err(AppError::bad_request("Invalid focus ID"));
     }
     if q.mode == Mode::Overview && q.cursor.is_some() {
         return Err(AppError::bad_request("Overview does not use a page cursor"));

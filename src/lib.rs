@@ -180,10 +180,10 @@ pub fn app(state: AppState) -> Router {
         .with_state(state)
 }
 async fn security(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    if let Some(origin) = req.headers().get("origin") {
-        if origin.to_str().ok() != Some(state.cfg.public_url.trim_end_matches('/')) {
-            return AppError::forbidden("Origin is not allowed").into_response();
-        }
+    if let Some(origin) = req.headers().get("origin")
+        && origin.to_str().ok() != Some(state.cfg.public_url.trim_end_matches('/'))
+    {
+        return AppError::forbidden("Origin is not allowed").into_response();
     }
     let indexable = seo::PUBLIC_PAGES.contains(&req.uri().path())
         || seo::is_public_profile_path(req.uri().path())

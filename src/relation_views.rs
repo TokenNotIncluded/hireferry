@@ -73,7 +73,7 @@ pub struct ViewState {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     SetFilters {
-        filters: Filters,
+        filters: Box<Filters>,
     },
     SetGrouping {
         grouping: Grouping,
@@ -593,7 +593,7 @@ pub fn patch(s: &AppState, p: &Principal, id: &str, input: &PatchInput) -> AppRe
     let is_undo = matches!(input.commands.first(), Some(Command::Undo));
     for command in &input.commands {
         match command {
-            Command::SetFilters { filters } => state.filters = filters.clone(),
+            Command::SetFilters { filters } => state.filters = filters.as_ref().clone(),
             Command::SetGrouping { grouping } => state.grouping = grouping.clone(),
             Command::SetMode { mode } => state.mode = *mode,
             Command::SetOrdering { ordering } => state.ordering = *ordering,

@@ -173,29 +173,45 @@ fn create_record(db: &mut Connection, email: &str) -> AppResult<(String, String,
     Ok((id, raw, expires_at))
 }
 
+#[derive(Debug)]
+struct InvitationRecord {
+    id: String,
+    email: String,
+    role: String,
+    expires_at: i64,
+    accepted_at: Option<i64>,
+    revoked_at: Option<i64>,
+}
+
 fn accept_record(db: &mut Connection, token: &str, user_id: &str) -> AppResult<()> {
     let digest = token_hash(token)?;
     let time = now();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let requested: Option<(String, String, String, i64, Option<i64>, Option<i64>)> = tx
+    let requested: Option<InvitationRecord> = tx
         .query_row(
             "SELECT id,email,role,expires_at,accepted_at,revoked_at
          FROM staff_invitations WHERE token_hash=?1",
             [&digest],
             |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
+                Ok(InvitationRecord {
+                    id: r.get(0)?,
+                    email: r.get(1)?,
+                    role: r.get(2)?,
+                    expires_at: r.get(3)?,
+                    accepted_at: r.get(4)?,
+                    revoked_at: r.get(5)?,
+                })
             },
         )
         .optional()?;
-    let (id, email, role, expires, accepted, revoked) =
-        requested.ok_or_else(|| AppError::not_found("Invitation unavailable"))?;
+    let InvitationRecord {
+        id,
+        email,
+        role,
+        expires_at: expires,
+        accepted_at: accepted,
+        revoked_at: revoked,
+    } = requested.ok_or_else(|| AppError::not_found("Invitation unavailable"))?;
     if role != "manager" || expires <= time || accepted.is_some() || revoked.is_some() {
         return Err(AppError::conflict(
             "This invitation was used, revoked or expired",

@@ -191,13 +191,12 @@ pub fn tools(state: &AppState, grant: &GrantContext) -> Vec<Value> {
             if resources.is_empty() || (argument.is_none() && !collection) {
                 return None;
             }
-            if let Some(argument) = argument {
-                if !collection {
-                    tool["inputSchema"]["properties"][argument]["enum"] =
-                        serde_json::json!(resources);
-                    if tool["name"] == "get_chat_events" {
-                        tool["inputSchema"]["required"] = serde_json::json!(["conversation_id"]);
-                    }
+            if let Some(argument) = argument
+                && !collection
+            {
+                tool["inputSchema"]["properties"][argument]["enum"] = serde_json::json!(resources);
+                if tool["name"] == "get_chat_events" {
+                    tool["inputSchema"]["required"] = serde_json::json!(["conversation_id"]);
                 }
             }
             Some(tool)

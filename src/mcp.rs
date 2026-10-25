@@ -788,7 +788,7 @@ pub fn admin_tools() -> Vec<Value> {
     result
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct MessagePage {
     conversation_id: String,
@@ -796,29 +796,11 @@ struct MessagePage {
     before: Option<i64>,
     limit: Option<i64>,
 }
-impl Default for MessagePage {
-    fn default() -> Self {
-        Self {
-            conversation_id: String::new(),
-            after: None,
-            before: None,
-            limit: None,
-        }
-    }
-}
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct UpdatePage {
     after: Option<i64>,
     limit: Option<i64>,
-}
-impl Default for UpdatePage {
-    fn default() -> Self {
-        Self {
-            after: None,
-            limit: None,
-        }
-    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1122,19 +1104,7 @@ async fn user_call(s: &AppState, uid: &str, name: &str, args: Value) -> AppResul
         "get_job" => api::job_detail(s, &parse::<IdInput>(args)?.id, Some(uid)),
         "create_job" => {
             let i: api::JobInput = parse(args)?;
-            let (j, o) = commerce::new_job_with_promo(
-                s,
-                uid,
-                &i.title,
-                &i.jd_md,
-                i.salary_cents,
-                &i.provider,
-                i.headcount,
-                i.currency.as_deref(),
-                i.promo_code.as_deref(),
-                i.request_key.as_deref(),
-                i.expected_amount_cents,
-            )?;
+            let (j, o) = commerce::create_job(s, uid, commerce::NewJob::from(&i))?;
             Ok(json!({"job":j,"order":o}))
         }
         "edit_job" => {

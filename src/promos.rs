@@ -591,14 +591,15 @@ pub fn redeem_activation(
     )?;
     let order = commerce::insert_order(
         &tx,
-        uid,
-        "onboarding",
-        None,
-        0,
-        "free",
-        false,
-        currency,
-        json!({"promo":{"code_id":code.id,"code":code.code,"discount_percent":100,"original_amount_cents":original}}),
+        commerce::OrderDraft {
+            user_id: uid,
+            purpose: commerce::OrderPurpose::Onboarding,
+            amount_cents: 0,
+            provider: "free",
+            live_mode: false,
+            currency,
+            snapshot: json!({"promo":{"code_id":code.id,"code":code.code,"discount_percent":100,"original_amount_cents":original}}),
+        },
     )?;
     tx.execute("INSERT INTO promo_redemptions(order_id,code_id,user_id,purpose,status,request_key,request_hash,created_at) VALUES(?1,?2,?3,'activation','consumed',?1,'',?4)", params![order.id,code.id,uid,now()])?;
     audit(

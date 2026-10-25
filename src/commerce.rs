@@ -121,8 +121,7 @@ COMMIT;
 }
 
 pub fn fee(salary_cents: i64, basis_points: i64) -> AppResult<i64> {
-    if salary_cents < 1 || salary_cents > 1_000_000_000 || basis_points <= 0 || basis_points > 10000
-    {
+    if !(1..=1_000_000_000).contains(&salary_cents) || basis_points <= 0 || basis_points > 10000 {
         return Err(AppError::bad_request(
             "Invalid base monthly salary or fee rate",
         ));
@@ -200,17 +199,39 @@ fn employer(db: &Connection, id: &str) -> AppResult<User> {
     }
     Ok(u)
 }
-pub(crate) fn insert_order(
-    db: &Connection,
-    user: &str,
-    kind: &str,
-    job: Option<&str>,
-    amount: i64,
-    provider: &str,
-    live_mode: bool,
-    currency: &str,
-    snapshot: Value,
-) -> AppResult<Order> {
+#[derive(Debug)]
+pub(crate) enum OrderPurpose<'a> {
+    Onboarding,
+    Publish(&'a str),
+    Edit(&'a str),
+}
+
+#[derive(Debug)]
+pub(crate) struct OrderDraft<'a> {
+    pub user_id: &'a str,
+    pub purpose: OrderPurpose<'a>,
+    pub amount_cents: i64,
+    pub provider: &'a str,
+    pub live_mode: bool,
+    pub currency: &'a str,
+    pub snapshot: Value,
+}
+
+pub(crate) fn insert_order(db: &Connection, draft: OrderDraft<'_>) -> AppResult<Order> {
+    let OrderDraft {
+        user_id: user,
+        purpose,
+        amount_cents: amount,
+        provider,
+        live_mode,
+        currency,
+        snapshot,
+    } = draft;
+    let (kind, job) = match purpose {
+        OrderPurpose::Onboarding => ("onboarding", None),
+        OrderPurpose::Publish(id) => ("publish", Some(id)),
+        OrderPurpose::Edit(id) => ("edit", Some(id)),
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
     let expires = (amount > 0 && kind == "onboarding").then_some(timestamp + UNSTARTED_ORDER_TTL);
@@ -305,14 +326,15 @@ pub fn choose_role_with_promo(
             provider_currency_enabled(state, provider, currency)?;
             Some(insert_order(
                 &tx,
-                uid,
-                "onboarding",
-                None,
-                amount,
-                provider,
-                provider_live(state, &tx, provider)?,
-                currency,
-                json!({}),
+                OrderDraft {
+                    user_id: uid,
+                    purpose: OrderPurpose::Onboarding,
+                    amount_cents: amount,
+                    provider,
+                    live_mode: provider_live(state, &tx, provider)?,
+                    currency,
+                    snapshot: json!({}),
+                },
             )?)
         } else {
             None
@@ -325,6 +347,37 @@ pub fn choose_role_with_promo(
     tx.commit()?;
     Ok((user, order))
 }
+/// Raw publication input, validated together before creating the job and order.
+#[derive(Debug)]
+pub struct NewJob<'a> {
+    pub title: &'a str,
+    pub jd_md: &'a str,
+    pub salary_cents: i64,
+    pub provider: &'a str,
+    pub headcount: i64,
+    pub currency: Option<&'a str>,
+    pub promo_code: Option<&'a str>,
+    pub request_key: Option<&'a str>,
+    pub expected_amount_cents: Option<i64>,
+}
+
+impl<'a> NewJob<'a> {
+    /// Required job content with one opening and the configured default currency.
+    pub fn new(title: &'a str, jd_md: &'a str, salary_cents: i64) -> Self {
+        Self {
+            title,
+            jd_md,
+            salary_cents,
+            provider: "",
+            headcount: 1,
+            currency: None,
+            promo_code: None,
+            request_key: None,
+            expected_amount_cents: None,
+        }
+    }
+}
+
 pub fn new_job(
     state: &AppState,
     uid: &str,
@@ -364,21 +417,14 @@ pub fn new_job_with_headcount(
     provider: &str,
     headcount: i64,
 ) -> AppResult<(Job, Order)> {
-    new_job_with_currency(state, uid, title, jd, salary, provider, headcount, None)
-}
-
-pub fn new_job_with_currency(
-    state: &AppState,
-    uid: &str,
-    title: &str,
-    jd: &str,
-    salary: i64,
-    provider: &str,
-    headcount: i64,
-    currency: Option<&str>,
-) -> AppResult<(Job, Order)> {
-    new_job_with_promo(
-        state, uid, title, jd, salary, provider, headcount, currency, None, None, None,
+    create_job(
+        state,
+        uid,
+        NewJob {
+            provider,
+            headcount,
+            ..NewJob::new(title, jd, salary)
+        },
     )
 }
 
@@ -412,19 +458,22 @@ pub(crate) fn publication_amount(
     )
 }
 
-pub fn new_job_with_promo(
-    state: &AppState,
-    uid: &str,
-    title: &str,
-    jd: &str,
-    salary: i64,
-    provider: &str,
-    headcount: i64,
-    currency: Option<&str>,
-    promo_code: Option<&str>,
-    request_key: Option<&str>,
-    expected_amount_cents: Option<i64>,
-) -> AppResult<(Job, Order)> {
+/// Create a draft or free published role, preserving its pricing and retry snapshot.
+///
+/// # Errors
+/// Rejects invalid content, account permissions, pricing, promotions or retry state.
+pub fn create_job(state: &AppState, uid: &str, input: NewJob<'_>) -> AppResult<(Job, Order)> {
+    let NewJob {
+        title,
+        jd_md: jd,
+        salary_cents: salary,
+        provider,
+        headcount,
+        currency,
+        promo_code,
+        request_key,
+        expected_amount_cents,
+    } = input;
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 120 {
         return Err(AppError::bad_request("Job title must be 1–120 characters"));
@@ -445,11 +494,11 @@ pub fn new_job_with_promo(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     employer(&tx, uid)?;
     promos::expire_reservations(&tx)?;
-    if let Some(key) = key {
-        if let Some(result) = promos::replay_publication(&tx, uid, key, &request_hash)? {
-            tx.commit()?;
-            return Ok(result);
-        }
+    if let Some(key) = key
+        && let Some(result) = promos::replay_publication(&tx, uid, key, &request_hash)?
+    {
+        tx.commit()?;
+        return Ok(result);
     }
     // A retry restores its immutable result even if current pricing, available
     // currencies or headcount limits have changed since the original operation.
@@ -492,14 +541,15 @@ pub fn new_job_with_promo(
     }
     let mut order = insert_order(
         &tx,
-        uid,
-        "publish",
-        Some(&id),
-        amount,
-        provider,
-        provider_live(state, &tx, provider)?,
-        currency,
-        snapshot,
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Publish(&id),
+            amount_cents: amount,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency,
+            snapshot,
+        },
     )?;
     if let (Some(code), Some(key)) = (&promo, key) {
         promos::record_publication(&tx, code, &order, key, &request_hash)?;
@@ -637,14 +687,15 @@ pub fn edit_job(
     }
     let order = insert_order(
         &tx,
-        uid,
-        "edit",
-        Some(id),
-        amount,
-        provider,
-        provider_live(state, &tx, provider)?,
-        &job.currency,
-        json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_discount_percent":terms["edit_discount_percent"],"edit_fixed_minor":terms["edit_fixed_minor"],"original_amount_cents":original_amount,"currency":job.currency}),
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Edit(id),
+            amount_cents: amount,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency: &job.currency,
+            snapshot: json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_discount_percent":terms["edit_discount_percent"],"edit_fixed_minor":terms["edit_fixed_minor"],"original_amount_cents":original_amount,"currency":job.currency}),
+        },
     )?;
     if amount == 0 {
         tx.execute("UPDATE jobs SET jd_md=?2,edits_used=edits_used+1,version=version+1,updated_at=?3 WHERE id=?1",params![id,jd,now()])?;
@@ -1050,10 +1101,10 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
             "Payment amount, currency or provider does not match the order",
         ));
     }
-    if let (Some(expected), Some(actual)) = (&order.provider_session, &receipt.session_id) {
-        if expected != actual {
-            return Err(AppError::bad_request("Checkout session does not match"));
-        }
+    if let (Some(expected), Some(actual)) = (&order.provider_session, &receipt.session_id)
+        && expected != actual
+    {
+        return Err(AppError::bad_request("Checkout session does not match"));
     }
     let duplicate: Option<(String, String)> = tx
         .query_row(
@@ -1233,17 +1284,15 @@ pub async fn settle_refund(state: &AppState, receipt: RefundReceipt) -> AppResul
         .optional()?;
     if let Some((old_order, old_payment, old_provider_order, old_amount, old_currency, _)) =
         &previous
-    {
-        if old_order != &order.id
+        && (old_order != &order.id
             || old_payment != &receipt.payment_id
             || old_provider_order != &receipt.provider_order_id
             || *old_amount != receipt.amount_cents
-            || old_currency != &receipt.currency
-        {
-            return Err(AppError::conflict(
-                "Refund ID is already associated with different details",
-            ));
-        }
+            || old_currency != &receipt.currency)
+    {
+        return Err(AppError::conflict(
+            "Refund ID is already associated with different details",
+        ));
     }
     let event_type = if receipt.succeeded {
         "refund.succeeded"

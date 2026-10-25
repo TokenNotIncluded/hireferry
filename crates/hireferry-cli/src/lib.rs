@@ -178,25 +178,24 @@ pub async fn run(cli: Cli) -> Result<Value> {
         } => {
             {
                 let _guard = store.lock().await?;
-                if let Some(mut credential) = store.load()? {
-                    if scope_covers(&credential.scope, &server.scope)
-                        && !credential.refresh_pending
-                        && credential.refresh_expires_at > now()
-                    {
-                        match verified_identity(&server, &store, &mut credential, false).await {
-                            Ok((identity, _)) => return signed_in(&server, &store, identity, true),
-                            Err(error)
-                                if matches!(
-                                    error.code,
-                                    "not_authenticated"
-                                        | "session_revoked"
-                                        | "session_expired"
-                                        | "access_denied"
-                                ) => {}
-                            // Never turn an uncertain network result into a new
-                            // authorization or an unsafe refresh retry.
-                            Err(error) => return Err(error),
-                        }
+                if let Some(mut credential) = store.load()?
+                    && scope_covers(&credential.scope, &server.scope)
+                    && !credential.refresh_pending
+                    && credential.refresh_expires_at > now()
+                {
+                    match verified_identity(&server, &store, &mut credential, false).await {
+                        Ok((identity, _)) => return signed_in(&server, &store, identity, true),
+                        Err(error)
+                            if matches!(
+                                error.code,
+                                "not_authenticated"
+                                    | "session_revoked"
+                                    | "session_expired"
+                                    | "access_denied"
+                            ) => {}
+                        // Never turn an uncertain network result into a new
+                        // authorization or an unsafe refresh retry.
+                        Err(error) => return Err(error),
                     }
                 }
             }
@@ -221,14 +220,13 @@ pub async fn run(cli: Cli) -> Result<Value> {
                 let _ = server.revoke(&credential.refresh_token).await;
                 return Err(error);
             }
-            if let Some(previous) = previous {
-                if previous.refresh_token != credential.refresh_token
-                    && server.revoke(&previous.refresh_token).await.is_err()
-                {
-                    eprintln!(
-                        "Signed in. The previous connection could not be revoked; remove it from the website's connections page."
-                    );
-                }
+            if let Some(previous) = previous
+                && previous.refresh_token != credential.refresh_token
+                && server.revoke(&previous.refresh_token).await.is_err()
+            {
+                eprintln!(
+                    "Signed in. The previous connection could not be revoked; remove it from the website's connections page."
+                );
             }
             signed_in(&server, &store, identity, false)
         }

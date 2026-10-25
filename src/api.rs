@@ -213,7 +213,8 @@ async fn public_profile(
 
 fn public_job_value(s: &AppState, db: &rusqlite::Connection, job: models::Job) -> AppResult<Value> {
     let owner = models::load_user(db, &job.owner_id)?;
-    let employer_public = owner.public_profile && !owner.banned;
+    let public_name = owner.public_employer_name();
+    let employer_public = public_name.is_some();
     Ok(json!({
         "id": job.id,
         "url": format!("{}/discover/jobs/{}", s.cfg.public_url, job.id),
@@ -228,7 +229,7 @@ fn public_job_value(s: &AppState, db: &rusqlite::Connection, job: models::Job) -
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "employer": {
-            "name": if employer_public { owner.name } else { "公开招聘方".to_owned() },
+            "name": public_name.unwrap_or("公开招聘方"),
             "handle": if employer_public { Some(owner.handle.clone()) } else { None::<String> },
             "profile_url": if employer_public && !owner.handle.is_empty() { Some(format!("{}/u/{}", s.cfg.public_url, owner.handle)) } else { None::<String> }
         }
@@ -676,6 +677,21 @@ pub struct JobInput {
     pub request_key: Option<String>,
     pub expected_amount_cents: Option<i64>,
 }
+impl<'a> From<&'a JobInput> for commerce::NewJob<'a> {
+    fn from(input: &'a JobInput) -> Self {
+        Self {
+            title: &input.title,
+            jd_md: &input.jd_md,
+            salary_cents: input.salary_cents,
+            provider: &input.provider,
+            headcount: input.headcount,
+            currency: input.currency.as_deref(),
+            promo_code: input.promo_code.as_deref(),
+            request_key: input.request_key.as_deref(),
+            expected_amount_cents: input.expected_amount_cents,
+        }
+    }
+}
 fn default_headcount() -> i64 {
     1
 }
@@ -685,19 +701,7 @@ async fn create_job(
     Json(i): Json<JobInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (job, order) = commerce::new_job_with_promo(
-        &s,
-        &uid,
-        &i.title,
-        &i.jd_md,
-        i.salary_cents,
-        &i.provider,
-        i.headcount,
-        i.currency.as_deref(),
-        i.promo_code.as_deref(),
-        i.request_key.as_deref(),
-        i.expected_amount_cents,
-    )?;
+    let (job, order) = commerce::create_job(&s, &uid, commerce::NewJob::from(&i))?;
     Ok(Json(json!({"job":job,"order":order})))
 }
 #[derive(Deserialize)]

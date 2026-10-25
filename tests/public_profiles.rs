@@ -42,7 +42,7 @@ async fn public_profile_is_opt_in_and_exposes_only_declared_ai_links() {
         body["profile"]["ai_profile_links"]["chatgpt"],
         "https://chatgpt.com/g/example"
     );
-    assert!(body.to_string().contains("## Hello") == false);
+    assert!(!body.to_string().contains("## Hello"));
     state
         .conn()
         .unwrap()
