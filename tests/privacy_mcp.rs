@@ -644,24 +644,25 @@ async fn administrator_ban_removes_sessions_and_revokes_all_agent_tokens() {
         .body(Body::from(json!({"banned":true}).to_string()))
         .unwrap();
     assert_eq!(observe(&f.app, request).await.status, StatusCode::OK);
-    let db = f.state.conn().unwrap();
-    let sessions: i64 = db
-        .query_row(
-            "SELECT count(*) FROM sessions WHERE user_id=?1",
-            [&user],
-            |r| r.get(0),
-        )
-        .unwrap();
-    let active: i64 = db
-        .query_row(
-            "SELECT count(*) FROM api_tokens WHERE user_id=?1 AND revoked=0",
-            [&user],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(sessions, 0);
-    assert_eq!(active, 0);
-    drop(db);
+    {
+        let db = f.state.conn().unwrap();
+        let sessions: i64 = db
+            .query_row(
+                "SELECT count(*) FROM sessions WHERE user_id=?1",
+                [&user],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let active: i64 = db
+            .query_row(
+                "SELECT count(*) FROM api_tokens WHERE user_id=?1 AND revoked=0",
+                [&user],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(sessions, 0);
+        assert_eq!(active, 0);
+    }
     for token in [first, second] {
         assert_eq!(
             rpc(&f.app, Some(&token), "tools/list", json!({}))

@@ -291,11 +291,11 @@ pub struct UserAccessInput {
 }
 
 fn access_record(db: &Connection, id: &str) -> AppResult<Value> {
-    Ok(db.query_row(
+    db.query_row(
         "SELECT u.banned,a.reason,a.changed_at,a.changed_by FROM users u LEFT JOIN account_moderation a ON a.user_id=u.id WHERE u.id=?1",
         [id],
         |row| Ok(json!({"banned":row.get::<_,bool>(0)?,"reason":row.get::<_,Option<String>>(1)?,"changed_at":row.get::<_,Option<i64>>(2)?,"changed_by":row.get::<_,Option<String>>(3)?})),
-    ).optional()?.ok_or_else(|| AppError::not_found("User not found"))?)
+    ).optional()?.ok_or_else(|| AppError::not_found("User not found"))
 }
 
 fn record_access_change(

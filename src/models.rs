@@ -22,6 +22,12 @@ pub struct User {
     pub created_at: i64,
     pub updated_at: i64,
 }
+impl User {
+    /// A job owner's display name is public only through their published profile.
+    pub fn public_employer_name(&self) -> Option<&str> {
+        (self.public_profile && !self.banned).then_some(self.name.as_str())
+    }
+}
 pub fn user_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
     let id: String = r.get("id")?;
     let avatar: String = r.get("avatar")?;

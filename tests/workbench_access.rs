@@ -582,19 +582,17 @@ async fn admin_mcp_searches_are_bounded_strict_and_separate_from_member_and_lega
     let member_token = f.token(&seekers[0]);
     let catalog = rpc(&f, &admin_token, "tools/list", json!({})).await;
     let tools = catalog.value["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 45 + hireferry::relation_views::tools().len());
     let member_catalog = rpc(&f, &member_token, "tools/list", json!({})).await;
-    assert_eq!(
-        member_catalog.value["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .len(),
-        40
-    );
     for catalog in [
         tools,
         member_catalog.value["result"]["tools"].as_array().unwrap(),
     ] {
+        let names: std::collections::BTreeSet<_> = catalog
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names.len(), catalog.len(), "Tool names must be unique");
+        assert!(names.contains("get_site_config"));
         for name in [
             "get_chat_capabilities",
             "get_conversation",

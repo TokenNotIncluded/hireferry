@@ -48,8 +48,8 @@ pub(crate) fn sitemap(state: &AppState) -> String {
     if let Ok(db) = state.conn() {
         if let Ok(mut jobs) = db.prepare(
             "SELECT j.id FROM jobs j JOIN users u ON u.id=j.owner_id WHERE j.status='published' AND j.headcount>0 AND u.banned=0 ORDER BY j.created_at DESC,j.id",
-        ) {
-            if let Ok(rows) = jobs.query_map([], |row| row.get::<_, String>(0)) {
+        )
+            && let Ok(rows) = jobs.query_map([], |row| row.get::<_, String>(0)) {
                 for id in rows.flatten() {
                     xml.push_str(&format!(
                         "  <url><loc>{}/discover/jobs/{}</loc></url>\n",
@@ -58,11 +58,10 @@ pub(crate) fn sitemap(state: &AppState) -> String {
                     ));
                 }
             }
-        }
         if let Ok(mut people) = db.prepare(
             "SELECT handle FROM users WHERE role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>'' ORDER BY updated_at DESC,handle",
-        ) {
-            if let Ok(rows) = people.query_map([], |row| row.get::<_, String>(0)) {
+        )
+            && let Ok(rows) = people.query_map([], |row| row.get::<_, String>(0)) {
                 for handle in rows.flatten() {
                     xml.push_str(&format!(
                         "  <url><loc>{}/discover/people/{}</loc></url>\n",
@@ -71,7 +70,6 @@ pub(crate) fn sitemap(state: &AppState) -> String {
                     ));
                 }
             }
-        }
     }
     xml.push_str("</urlset>\n");
     xml

@@ -496,27 +496,27 @@ async fn selected_currency_uses_explicit_amounts_and_limits_are_configurable() {
     let state = AppState::new(cfg).unwrap();
     let owner = employer(&state);
     assert!(
-        commerce::new_job_with_currency(
+        commerce::create_job(
             &state,
             &owner,
-            "Role",
-            "JD",
-            10000,
-            "stripe",
-            10,
-            Some("USD")
+            commerce::NewJob {
+                provider: "stripe",
+                headcount: 10,
+                currency: Some("USD"),
+                ..commerce::NewJob::new("Role", "JD", 10000)
+            },
         )
         .is_err()
     );
-    let (job, order) = commerce::new_job_with_currency(
+    let (job, order) = commerce::create_job(
         &state,
         &owner,
-        "Role",
-        "JD",
-        10000,
-        "stripe",
-        9,
-        Some("USD"),
+        commerce::NewJob {
+            provider: "stripe",
+            headcount: 9,
+            currency: Some("USD"),
+            ..commerce::NewJob::new("Role", "JD", 10000)
+        },
     )
     .unwrap();
     assert_eq!(

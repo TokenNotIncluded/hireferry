@@ -488,10 +488,10 @@ async fn decode<T: DeserializeOwned>(mut response: reqwest::Response) -> Result<
         bytes.extend_from_slice(&chunk);
     }
     if !status.is_success() {
-        if let Ok(body) = serde_json::from_slice::<OAuthError>(&bytes) {
-            if let Some(error) = known_protocol_error(&body.error) {
-                return Err(error);
-            }
+        if let Ok(body) = serde_json::from_slice::<OAuthError>(&bytes)
+            && let Some(error) = known_protocol_error(&body.error)
+        {
+            return Err(error);
         }
         return Err(match status.as_u16() {
             401 => Error::signed_out(),

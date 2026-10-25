@@ -137,10 +137,10 @@ impl Browser {
                 self.cookies.insert(key.into(), value.into());
             }
         }
-        if matches!(path, "/api/auth/email/verify" | "/api/session") {
-            if let Some(csrf) = result.value["csrf"].as_str() {
-                self.csrf = csrf.into();
-            }
+        if matches!(path, "/api/auth/email/verify" | "/api/session")
+            && let Some(csrf) = result.value["csrf"].as_str()
+        {
+            self.csrf = csrf.into();
         }
         result
     }
