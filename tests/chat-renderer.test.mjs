@@ -95,14 +95,14 @@ test('OpenUI local form state survives updates and only user review drafts leave
   let detail;
   view.element.addEventListener('hireferry:chat-action', (event) => { detail = event.detail; });
   try {
-    await waitFor(() => view.element.querySelector('input'));
+    await waitFor(() => view.element.querySelector('input')?.value === 'Initial');
     const input = view.element.querySelector('input');
     assert.equal(input.value, 'Initial');
     view.element.querySelector('button').click();
     await waitFor(() => input.value === 'Edited');
     assert.equal(detail, undefined, 'local state actions must stay local');
-    view.handle.update({ body: `${body}\ncaption = Caption("Saved locally")` });
-    await nextFrame();
+    view.handle.update({ body: `${body.replace('root = Col([form])', 'root = Col([form, caption])')}\ncaption = Caption("Saved locally")` });
+    await waitFor(() => view.element.textContent.includes('Saved locally'));
     assert.equal(view.element.querySelector('input'), input);
     assert.equal(input.value, 'Edited');
     view.element.querySelectorAll('button')[1].click();

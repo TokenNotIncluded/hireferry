@@ -857,7 +857,7 @@ test('employer landing previews the open-source role template before login', () 
 
 test('public role and résumé details expose native sharing with a copy fallback', async () => {
   const { app } = webmcp({ responses: {
-    '/api/public/jobs/job-one': { id: 'job-one', title: 'Rust maintainer', employer: { name: 'Open Source Co' }, salary_cents: 600000, currency: 'CNY', headcount: 1, jd_html: '<p>Build public APIs.</p>' },
+    '/api/public/jobs/job-one': { id: 'job-one', title: 'Rust maintainer', employer: { name: 'Open Source Co' }, salary_cents: 600000, currency: 'CNY', headcount: 1, updated_at: 1792886400, jd_html: '<p>Build public APIs.</p>' },
     '/api/public/people/ada': { handle: 'ada', name: 'Ada', avatar: '', public_email: '', ai_profile_links: { chatgpt: 'https://chatgpt.com/g/ada' }, resume_html: '<p>Rust maintainer.</p>' },
   } });
   app.state.lang = 'en';
@@ -865,6 +865,8 @@ test('public role and résumé details expose native sharing with a copy fallbac
   assert.match(role, /data-action="share-public-link"/);
   assert.match(role, /Share role/);
   assert.match(role, /data-share-text="Open role: Rust maintainer/);
+  assert.match(role, /Updated 25 Oct 2026/);
+  assert.doesNotMatch(role, /确认仍在招聘|Confirmed hiring/);
   const person = await app.publicPersonPage('ada');
   assert.match(person, /data-action="share-public-link"/);
   assert.match(person, /Share homepage/);
@@ -1048,6 +1050,13 @@ test('role management shows zero as paused and keeps free controls separate from
   assert.match(html, /data-action="delete-job" data-id="restored-role">Delete permanently/);
   assert.doesNotMatch(html, /data-action="close-job"/);
   assert.match(html, /href="\/app\?tab=jobs&view=trash"/);
+  const row = id => html.match(new RegExp(`<article class="list-row job-row">(?:(?!<article)[\\s\\S])*?data-id="${id}"[\\s\\S]*?</article>`))?.[0] || '';
+  assert.match(row('restored-role'), /data-action="pause-job"/);
+  assert.match(row('restored-role'), /href="\/discover\/jobs\/restored-role"/);
+  assert.match(row('restored-role'), /data-copy="https:\/\/hireferry\.test\/discover\/jobs\/restored-role"/);
+  for (const id of ['job-one', 'closed-role']) assert.doesNotMatch(row(id), /data-action="pause-job"|data-action="copy-public-link"|href="\/discover\/jobs\//);
+  assert.match(row('job-one'), /job-headcount-disclosure[^>]* open/);
+  assert.match(row('job-one'), /Resume hiring · set target/);
   assert.equal(requests.length, 1);
   app.state.lang = 'zh';
   assert.match(app.jobBadge({ ...roleFixture, headcount: 0 }), /暂不招聘/);

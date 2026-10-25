@@ -272,3 +272,5 @@ body:has(.workspace-layout) { overflow: hidden; }
   #root.workspace-navigation-collapsed .workspace-support { justify-content:center; margin-inline:0; padding-inline:0; }
   #root.workspace-navigation-collapsed .workspace-sidebar .sidebar-user { flex-direction:column; padding:0; }
 }
+
+.platform-announcement-slot { display: contents; }
