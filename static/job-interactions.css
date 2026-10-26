@@ -1,0 +1,20 @@
+.job-interactions{margin-top:32px;padding-top:24px;border-top:1px solid var(--line);min-width:0}
+.job-interactions h2{margin:0 0 12px;font-size:1.25rem}
+.job-interactions h3{margin:24px 0 12px;font-size:1rem}
+.job-interactions>.help{margin-bottom:16px}
+.job-votes{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.job-vote span{font-variant-numeric:tabular-nums}
+.job-vote[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.job-interactions button:disabled{opacity:.55;cursor:default}
+.job-comments{display:grid;gap:0}
+.job-comment{padding:16px 0;border-bottom:1px solid var(--line);min-width:0}
+.job-comment-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;font-size:.85rem;color:var(--muted)}
+.job-comment-meta strong{color:var(--ink);overflow-wrap:anywhere}
+.job-comment-meta button{margin-left:auto}
+.job-comment-body{margin:10px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.job-comments-pages{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:18px 0}
+.job-interactions form{margin-top:24px}
+.job-interactions textarea{width:100%;min-height:110px;resize:vertical}
+.job-interactions .notice{margin:16px 0;display:block;overflow-wrap:anywhere}
+.job-interactions .notice p{margin:0 0 8px}
+@media(max-width:560px){.job-interactions{margin-top:24px;padding-top:20px}.job-comments-pages .help{order:3;flex-basis:100%;text-align:center}}

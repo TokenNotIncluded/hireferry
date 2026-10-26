@@ -778,7 +778,7 @@ async fn member_passkeys_bind_login_list_and_remove_without_gateway_or_email() {
             .unwrap()
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        18
+        19
     );
     let mut member = Client::new(&state);
     let signed_in = member.sign_in("member-passkey@example.test").await;

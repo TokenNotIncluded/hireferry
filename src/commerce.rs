@@ -831,6 +831,8 @@ pub fn delete_job_record(
     check_job_version(&job, expected_version)?;
     let permanent = permanent || job.delete_count >= 1;
     if permanent {
+        db.execute("DELETE FROM job_votes WHERE job_id=?1", [id])?;
+        db.execute("DELETE FROM job_comments WHERE job_id=?1", [id])?;
         db.execute(
             "UPDATE jobs SET status='deleted',delete_count=2,headcount=0,title='',jd_md='',deleted_from_status=NULL,deleted_headcount=NULL,version=version+1,updated_at=?2 WHERE id=?1",
             params![id, now()],

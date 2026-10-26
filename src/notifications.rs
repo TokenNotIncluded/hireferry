@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(
             db.query_row("pragma user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            18
+            19
         );
         assert_eq!(
             db.query_row("SELECT count(*) FROM users", [], |r| r.get::<_, i64>(0))
