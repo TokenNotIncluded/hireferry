@@ -19,6 +19,7 @@ pub mod error;
 pub mod feedback;
 pub mod humangrant;
 pub mod humangrant_access;
+pub mod job_interactions;
 pub mod legal;
 pub mod maintenance;
 pub mod mcp;
@@ -151,6 +152,7 @@ pub fn app(state: AppState) -> Router {
         .merge(announcements::routes())
         .merge(badges::routes())
         .merge(feedback::routes())
+        .merge(job_interactions::routes())
         .merge(legal::routes())
         .merge(admin::routes())
         .merge(staff::routes())

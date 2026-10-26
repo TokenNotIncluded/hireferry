@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 18 {
+    if version > 19 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -237,6 +237,13 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             CREATE INDEX IF NOT EXISTS user_passkeys_user ON user_passkeys(user_id,created_at,id);",
         )?;
         tx.pragma_update(None, "user_version", 18)?;
+        tx.commit()?;
+    }
+    // Schema 19 adds persistent member votes and public job discussions.
+    if version < 19 {
+        let tx = db.unchecked_transaction()?;
+        crate::job_interactions::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 19)?;
         tx.commit()?;
     }
     // Keep this idempotent for databases created by tests or older imports that

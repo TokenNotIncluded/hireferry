@@ -68,6 +68,18 @@ test('route CSS is version-relative and deduplicated across SPA navigation', asy
   ]);
 });
 
+test('both role detail routes load the shared interaction stylesheet', async () => {
+  for (const path of ['/discover/jobs/role-1', '/jobs/role-1']) {
+    const state = fixture();
+    await state.routeStyles.ensureRouteStyles(path);
+    assert.ok(state.links.some(link => link.dataset.routeStyle === 'job-interactions.css'));
+    assert.ok(state.links.every(link => link.href.startsWith('https://hireferry.test/static/revision/')));
+  }
+  const state = fixture();
+  await state.routeStyles.ensureRouteStyles('/discover');
+  assert.ok(state.links.every(link => link.dataset.routeStyle !== 'job-interactions.css'));
+});
+
 test('route CSS mapping keeps login light and loads workspace chat styles by tab', async () => {
   const fixtureState = fixture();
   await fixtureState.routeStyles.ensureRouteStyles('/login');

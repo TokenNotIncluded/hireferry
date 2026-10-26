@@ -20,6 +20,7 @@ const routeStyleNames = path => {
   ) {
     add('people-jobs.css', 'public-directory.css');
   }
+  if (/^\/(?:discover\/)?jobs\/[^/]+$/.test(path)) add('job-interactions.css');
   if (path === '/cli') add('cli-guide.css', 'cli-auth.css');
   if (path === '/downloads') add('downloads.css');
   if (path === '/app' || path.startsWith('/app/')) {
