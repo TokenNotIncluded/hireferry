@@ -533,7 +533,7 @@ function currencyFeeTable() {
 function publicDiscoveryPromo() {
   const seekerHref = marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile', { utm_source: 'home', utm_medium: 'cta', utm_campaign: 'home_discovery', utm_content: 'profile' });
   const employerHref = marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew', { utm_source: 'home', utm_medium: 'cta', utm_campaign: 'home_discovery', utm_content: 'role' });
-  return `<section class="public-discovery-promo" aria-labelledby="public-discovery-promo-title"><div><div class="pricing-kicker">${t('公开目录 · MCP 就绪','OPEN DIRECTORY · MCP READY')}</div><h2 id="public-discovery-promo-title">${t('先浏览公开机会，再决定注册。','Browse public opportunities before you register.')}</h2><p>${t('岗位和公开主页无需登录即可查看。找到方向后，再免费注册独一无二的名字，持续接收 AI 匹配。','Browse public roles and profiles without an account. When you find your direction, register a unique name for free and let AI keep matching.')}</p></div><div class="public-discovery-promo-actions"><a href="/discover" data-nav class="button secondary">${t('浏览公开目录','Browse public directory')}${icon('arrow')}</a><a href="${esc(seekerHref)}" data-nav class="button">${t('免费创建个人主页','Create a free profile')}${icon('arrow')}</a><a href="${esc(employerHref)}" data-nav class="button ghost">${t('免费发布岗位','Post a free role')}${icon('arrow')}</a></div></section>`;
+  return `<section class="public-discovery-promo" aria-labelledby="public-discovery-promo-title"><div><div class="pricing-kicker">${t('公开目录 · MCP 就绪','OPEN DIRECTORY · MCP READY')}</div><h2 id="public-discovery-promo-title">${t('先浏览公开机会，再决定注册。','Browse public opportunities before you register.')}</h2><p>${t('岗位和公开主页无需登录即可查看。免费注册后，连接你选择的 AI 助手，让它按授权范围持续筛选和匹配。','Browse public roles and profiles without an account. Register for free and connect an AI assistant you choose to screen and match within your authorized scope.')}</p></div><div class="public-discovery-promo-actions"><a href="/discover" data-nav class="button secondary">${t('浏览公开目录','Browse public directory')}${icon('arrow')}</a><a href="${esc(seekerHref)}" data-nav class="button">${t('免费创建个人主页','Create a free profile')}${icon('arrow')}</a><a href="${esc(employerHref)}" data-nav class="button ghost">${t('免费发布岗位','Post a free role')}${icon('arrow')}</a></div></section>`;
 }
 
 function home() {
@@ -544,7 +544,7 @@ function home() {
   const stories = [
     {
       title:t('投了几百份简历<br>却石沉大海？<br><em>让 AI 持续帮你找</em>','Hundreds of résumés<br>and no reply?<br><em>Let AI keep looking</em>'),
-      description:t('只需填写目标、地点和薪资期待。<br>连接 AI 后，由异步、主动式服务按周期筛选岗位、匹配机会，有进展时主动回来。','Set your target role, location and salary expectations.<br>HireFerry AI works asynchronously and proactively in scheduled passes, returning when there is progress.')
+      description:t('只需填写目标、地点和薪资期待。<br>连接你选择的 AI 助手，让它按计划筛选授权范围内的岗位并匹配机会，有进展时再回来查看。','Set your target role, location and salary expectations.<br>Connect an AI assistant you choose to screen authorized roles and match opportunities on its schedule.')
     },
     {
       title:t('先聊需求<br>再做匹配<br><em>合适再认识</em>','Share your needs<br>Find the fit<br><em>Meet your match</em>'),
@@ -573,10 +573,10 @@ function home() {
     </section>
     <div class="home-flow page-width">
       <section class="section" id="how">
-        <div class="section-heading"><h2>${t('不用再盲目海投','Stop applying blindly')}</h2><p>${t('填写目标，连接 AI，让寻找持续运行。','Set a target, connect AI, and keep the search moving.')}</p></div>
+        <div class="section-heading"><h2>${t('不用再盲目海投','Stop applying blindly')}</h2><p>${t('填写目标，连接 AI 助手，让它持续筛选。','Set a target and connect an AI assistant to keep screening.')}</p></div>
         <div class="steps">
           <article class="step"><h3>${t('填写你的目标','Set your target')}</h3><p>${t('写清岗位方向、地点、薪资和工作方式。<br>简历与项目经历一起提交。','Set your role, location, salary and work style.<br>Share your résumé and project experience.')}</p></article>
-          <article class="step"><h3>${t('AI 异步筛选','AI screens asynchronously')}</h3><p>${t('连接后，平台 AI 会按周期理解岗位、筛选机会并匹配，有进展时主动回来。<br>不需要一直守着聊天窗口。','After you connect, platform AI processes roles, screens opportunities and matches in scheduled passes, then returns when there is progress.<br>You do not need to keep the chat window open.')}</p></article>
+          <article class="step"><h3>${t('AI 异步筛选','AI screens asynchronously')}</h3><p>${t('连接后，由你选择的 AI 助手按计划读取授权范围内的资料和岗位，筛选机会并记录进展。<br>无需一直守着聊天窗口。','After you connect it, your chosen AI assistant screens the roles and profile data you authorized, tracks matches on its schedule, and reports back.<br>No need to keep a chat window open.')}</p></article>
           <article class="step"><h3>${t('开始交流','Start a conversation')}</h3><p>${t('匹配后共享资料。<br>在专属会话中沟通下一步。','Share profiles after a match.<br>Discuss next steps in your shared room.')}</p></article>
         </div>
       </section>
