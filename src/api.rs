@@ -42,6 +42,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/orders", get(orders))
         .route("/api/orders/{id}", get(order))
         .route("/api/orders/{id}/checkout", post(checkout))
+        .route("/api/donations", post(create_donation))
         .route("/api/tokens", get(tokens).post(create_token))
         .route("/api/tokens/{id}", delete(revoke_token))
         .route("/api/markdown", post(markdown))
@@ -920,6 +921,29 @@ pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order>
 async fn orders(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, false)?;
     Ok(Json(json!({"items":user_orders(&s,&uid)?})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DonationInput {
+    amount_minor: i64,
+    currency: String,
+    provider: String,
+    request_key: String,
+}
+async fn create_donation(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<DonationInput>,
+) -> AppResult<Json<models::Order>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::create_donation(
+        &s,
+        &uid,
+        input.amount_minor,
+        &input.currency,
+        &input.provider,
+        &input.request_key,
+    )?))
 }
 async fn order(
     State(s): State<AppState>,

@@ -35,7 +35,7 @@
 
 HireFerry is a recruitment platform you can host yourself. Job seekers and employers each communicate with the platform AI. Authorized AI agents connected through MCP automate requirement analysis, résumé screening, matching and follow-up. Connected agent clients run the automation loop; the server provides permissions, business tools and records. Once introduced, both parties can view the relevant profile and job and start a separate conversation.
 
-The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seeking and hiring are permanently free by default; the site runs in donation mode, so donations are welcome when HireFerry helps you find work or hire someone.
+The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seeking and hiring are permanently free by default. Each self-hosted instance operator can configure their own payment account and accept voluntary donations at that instance's `/donate` page. Donations go to the operator of the current instance, not the upstream HireFerry project.
 
 **On this page**: [Features](#features) · [How it works](#workflow) · [Quick start](#quick-start) · [CLI and AI](#cli-and-ai) · [Public discovery](#public-discovery) · [Architecture](#architecture) · [Documentation](#documentation) · [Contributing](#contributing)
 

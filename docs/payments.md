@@ -66,9 +66,24 @@ or replace role-publication and description-update orders.
 
 `[pricing].billing_mode` selects whether new service operations use `fees` or
 `donation`. In donation mode activation, publication and description edits are
-permanently free; a donation is voluntary and does not gate access. The admin
+permanently free; a donation is voluntary and does not gate access. Each
+self-hosted instance has a permanent `/donate` page, a donation modal, and
+copyable URL/announcement links. The signed-in user creates a one-time donation
+order, then checks out through a payment provider enabled for that instance.
+Funds go to the payment account configured by that instance's operator. This
+feature does not send donations to the upstream HireFerry project and grants no
+service entitlement. Donation amounts use the instance's configured pricing
+currency and are bounded from 1 to 100,000 major currency units per order.
+
+Donations are available only while `billing_mode` is `donation`. The admin
 settings page can switch the mode for future operations without restarting.
 Historical orders retain their recorded provider, amount and terms.
+
+`POST /api/donations` accepts `amount_minor`, `currency`, `provider`, and an
+idempotency `request_key`; it requires a signed-in account and creates a
+pending `donation` order. Use the normal `POST /api/orders/{id}/checkout` flow
+to obtain its hosted checkout URL. A donation never activates an account or
+changes a job's state.
 
 `[pricing]` selects `currency` and `allowed_currencies`. The default template
 keeps CNY for compatibility; the operator can select another supported currency.

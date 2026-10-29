@@ -31,7 +31,7 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 19 {
+    if version > 20 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
@@ -44,7 +44,7 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,public_profile INTEGER NOT NULL DEFAULT 0,ai_profile_links TEXT NOT NULL DEFAULT '{}',banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,jd_md TEXT NOT NULL,salary_cents INTEGER NOT NULL CHECK(salary_cents>0),headcount INTEGER NOT NULL DEFAULT 1 CHECK(headcount>=0 AND headcount<=1000000),status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','closed','deleted')),delete_count INTEGER NOT NULL DEFAULT 0 CHECK(delete_count>=0 AND delete_count<=2),deleted_from_status TEXT CHECK(deleted_from_status IN ('draft','published','closed')),deleted_headcount INTEGER CHECK(deleted_headcount>=0 AND deleted_headcount<=1000000),edits_used INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner_id,created_at);
- CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
+ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit','donation')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
  CREATE UNIQUE INDEX IF NOT EXISTS one_job_pending ON orders(job_id) WHERE status='pending';
  CREATE UNIQUE INDEX IF NOT EXISTS one_onboarding_pending ON orders(user_id) WHERE kind='onboarding' AND status='pending';
  CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id,created_at);
@@ -246,6 +246,13 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 19)?;
         tx.commit()?;
     }
+    // Schema 20 adds explicit donation orders and the daily email update poll.
+    if version < 20 {
+        let tx = db.unchecked_transaction()?;
+        crate::notifications::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 20)?;
+        tx.commit()?;
+    }
     // Keep this idempotent for databases created by tests or older imports that
     // inserted users after the versioned migration ran.
     crate::referrals::migrate(db)?;
@@ -254,6 +261,9 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     // indexes above, do not change the authoritative business record format.
     crate::relations::migrate(db)?;
     crate::relation_views::migrate(db)?;
+    // commerce::migrate may rebuild orders, which drops table triggers. Reapply
+    // notification triggers idempotently after every commerce migration.
+    crate::notifications::migrate(db)?;
     Ok(())
 }
 pub fn audit(

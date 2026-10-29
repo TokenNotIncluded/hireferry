@@ -22,6 +22,8 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
 CREATE TABLE IF NOT EXISTS email_runtime(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL DEFAULT 0);
 INSERT OR IGNORE INTO email_runtime(id) VALUES(1);
 CREATE TABLE IF NOT EXISTS email_preferences(user_id TEXT PRIMARY KEY REFERENCES users(id),messages INTEGER NOT NULL DEFAULT 1 CHECK(messages IN(0,1)),matches INTEGER NOT NULL DEFAULT 1 CHECK(matches IN(0,1)),orders INTEGER NOT NULL DEFAULT 1 CHECK(orders IN(0,1)),platform INTEGER NOT NULL DEFAULT 1 CHECK(platform IN(0,1)));
+CREATE TABLE IF NOT EXISTS email_update_poll(id INTEGER PRIMARY KEY CHECK(id=1),last_checked_at INTEGER NOT NULL);
+INSERT OR IGNORE INTO email_update_poll(id,last_checked_at) VALUES(1,unixepoch());
 CREATE TABLE IF NOT EXISTS email_notifications(
  id TEXT PRIMARY KEY DEFAULT ('mail_'||lower(hex(randomblob(16)))),user_id TEXT NOT NULL REFERENCES users(id),
  category TEXT NOT NULL CHECK(category IN('messages','matches','orders','platform')),resource_id TEXT NOT NULL DEFAULT '',
@@ -83,6 +85,61 @@ END;
 pub fn configure(db: &Connection, enabled: bool) -> AppResult<()> {
     db.execute("UPDATE email_runtime SET enabled=?1 WHERE id=1", [enabled])?;
     Ok(())
+}
+
+/// Once per day, find changes to already matched roles or introductions and
+/// queue one compact email per affected member. Existing event-triggered mail
+/// suppresses a second summary for the same daily window. The matches mail
+/// preference controls this digest too.
+pub fn poll_daily_updates(s: &AppState, at: i64) -> AppResult<usize> {
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let enabled: bool =
+        tx.query_row("SELECT enabled FROM email_runtime WHERE id=1", [], |row| {
+            row.get(0)
+        })?;
+    if !enabled {
+        tx.commit()?;
+        return Ok(0);
+    }
+    let last_checked_at: i64 = tx.query_row(
+        "SELECT last_checked_at FROM email_update_poll WHERE id=1",
+        [],
+        |row| row.get(0),
+    )?;
+    if at < last_checked_at.saturating_add(86_400) {
+        tx.commit()?;
+        return Ok(0);
+    }
+    let queued = tx.execute(
+        "INSERT OR IGNORE INTO email_notifications(user_id,category,resource_id,subject,body,dedupe_key,next_attempt_at,created_at)
+         SELECT u.id,'matches','','岗位与匹配每日更新 / Daily role and match updates',
+                '你关注的岗位或匹配有新进展，请登录聘渡查看。 A role or introduction you follow has changed. Sign in to HireFerry to review it.',
+                'daily-update:'||?1||':'||u.id,?2,?2
+         FROM users u
+         WHERE u.banned=0
+           AND coalesce((SELECT matches FROM email_preferences WHERE user_id=u.id),1)=1
+           AND EXISTS(
+             SELECT 1 FROM matches m JOIN jobs j ON j.id=m.job_id
+             WHERE (m.seeker_id=u.id OR j.owner_id=u.id)
+               AND m.status<>'declined' AND j.status<>'deleted'
+               AND (m.updated_at>?1 OR j.updated_at>?1)
+           )
+           AND NOT EXISTS(
+             SELECT 1 FROM email_notifications n
+             WHERE n.user_id=u.id AND n.category='matches'
+               AND n.created_at>?1 AND n.created_at<=?2
+           )
+           AND (SELECT count(*) FROM email_notifications n
+                WHERE n.user_id=u.id AND n.created_at>?2-3600)<20",
+        params![last_checked_at, at],
+    )?;
+    tx.execute(
+        "UPDATE email_update_poll SET last_checked_at=?1 WHERE id=1",
+        [at],
+    )?;
+    tx.commit()?;
+    Ok(queued)
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -290,7 +347,8 @@ fn eligible(db: &Connection, d: &Delivery) -> AppResult<Option<String>> {
     }
     let visible=match d.category.as_str() {
   "messages"=>db.query_row("SELECT EXISTS(SELECT 1 FROM chat_conversations c LEFT JOIN matches m ON m.id=c.match_id LEFT JOIN jobs j ON j.id=m.job_id LEFT JOIN users seeker ON seeker.id=m.seeker_id LEFT JOIN users employer ON employer.id=j.owner_id WHERE c.id=?1 AND ((c.kind='platform' AND c.user_id=?2) OR (c.kind='matched' AND m.status<>'declined' AND j.status<>'deleted' AND seeker.banned=0 AND employer.banned=0 AND ?2 IN(m.seeker_id,j.owner_id))))",params![d.resource,d.uid],|r|r.get::<_,bool>(0))?,
-  "matches"=>db.query_row("SELECT EXISTS(SELECT 1 FROM matches m JOIN jobs j ON j.id=m.job_id WHERE m.id=?1 AND j.status<>'deleted' AND ?2 IN(m.seeker_id,j.owner_id))",params![d.resource,d.uid],|r|r.get(0))?,
+  "matches" if d.resource.is_empty()=>db.query_row("SELECT EXISTS(SELECT 1 FROM matches m JOIN jobs j ON j.id=m.job_id JOIN users seeker ON seeker.id=m.seeker_id JOIN users employer ON employer.id=j.owner_id WHERE j.status<>'deleted' AND m.status<>'declined' AND seeker.banned=0 AND employer.banned=0 AND ?1 IN(m.seeker_id,j.owner_id))",[&d.uid],|r|r.get(0))?,
+  "matches"=>db.query_row("SELECT EXISTS(SELECT 1 FROM matches m JOIN jobs j ON j.id=m.job_id JOIN users seeker ON seeker.id=m.seeker_id JOIN users employer ON employer.id=j.owner_id WHERE m.id=?1 AND j.status<>'deleted' AND m.status<>'declined' AND seeker.banned=0 AND employer.banned=0 AND ?2 IN(m.seeker_id,j.owner_id))",params![d.resource,d.uid],|r|r.get(0))?,
   "orders"=>db.query_row("SELECT EXISTS(SELECT 1 FROM orders WHERE id=?1 AND user_id=?2)",params![d.resource,d.uid],|r|r.get(0))?,
   "platform"=>true,_=>false,
  };

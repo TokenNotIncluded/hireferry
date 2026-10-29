@@ -8,6 +8,7 @@ pub(crate) const PUBLIC_PAGES: &[&str] = &[
     "/humangrant",
     "/contact",
     "/refunds",
+    "/donate",
     "/terms",
     "/privacy",
     "/discover",
@@ -235,11 +236,11 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
     match (path, en) {
         ("/", false) => (
             "投了几百份简历石沉大海？让 AI 持续帮你找工作",
-            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接你选择的 AI 助手，由它按计划筛选授权范围内的岗位并匹配机会。当前求职和招聘永久免费，欢迎捐赠支持早期项目。",
+            "投了几百份简历却没有回应？填写目标、地点和薪资期待，连接你选择的 AI 助手，由它按计划筛选授权范围内的岗位并匹配机会。当前求职和招聘永久免费；自愿捐赠支持本站部署者运营这套服务。",
         ),
         ("/", true) => (
             "Hundreds of résumés and no reply? Let AI keep looking",
-            "Set your target role, location and salary expectations. Connect an AI assistant you choose to screen authorized roles and match opportunities on its schedule. Job seeking and hiring are currently free; donations support the early project.",
+            "Set your target role, location and salary expectations. Connect an AI assistant you choose to screen authorized roles and match opportunities on its schedule. Job seeking and hiring are currently free; voluntary donations support the operator of this deployment.",
         ),
         ("/cli", false) => (
             "hfy CLI 与 AI 技能安装",
@@ -304,6 +305,14 @@ fn metadata(path: &str, en: bool) -> (&'static str, &'static str) {
         ("/refunds", true) => (
             "Refund policy",
             "Learn how to request a review of HireFerry employer activation, job publication and description update orders, and check refund status.",
+        ),
+        ("/donate", false) => (
+            "自愿捐赠支持本站运营者",
+            "通过本站配置的支付方式，自愿支持当前 HireFerry 部署实例的运营者承担运行和维护成本。捐款记入本站账户订单，不会支付给上游开源项目；可复制公告分享链接。",
+        ),
+        ("/donate", true) => (
+            "Support this site operator with a voluntary donation",
+            "Make a voluntary donation through this deployment’s configured payment provider to support its operator and hosting or maintenance costs. Donations are recorded in this site’s account orders and do not go to the upstream open-source project.",
         ),
         ("/terms", false) => (
             "服务条款",
@@ -441,8 +450,8 @@ pub(crate) fn page(
                 description,
                 t("招聘方永久免费权益", "Permanent free recruiter benefits"),
                 t(
-                    "永久免费开通、无需月费，免费发布岗位；如果帮你招到人，欢迎捐赠支持",
-                    "Permanent free activation and role publishing, with no monthly fee; donations are welcome if we help you hire"
+                    "永久免费开通、无需月费，免费发布岗位；捐款可自愿支持当前部署实例的运营者",
+                    "Permanent free activation and role publishing, with no monthly fee; voluntary donations support this deployment operator"
                 ),
                 t(
                     "只公开你主动发布的岗位内容",
