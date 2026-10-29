@@ -150,9 +150,9 @@ fn prune_phase(db: &Connection, cfg: &Config, at: i64, phase: &str) -> AppResult
         // Expire only the checkout/reservation state. Keep the orders, gateway
         // identifiers and ledger forever: verified late receipts still settle.
         "checkout_orders" => {
-            let onboarding = db.execute(
+            let expired_orders = db.execute(
                 "UPDATE orders SET status='expired',checkout_url=NULL WHERE rowid IN
-                 (SELECT rowid FROM orders WHERE kind='onboarding' AND status='pending'
+                 (SELECT rowid FROM orders WHERE kind IN('onboarding','donation') AND status='pending'
                   AND checkout_expires_at<=?1 ORDER BY checkout_expires_at LIMIT ?2)",
                 params![at, batch],
             )?;
@@ -161,9 +161,9 @@ fn prune_phase(db: &Connection, cfg: &Config, at: i64, phase: &str) -> AppResult
                  (SELECT o.rowid FROM promo_redemptions r JOIN orders o ON o.id=r.order_id
                   WHERE r.status='reserved' AND r.reserved_until<=?1 AND o.status='pending'
                   ORDER BY r.reserved_until LIMIT ?2)",
-                params![at, batch - onboarding as i64],
+                params![at, batch - expired_orders as i64],
             )?;
-            onboarding + reservations
+            expired_orders + reservations
         }
         "feedback" => feedback::cleanup_batch(db, &cfg.feedback, at, batch)?,
         "webhooks" => webhooks::cleanup_batch(db, &cfg.webhooks, at, batch)?,
@@ -212,6 +212,25 @@ pub async fn run_once(s: &AppState, at: i64) -> AppResult<bool> {
             }
         }
         tokio::task::yield_now().await;
+    }
+    let poll_state = s.clone();
+    let poll = tokio::task::spawn_blocking(move || {
+        crate::notifications::poll_daily_updates(&poll_state, at)
+    })
+    .await
+    .map_err(AppError::internal)
+    .and_then(|result| result);
+    match poll {
+        Ok(queued) if queued > 0 => {
+            tracing::info!(queued, "Daily update emails queued");
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!("Daily email update poll failed");
+            if failure.is_none() {
+                failure = Some(error);
+            }
+        }
     }
     match failure {
         Some(error) => Err(error),

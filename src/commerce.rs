@@ -60,6 +60,14 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  live_mode INTEGER NOT NULL CHECK(live_mode IN (0,1)),created_at INTEGER NOT NULL,
  PRIMARY KEY(provider,live_mode,event_id,event_type));
  "#)?;
+    db.execute_batch(
+        r#"
+ CREATE TABLE IF NOT EXISTS donation_requests(
+  user_id TEXT NOT NULL REFERENCES users(id),request_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
+  created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_key));
+ "#,
+    )?;
     Ok(())
 }
 
@@ -86,12 +94,13 @@ fn migrate_free_orders(db: &Connection) -> AppResult<()> {
         [],
         |row| row.get(0),
     )?;
-    if !sql
+    let normalized = sql
         .split_whitespace()
         .collect::<String>()
-        .to_ascii_lowercase()
-        .contains("check(amount_cents>0)")
-    {
+        .to_ascii_lowercase();
+    let needs_zero_amount_migration = normalized.contains("check(amount_cents>0)");
+    let supports_donations = normalized.contains("'donation'");
+    if !needs_zero_amount_migration && supports_donations {
         return Ok(());
     }
     // SQLite cannot alter a CHECK constraint. Rebuild only the parent table,
@@ -103,7 +112,7 @@ fn migrate_free_orders(db: &Connection) -> AppResult<()> {
     let result = db.execute_batch(r#"
 BEGIN IMMEDIATE;
 DROP TRIGGER IF EXISTS webhook_fanout;
-CREATE TABLE orders_free_migration(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER,refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK(refunded_cents>=0));
+CREATE TABLE orders_free_migration(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit','donation')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER,refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK(refunded_cents>=0));
 INSERT INTO orders_free_migration SELECT id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,status,snapshot_json,provider_session,checkout_url,checkout_started_at,created_at,paid_at,refunded_cents FROM orders;
 DROP TABLE orders;
 ALTER TABLE orders_free_migration RENAME TO orders;
@@ -204,6 +213,7 @@ pub(crate) enum OrderPurpose<'a> {
     Onboarding,
     Publish(&'a str),
     Edit(&'a str),
+    Donation,
 }
 
 #[derive(Debug)]
@@ -231,12 +241,103 @@ pub(crate) fn insert_order(db: &Connection, draft: OrderDraft<'_>) -> AppResult<
         OrderPurpose::Onboarding => ("onboarding", None),
         OrderPurpose::Publish(id) => ("publish", Some(id)),
         OrderPurpose::Edit(id) => ("edit", Some(id)),
+        OrderPurpose::Donation => ("donation", None),
     };
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
-    let expires = (amount > 0 && kind == "onboarding").then_some(timestamp + UNSTARTED_ORDER_TTL);
+    let expires = (amount > 0 && matches!(kind, "onboarding" | "donation"))
+        .then_some(timestamp + UNSTARTED_ORDER_TTL);
     db.execute("INSERT INTO orders(id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,snapshot_json,status,created_at,paid_at,checkout_expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![id,user,kind,job,amount,currency,if amount == 0 {"free"} else {provider},live_mode,snapshot.to_string(),if amount == 0 {"paid"} else {"pending"},timestamp,if amount == 0 {Some(timestamp)} else {None},expires])?;
     models::load_order(db, &id)
+}
+
+/// Create a voluntary, one-time donation through the site's configured payment provider.
+/// A stable request key prevents a lost response from creating a second payable order.
+pub fn create_donation(
+    state: &AppState,
+    uid: &str,
+    amount_minor: i64,
+    currency: &str,
+    provider: &str,
+    request_key: &str,
+) -> AppResult<Order> {
+    let currency = currency.trim().to_ascii_uppercase();
+    if !state.cfg.pricing.permits_currency(&currency) {
+        return Err(AppError::bad_request("Choose an enabled donation currency"));
+    }
+    let decimals = crate::config::currency_decimals(&currency)
+        .ok_or_else(|| AppError::bad_request("Choose an enabled donation currency"))?;
+    let minimum = 10_i64.pow(decimals);
+    let maximum = 100_000_i64 * minimum;
+    if !(minimum..=maximum).contains(&amount_minor) {
+        return Err(AppError::bad_request(
+            "Donation amount must be between 1 and 100000 major units in the selected currency",
+        ));
+    }
+    let request_key = promos::validate_request_key(Some(request_key))?;
+    provider_currency_enabled(state, provider, &currency)?;
+    let request_hash = promos::request_hash(
+        &json!({"amount_minor":amount_minor,"currency":currency,"provider":provider}),
+    );
+    let mut db = state.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if billing_mode(state, &tx)? != "donation" {
+        return Err(AppError::conflict("Donations are not enabled on this site"));
+    }
+    let user = models::load_user(&tx, uid)?;
+    if user.banned {
+        return Err(AppError::forbidden("Account is suspended"));
+    }
+    let existing: Option<(String, String)> = tx
+        .query_row(
+            "SELECT order_id,request_hash FROM donation_requests WHERE user_id=?1 AND request_key=?2",
+            params![uid, request_key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((order_id, previous_hash)) = existing {
+        if previous_hash != request_hash {
+            return Err(AppError::conflict(
+                "This request_key was already used for a different donation",
+            ));
+        }
+        let order = models::load_order(&tx, &order_id)?;
+        tx.commit()?;
+        return Ok(order);
+    }
+    let pending: i64 = tx.query_row(
+        "SELECT count(*) FROM orders WHERE user_id=?1 AND status='pending'",
+        [uid],
+        |row| row.get(0),
+    )?;
+    if pending >= state.cfg.limits.max_pending_orders_per_user as i64 {
+        return Err(AppError::conflict("Complete existing pending orders first"));
+    }
+    let order = insert_order(
+        &tx,
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Donation,
+            amount_cents: amount_minor,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency: &currency,
+            snapshot: json!({"request_key":request_key,"voluntary":true}),
+        },
+    )?;
+    tx.execute(
+        "INSERT INTO donation_requests(user_id,request_key,request_hash,order_id,created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![uid, request_key, request_hash, order.id, now()],
+    )?;
+    audit(
+        &tx,
+        uid,
+        "donation_order_created",
+        &order.id,
+        &json!({"amount_minor":amount_minor,"currency":currency,"provider":provider}).to_string(),
+    )?;
+    tx.commit()?;
+    Ok(order)
 }
 pub fn choose_role(
     state: &AppState,
@@ -1200,6 +1301,7 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
                     tx.execute("UPDATE jobs SET jd_md=?2,edits_used=edits_used+1,version=version+1,updated_at=?3 WHERE id=?1",params![job.id,jd,now()])?;
                 }
             }
+            "donation" => {}
             _ => return Err(AppError::bad_request("Invalid order kind")),
         }
     }
@@ -1366,6 +1468,7 @@ pub async fn settle_refund(state: &AppState, receipt: RefundReceipt) -> AppResul
                 // The editorial work has already been applied. Do not revert
                 // newer text or restore an edit allowance after a cash refund.
                 "edit" => {}
+                "donation" => {}
                 _ => return Err(AppError::bad_request("Invalid refunded order kind")),
             }
         }

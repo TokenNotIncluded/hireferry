@@ -33,9 +33,9 @@
   <a href="https://hireferry.lmm.best/login?role=employer&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=employer">招聘方永久免费发布岗位</a>
 </p>
 
-聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由通过 MCP 连接的获授权 AI agent 自动整理需求、筛选简历、建立匹配与跟进进展。持续运行的 agent 客户端负责自动化循环，服务器提供权限、业务接口与记录。双方在匹配后查看对应资料，并进入独立会话。当前默认捐赠模式：求职和招聘永久免费；如果聘渡帮你找到了工作或招到了人，欢迎捐赠支持我们的工作。
+聘渡是一个可自托管的人才匹配平台。求职者和招聘方分别与平台沟通，由通过 MCP 连接的获授权 AI agent 自动整理需求、筛选简历、建立匹配与跟进进展。持续运行的 agent 客户端负责自动化循环，服务器提供权限、业务接口与记录。双方在匹配后查看对应资料，并进入独立会话。当前默认捐赠模式：求职和招聘永久免费；每个部署实例的运营者都可以配置自己的收款方式，在本站 `/donate` 页面接受自愿捐款。捐款支付给当前实例运营者，不会支付给聘渡上游开源项目。
 
-服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。当前默认求职和招聘永久免费，网站可以切换为捐赠模式；如果平台帮你找到了工作或招到了人，欢迎捐赠支持。
+服务端使用 **Rust + Axum + SQLite**。一个二进制内嵌网页，TOML 管理配置。当前默认求职和招聘永久免费。启用捐赠模式后，站点运营者可以通过自己配置的支付账户收取自愿捐款。
 
 **本页导航**：[桌面、移动与 Nix](#desktop) · [功能](#features) · [服务流程](#workflow) · [快速开始](#quick-start) · [CLI 与 AI](#cli-and-ai) · [公开目录](#public-discovery) · [系统架构](#architecture) · [文档](#documentation) · [参与贡献](#contributing)
 

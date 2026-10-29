@@ -146,6 +146,7 @@ fn product_name(kind: &str) -> &'static str {
         "onboarding" | "recruiter_activation" | "activation" | "recruiter" => {
             "HireFerry recruiter access"
         }
+        "donation" => "Voluntary donation to the current site operator",
         "job_edit" | "edit" => "HireFerry job description update",
         _ => "HireFerry job advertisement",
     }
@@ -175,6 +176,14 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
     }
     let destination = return_url(&state.cfg.public_url, &order.id, "stripe", false)?;
     let canceled = return_url(&state.cfg.public_url, &order.id, "stripe", true)?;
+    let checkout_product_name = if order.kind == "donation" {
+        format!(
+            "Voluntary donation to the {} site operator",
+            state.cfg.site.name
+        )
+    } else {
+        product_name(&order.kind).to_string()
+    };
     let fields = [
         ("mode", "payment".to_string()),
         (
@@ -187,7 +196,7 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
         ),
         (
             "line_items[0][price_data][product_data][name]",
-            product_name(&order.kind).to_string(),
+            checkout_product_name,
         ),
         ("line_items[0][quantity]", "1".to_string()),
         ("client_reference_id", order.id.clone()),

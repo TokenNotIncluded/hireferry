@@ -4,7 +4,7 @@
 
 聘渡由平台 HR 居中服务。账号资料、简历、头像与岗位均不提供公共目录。每位用户与平台的私聊独立保存；平台建立明确匹配后，双方才能读取对应资料，并进入新的独立匹配会话。管理员可以读取全平台业务历史，包含封禁、拒绝匹配与岗位删除后的归档会话；归档会话不可发送新消息。
 
-当前数据库版本为 schema 16。schema 16 增加唯一用户名、可选公开个人主页和 AI profile 链接；schema 15 增加原生邮件通知开关与持久化发送队列，见[邮件通知](email-notifications.md)；schema 14 增加流式消息和事件日志。schema 9 新增优惠申请、优惠码和订单额度预占记录；schema 10 新增有限期快速反馈，schema 11 新增团队员工邀请与经理身份，schema 12 增加反馈持久化配额、重复保护与清理索引；schema 13 新增独立的业务员工、绑定邮箱的邀请和 AI 员工凭据。schema 8 的 CLI 授权、访问及刷新凭据哈希记录，以及 schema 7 的 HumanGrant 申请、授权和防重放状态保持不变。此前 schema 6 中，旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
+当前数据库版本为 schema 20。schema 20 增加捐款订单类型、请求幂等记录和每日邮件更新轮询状态；schema 19 增加岗位投票和公开讨论；schema 18 增加独立成员的 WebAuthn 通行密钥；schema 17 增加成员邀请码及注册归因；schema 16 增加唯一用户名、可选公开个人主页和 AI profile 链接；schema 15 增加原生邮件通知开关与持久化发送队列，见[邮件通知](email-notifications.md)；schema 14 增加流式消息和事件日志。schema 9 新增优惠申请、优惠码和订单额度预占记录；schema 10 新增有限期快速反馈，schema 11 新增团队员工邀请与经理身份，schema 12 增加反馈持久化配额、重复保护与清理索引；schema 13 新增独立的业务员工、绑定邮箱的邀请和 AI 员工凭据。schema 8 的 CLI 授权、访问及刷新凭据哈希记录，以及 schema 7 的 HumanGrant 申请、授权和防重放状态保持不变。此前 schema 6 中，旧岗位和委托迁移为历史 CNY，原订单/账本/退款币种和金额不变；零费用订单不写现金账本。迁移与恢复步骤见 [部署交接](deployment-handoff.md#9-备份升级与恢复)。
 
 优惠码申请、审批、免费激活、发布预览与次数管理接口见 [优惠码说明](promo-codes.md)。`POST /api/role` 可携带 `promo_code`；`POST /api/jobs` 可携带 `promo_code`、防重试的 `request_key` 和已确认报价 `expected_amount_cents`。减免百分比 100 表示免费，不经过支付网关。
 
@@ -198,9 +198,12 @@ HumanGrant 的完整请求字段、取消、会话检查、签名与有效权限
 | GET `/api/people` | query q?、page? | {items:CounterpartyProfile[],total}；明确匹配的求职者 |
 | GET `/api/people/{id}` | 无 | {user:CounterpartyProfile,resume_html}；本人求职资料或匹配对象 |
 | GET `/api/matches` | 无 | {items:[...]}；本人有效匹配，含 conversation_id |
+| POST `/api/donations` | {amount_minor,currency,provider,request_key} | Order(kind=donation)；仅捐赠模式、登录用户；创建待支付的一次性自愿捐款订单 |
 | GET `/api/orders` | 无 | {items:Order[]}；本人最近 limits.recent_list_limit 笔 |
 | GET `/api/orders/{id}` | 无 | 本人 Order |
 | POST `/api/orders/{id}/checkout` | 无业务参数 | 更新后的 Order，含 checkout_url |
+
+`POST /api/donations` 的金额为币种最小单位，币种必须是本站配置的捐款币种，金额范围为 1–100,000 个主币单位；`request_key` 用于防止重试重复建单。捐款由当前部署实例配置的支付账户收取，不会给用户授予服务权益。
 
 带 q/page 的普通列表使用 q 前 100 个字符，page 默认 1，上限为 `[limits].list_max_page`，页大小为 `list_page_size`（默认 2000 页、每页 50）；返回 `limit`、`page`。回收站仅返回最近 `limits.recent_list_limit` 条，无 q/page 参数。搜索不扩大权限。
 
@@ -412,7 +415,7 @@ OutreachInput 必填 channel、opportunity、stage，可选 source_url、note（
 | JobDetail | job,jd_html,terms（edit_mode/edit_fixed_minor/edit_bps/max_edits/currency/currency_decimals/employer_ai_min_salary_minor）,employer（id/name/public_email/avatar） |
 | WorkbenchJob | id,owner_id,employer_id（同 owner_id）,employer_name,title,salary_cents,currency,currency_decimals,headcount,status,jd_excerpt（最多240字符）,created_at,updated_at,active_matches；active_matches 为 introduced/interview/hired 数量，不扣招聘人数 |
 | CandidateSummary | id,name,avatar,target_industry,target_roles,location,salary_min_cents?,salary_max_cents?,salary_currency,currency_decimals,resume_excerpt（最多240字符）,preferences_excerpt（最多240字符）,created_at（委托创建时间）,updated_at（用户资料更新时间）,mandate_updated_at,history_match?（id/status/conversation_id/updated_at）；没有登录邮箱或完整简历 |
-| Order | id,user_id,kind（onboarding/publish/edit）,job_id?,amount_cents,refunded_cents,currency,currency_decimals,provider,live_mode,status,snapshot_json,provider_session?,checkout_url?,created_at,paid_at?；snapshot_json 为 JSON 字符串；状态含 pending/cancelled/paid/paid_needs_review/partially_refunded/refunded；个人读取隐藏已不可履行或网关币种不可用订单的 checkout_url |
+| Order | id,user_id,kind（onboarding/publish/edit/donation）,job_id?,amount_cents,refunded_cents,currency,currency_decimals,provider,live_mode,status,snapshot_json,provider_session?,checkout_url?,created_at,paid_at?；snapshot_json 为 JSON 字符串；状态含 pending/cancelled/paid/paid_needs_review/partially_refunded/refunded；个人读取隐藏已不可履行或网关币种不可用订单的 checkout_url |
 | Match | id,seeker_id,seeker_name,job_id,job_title,employer_id,employer_name,status,note,created_at,updated_at,conversation_id；管理员额外含 seeker_conversation_id,employer_conversation_id |
 | Conversation | id,kind（platform/matched）,title,user_id?,match_id?,job_id?,job_title?,participants（id/name/role/avatar）,last_message_id,last_message_preview,last_message_at?,unread_count,writable,created_at,updated_at |
 | Message | id（整数）,conversation_id,sender_kind（user/platform）,sender_id?,sender_name,body,body_html,client_id,via_ai,created_at |
