@@ -6,6 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -13,6 +14,7 @@ use std::{
 };
 
 const FILE_LIMIT: u64 = 64 * 1024;
+const MAX_ACCOUNTS: usize = 64;
 
 /// Immutable account identifier verified through this issuer's userinfo endpoint.
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -45,7 +47,8 @@ pub struct Store {
     marker: PathBuf,
     origin: String,
     client_id: String,
-    key: String,
+    account_name: String,
+    lock_key: String,
     choice: StorageChoice,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -59,25 +62,87 @@ pub struct StorageInfo {
     pub location: String,
 }
 
+#[derive(Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+struct AccountIndexData {
+    #[serde(default)]
+    default: Option<String>,
+    #[serde(default)]
+    accounts: BTreeMap<String, AccountIndexEntry>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AccountIndexEntry {
+    scope: String,
+}
+
+#[derive(Serialize)]
+pub struct AccountList {
+    pub default: Option<String>,
+    pub accounts: Vec<AccountInfo>,
+}
+
+#[derive(Serialize)]
+pub struct AccountInfo {
+    pub name: String,
+    pub scope: String,
+    pub is_default: bool,
+}
+
+pub struct AccountRegistry {
+    path: PathBuf,
+}
+
 impl Store {
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
     }
 
     pub fn new(directory: PathBuf, origin: &str, client_id: &str, choice: StorageChoice) -> Self {
-        let key = format!(
+        Self::for_account(directory, origin, client_id, "default", choice)
+            .expect("the built-in default account name is valid")
+    }
+
+    pub fn for_account(
+        directory: PathBuf,
+        origin: &str,
+        client_id: &str,
+        account_name: &str,
+        choice: StorageChoice,
+    ) -> Result<Self> {
+        if !valid_account_name(account_name) {
+            return Err(Error::new(
+                "invalid_account_name",
+                "Account names must be 1–32 lowercase letters, numbers, hyphens or underscores, and start with a letter or number.",
+            ));
+        }
+        let lock_key = format!(
             "{:x}",
             Sha256::digest(format!("{origin}\0{client_id}").as_bytes())
         );
-        Self {
+        let key = if account_name == "default" {
+            lock_key.clone()
+        } else {
+            format!(
+                "{:x}",
+                Sha256::digest(format!("{lock_key}\0{account_name}").as_bytes())
+            )
+        };
+        Ok(Self {
             path: directory.join(format!("{key}.credential")),
             marker: directory.join(format!("{key}.storage")),
             directory,
             origin: origin.to_owned(),
             client_id: client_id.to_owned(),
-            key,
+            account_name: account_name.to_owned(),
+            lock_key,
             choice,
-        }
+        })
+    }
+
+    pub fn account_name(&self) -> &str {
+        &self.account_name
     }
 
     pub fn load(&self) -> Result<Option<Credential>> {
@@ -225,12 +290,16 @@ impl Store {
         hash.update(self.client_id.as_bytes());
         hash.update(b"\0");
         hash.update(directory.as_os_str().as_encoded_bytes());
+        if self.account_name != "default" {
+            hash.update(b"\0");
+            hash.update(self.account_name.as_bytes());
+        }
         Ok(format!("{:x}", hash.finalize()))
     }
 
     pub async fn lock(&self) -> Result<StoreLock> {
         self.check_directory(true)?;
-        let path = self.directory.join(format!("{}.lock", self.key));
+        let path = self.directory.join(format!("{}.lock", self.lock_key));
         let mut options = OpenOptions::new();
         options.create(true).read(true).write(true);
         #[cfg(unix)]
@@ -273,6 +342,146 @@ impl Store {
         check_owner_mode(&metadata, 0o700)?;
         Ok(true)
     }
+}
+
+impl AccountRegistry {
+    pub fn new(directory: &Path, origin: &str, client_id: &str) -> Self {
+        let key = format!(
+            "{:x}",
+            Sha256::digest(format!("{origin}\0{client_id}").as_bytes())
+        );
+        Self {
+            path: directory.join(format!("{key}.accounts")),
+        }
+    }
+
+    pub fn default_account(&self) -> Result<Option<String>> {
+        Ok(self.load()?.default)
+    }
+
+    pub fn list(&self) -> Result<AccountList> {
+        let data = self.load()?;
+        let default = data.default;
+        let accounts = data
+            .accounts
+            .into_iter()
+            .map(|(name, entry)| AccountInfo {
+                is_default: default.as_deref() == Some(name.as_str()),
+                name,
+                scope: entry.scope,
+            })
+            .collect();
+        Ok(AccountList { default, accounts })
+    }
+
+    pub fn contains(&self, name: &str) -> Result<bool> {
+        Ok(self.load()?.accounts.contains_key(name))
+    }
+
+    pub fn record(&self, name: &str, scope: &str) -> Result<()> {
+        if !valid_account_name(name) || !valid_scope(scope) {
+            return Err(Error::storage());
+        }
+        let mut data = self.load()?;
+        if data
+            .accounts
+            .get(name)
+            .is_some_and(|entry| entry.scope == scope)
+            && data.default.is_some()
+        {
+            return Ok(());
+        }
+        data.accounts.insert(
+            name.to_owned(),
+            AccountIndexEntry {
+                scope: scope.to_owned(),
+            },
+        );
+        if data.default.is_none() {
+            data.default = Some(name.to_owned());
+        }
+        self.save(data)
+    }
+
+    pub fn set_default(&self, name: &str) -> Result<()> {
+        if !valid_account_name(name) {
+            return Err(Error::new(
+                "invalid_account_name",
+                "Account names must be 1–32 lowercase letters, numbers, hyphens or underscores, and start with a letter or number.",
+            ));
+        }
+        let mut data = self.load()?;
+        if !data.accounts.contains_key(name) {
+            return Err(Error::new(
+                "account_not_found",
+                "No saved HireFerry account has that name. Run hfy auth accounts to list saved accounts.",
+            ));
+        }
+        data.default = Some(name.to_owned());
+        self.save(data)
+    }
+
+    pub fn remove(&self, name: &str) -> Result<Option<String>> {
+        let mut data = self.load()?;
+        data.accounts.remove(name);
+        if data.default.as_deref() == Some(name) {
+            data.default = data.accounts.keys().next().cloned();
+        }
+        let default = data.default.clone();
+        self.save(data)?;
+        Ok(default)
+    }
+
+    fn load(&self) -> Result<AccountIndexData> {
+        let Some(bytes) = private_read(&self.path)? else {
+            return Ok(AccountIndexData::default());
+        };
+        let data: AccountIndexData =
+            serde_json::from_slice(&bytes).map_err(|_| Error::storage())?;
+        validate_account_index(&data)?;
+        Ok(data)
+    }
+
+    fn save(&self, data: AccountIndexData) -> Result<()> {
+        validate_account_index(&data)?;
+        let bytes = serde_json::to_vec(&data).map_err(|_| Error::storage())?;
+        private_write(
+            self.path.parent().ok_or_else(Error::storage)?,
+            &self.path,
+            &bytes,
+        )
+    }
+}
+
+fn validate_account_index(data: &AccountIndexData) -> Result<()> {
+    if data.accounts.len() > MAX_ACCOUNTS
+        || data
+            .accounts
+            .iter()
+            .any(|(name, entry)| !valid_account_name(name) || !valid_scope(&entry.scope))
+        || data
+            .default
+            .as_ref()
+            .is_some_and(|name| !data.accounts.contains_key(name))
+    {
+        return Err(Error::storage());
+    }
+    Ok(())
+}
+
+fn valid_account_name(name: &str) -> bool {
+    (1..=32).contains(&name.len())
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
+}
+
+fn valid_scope(scope: &str) -> bool {
+    matches!(scope, "identity" | "identity mcp" | "identity admin")
 }
 
 fn private_read(path: &Path) -> Result<Option<Vec<u8>>> {
