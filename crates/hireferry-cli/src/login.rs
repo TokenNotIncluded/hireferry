@@ -22,7 +22,7 @@ use url::Url;
 
 #[derive(Args)]
 pub struct LoginArgs {
-    /// Start a device-code sign-in, even when this account already has a session.
+    /// Use device-code sign-in when this account needs authorization.
     #[arg(long, conflicts_with = "oauth")]
     pub device: bool,
     /// Start a fresh browser OAuth sign-in with a local callback and PKCE.

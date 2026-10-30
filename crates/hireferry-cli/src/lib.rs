@@ -216,7 +216,7 @@ pub async fn run(cli: Cli) -> Result<Value> {
             {
                 let _guard = store.lock().await?;
                 sync_saved_account(&registry, &legacy_store)?;
-                if !args.oauth && !args.device {
+                if !args.oauth {
                     if let Some(mut credential) = store.load()?
                         && scope_covers(&credential.scope, &server.scope)
                         && !credential.refresh_pending

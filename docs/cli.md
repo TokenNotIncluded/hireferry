@@ -152,7 +152,7 @@ hfy auth logout
 
 ### 浏览器 OAuth 与多账号
 
-在本机运行 `hfy auth login --oauth` 会直接打开聘渡授权页并等待回调。显式传入 `--oauth` 或 `--device` 会开始新的授权；不传时，CLI 会复用当前账号尚有效且权限足够的连接。授权页仍由用户确认身份和权限；`admin` 权限还要求管理员通过近期 Passkey 验证。
+在本机运行 `hfy auth login --oauth` 会直接打开聘渡授权页并等待回调。`--oauth` 会开始新的浏览器授权；`--device` 选择设备码流程。CLI 会先复用当前账号尚有效且权限足够的连接。授权页仍由用户确认身份和权限；`admin` 权限还要求管理员通过近期 Passkey 验证。
 
 ```sh
 # 首个账号自动成为默认账号
@@ -216,8 +216,8 @@ hfy --server https://recruit.example auth logout
 | 命令 | 行为 |
 | --- | --- |
 | `hfy auth login` | 交互式桌面环境选浏览器登录，其他环境选设备码 |
-| `hfy auth login --device` | 显示验证地址和设备码，等待网页确认 |
-| `hfy auth login --oauth` | 强制开始新的浏览器 OAuth 授权 |
+| `hfy auth login --device` | 需要新授权时显示验证地址和设备码，等待网页确认 |
+| `hfy auth login --oauth` | 开始新的浏览器 OAuth 授权 |
 | `hfy auth status` | 向服务端检查已保存连接的状态 |
 | `hfy auth accounts` | 列出本站已保存的账号和默认账号 |
 | `hfy auth use <别名>` | 将已有账号设为默认账号 |
