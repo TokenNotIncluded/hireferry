@@ -1,6 +1,6 @@
 # `hfy` / 聘渡命令行客户端
 
-包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.2`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
+包名是 `hireferry-cli`，命令是 `hfy`，本版为 `0.1.4`。客户端通过 HTTP API 连接聘渡，不依赖服务端 crate、数据库或私密 TOML。`hireferry` 继续负责启动服务、检查配置、初始化管理员和备份。
 
 服务端在已有 HumanGrant schema 7 之上，通过 schema 8 保存 CLI 授权与刷新凭据哈希；schema 9 新增优惠码，schema 10 新增有限期快速反馈记录，schema 11 新增团队成员邀请，schema 12 增加反馈配额、重复保护与有界清理。HumanGrant 与官方 CLI 使用各自的授权协议及配置；`hfy` 不领取或保存 HumanGrant 签名凭据，现有 HumanGrant 接入继续按其原有权限规则运行。
 
@@ -23,21 +23,21 @@ irm https://hireferry.lmm.best/install.ps1 | iex
 
 安装后重新打开终端，运行 `hfy --version`。Unix 默认写入 `~/.local/bin/hfy`，需要时为 Bash / Zsh / POSIX shell 的用户配置添加 PATH；Fish 用户按输出提示添加 PATH。Windows 默认写入 `%LOCALAPPDATA%\HireFerry\bin\hfy.exe`，并更新当前用户的 PATH。脚本不进行登录，也不读取凭据。
 
-重复执行同一命令升级。`HFY_VERSION` 可固定版本（如 `0.1.2`），`HFY_INSTALL_DIR` 可指定目录，`HFY_NO_PATH=1` 跳过 PATH 设置。例如：
+重复执行同一命令升级。`HFY_VERSION` 可固定版本（如 `0.1.4`），`HFY_INSTALL_DIR` 可指定目录，`HFY_NO_PATH=1` 跳过 PATH 设置。例如：
 
 ```sh
-curl -fsSL https://hireferry.lmm.best/install.sh | HFY_VERSION=0.1.2 HFY_INSTALL_DIR="$HOME/.local/bin" sh
+curl -fsSL https://hireferry.lmm.best/install.sh | HFY_VERSION=0.1.4 HFY_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 ```powershell
-$env:HFY_VERSION = '0.1.2'
+$env:HFY_VERSION = '0.1.4'
 $env:HFY_INSTALL_DIR = Join-Path $env:LOCALAPPDATA 'HireFerry\bin'
 irm https://hireferry.lmm.best/install.ps1 | iex
 ```
 
 脚本还支持 `HFY_RELEASE_REPO` 和 `HFY_TAG_PREFIX` 覆盖下载来源；自托管站点通过服务端 `[cli_distribution]` 配置默认来源和标签前缀。默认标签为 `cli-v<版本>`。所有资产在确定版本后使用固定标签下载，校验不匹配时保留现有程序。
 
-卸载前用 `hfy auth logout` 退出每个站点，再删除安装目录内的 `hfy` / `hfy.exe`；从用户 PATH 或 shell 配置中移除对应目录。不要把客户端配置目录当作程序安装目录删除。
+卸载前对每个站点的每个账号运行 `hfy auth logout`，再删除安装目录内的 `hfy` / `hfy.exe`；从用户 PATH 或 shell 配置中移除对应目录。不要把客户端配置目录当作程序安装目录删除。
 
 ### 安装 Agent Skill（跨平台）
 
@@ -117,7 +117,7 @@ Linux 系统凭据保存使用 `secret-tool` 连接 Secret Service，适合已�
 ./scripts/package-cli.sh
 ```
 
-默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.2-<target>.tar.gz` （Windows 目标使用 `.zip`）和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
+默认构建本机目标并在 `dist/hfy/` 写入 `hireferry-cli-0.1.4-<target>.tar.gz` （Windows 目标使用 `.zip`）和 `SHA256SUMS`。压缩包包含 `hfy`（Windows 目标为 `hfy.exe`）、LICENSE、CLI 文档、技能及手工安装脚本，不包含服务配置或数据库。
 
 也可指定目标或打包已有二进制：
 
@@ -149,6 +149,30 @@ hfy capabilities --json
 hfy auth status --json
 hfy auth logout
 ```
+
+### 浏览器 OAuth 与多账号
+
+在本机运行 `hfy auth login --oauth` 会直接打开聘渡授权页并等待回调。显式传入 `--oauth` 或 `--device` 会开始新的授权；不传时，CLI 会复用当前账号尚有效且权限足够的连接。授权页仍由用户确认身份和权限；`admin` 权限还要求管理员通过近期 Passkey 验证。
+
+```sh
+# 首个账号自动成为默认账号
+hfy auth login --oauth
+
+# 再添加一个账号；别名只能使用小写字母、数字、- 和 _
+hfy --account work auth login --oauth
+hfy auth accounts
+hfy auth use work
+
+# 单次命令临时选择另一个账号
+hfy --account default whoami --json
+
+# 如需管理员权限，在授权页明确批准
+hfy --scope admin --account operator auth login --oauth
+```
+
+`hfy auth accounts` 列出本服务器和 OAuth 客户端下已保存的账号；`hfy auth use <别名>` 持久设置默认账号，所有命令也可用 `--account <别名>` 临时覆盖。`hfy auth logout` 只撤销当前选择的账号；要退出其他账号可运行 `hfy --account <别名> auth logout`。每个账号有独立凭据，沿用系统钥匙环或现有的私有文件后备存储；账号索引不含访问令牌。旧版单账号凭据继续作为 `default` 使用。
+
+MCP 客户端可以通过本机启动 `hfy mcp serve` 使用所选默认账号，无需把访问令牌复制到客户端配置；需要指定其他账号时，在启动命令中加入 `--account <别名>`。SSH 或无图形桌面环境可用 `hfy auth login --device` 完成登录。
 
 ### 快速反馈与管理员收件箱
 
@@ -193,12 +217,16 @@ hfy --server https://recruit.example auth logout
 | --- | --- |
 | `hfy auth login` | 交互式桌面环境选浏览器登录，其他环境选设备码 |
 | `hfy auth login --device` | 显示验证地址和设备码，等待网页确认 |
-| `hfy auth login --oauth` | 使用系统浏览器和本机回环回调 |
+| `hfy auth login --oauth` | 强制开始新的浏览器 OAuth 授权 |
 | `hfy auth status` | 向服务端检查已保存连接的状态 |
+| `hfy auth accounts` | 列出本站已保存的账号和默认账号 |
+| `hfy auth use <别名>` | 将已有账号设为默认账号 |
 | `hfy auth refresh` | 使用刷新令牌更新当前连接 |
 | `hfy whoami` | 查询服务端确认的当前身份、到期时间和资格 |
 | `hfy capabilities` | 查询当前连接的权限及 AI 使用资格 |
-| `hfy auth logout` | 撤销当前连接并删除当前站点的本机凭据 |
+| `hfy auth logout` | 撤销当前账号并删除本机凭据 |
+
+所有命令都可加全局选项 `--account <别名>` 临时选择账号；省略时使用本站默认账号。每个服务器与 OAuth 客户端分别维护账号列表和默认账号。
 
 `--device` 与 `--oauth` 不能同时使用。登录支持 `--no-browser`，只显示网址；`--timeout <seconds>` 限制等待人工授权的时间。例如：
 
@@ -267,7 +295,7 @@ hfy capabilities --json
 hfy auth login --device --json
 ```
 
-`--json` 不会跳过浏览器登录与人工授权。登录结果在授权结束后返回。成功结果包含身份、状态、到期时间、资格和权限等可公开给当前用户的信息，以及 `storage.backend` 和 `storage.location` 表示的保存位置，不包含凭据。已有有效且涵盖申请范围的连接可直接复用；登录结果的 `reused` 表示是否复用。例如，基础登录可复用以前明确批准的 MCP 连接，结果会保留并显示实际范围；需要改为只保留身份权限时，先退出该连接，再重新登录。
+`--json` 不会跳过浏览器登录与人工授权。登录结果在授权结束后返回。成功结果包含身份、状态、到期时间、资格和权限等可公开给当前用户的信息，以及 `storage.backend` 和 `storage.location` 表示的保存位置，不包含凭据。未显式指定 `--oauth` 或 `--device` 时，有效且涵盖申请范围的连接可直接复用；登录结果的 `reused` 表示是否复用。显式选择登录方式会重新走授权流程，可用于更换账号或重新确认权限。例如，基础登录可复用以前明确批准的 MCP 连接，结果会保留并显示实际范围；需要改为只保留身份权限时，先退出该账号，再重新登录。
 
 例如，尚未保存连接时，`hfy auth status --json` 会返回 `authenticated: false`。已登录后的 `hfy capabilities --json` 提供 `server`、`client_id`、`scope`、`ai_eligibility` 和 `capabilities`，其中 `capabilities.identity`、`capabilities.mcp`、`capabilities.admin` 是当前服务端判定的布尔值。`whoami` 返回的身份可能包含当前用户的邮箱；向他人转发结果前应只保留任务需要的字段。
 
@@ -285,7 +313,7 @@ JSON 错误包含 `error.code`、`error.message`，必要时附带 `error.detail
 
 ## 凭据保存与退出
 
-客户端按配置目录、站点来源和公共客户端 ID 隔离凭据，并绑定经服务端确认的账户 ID；同一凭据后来返回其他账户时会拒绝使用并移除。不同目录、协议、主机、端口或客户端 ID 不共用令牌。API 请求不会跟随重定向把凭据转发到其他地址。
+客户端按配置目录、站点来源、公共客户端 ID 和账号别名隔离凭据，并绑定经服务端确认的账户 ID；同一凭据后来返回其他账户时会拒绝使用并移除。不同目录、协议、主机、端口、客户端 ID 或账号别名不共用令牌。API 请求不会跟随重定向把凭据转发到其他地址。
 
 | 环境 | 默认配置目录 |
 | --- | --- |

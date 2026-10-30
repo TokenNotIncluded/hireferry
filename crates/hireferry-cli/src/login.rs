@@ -22,10 +22,10 @@ use url::Url;
 
 #[derive(Args)]
 pub struct LoginArgs {
-    /// Sign in using a short code on another device.
+    /// Start a device-code sign-in, even when this account already has a session.
     #[arg(long, conflicts_with = "oauth")]
     pub device: bool,
-    /// Sign in in a browser with a local callback and PKCE.
+    /// Start a fresh browser OAuth sign-in with a local callback and PKCE.
     #[arg(long, conflicts_with = "device")]
     pub oauth: bool,
     /// Print the sign-in link without opening a browser.

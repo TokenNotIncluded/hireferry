@@ -10,14 +10,14 @@ Use the `hfy` binary from `hireferry-cli`. Keep the `hireferry` server command s
 ## Check the client and connection
 
 1. Run `hfy --version` and `hfy --help`. Require a compatible `0.1.x` client. If it is missing or incompatible, use the installation instructions for the same source revision in the [CLI guide](https://github.com/TokenNotIncluded/hireferry/blob/main/docs/cli.md). Do not invent a crates.io release or silently use a server binary.
-2. Use the user's requested server. Otherwise retain their client configuration; the built-in default is `https://hireferry.lmm.best`. Settings apply in this order: defaults, client `config.toml`, `HFY_*` environment variables, command arguments. Keep `--server`, `--client-id` and any `--config-dir` consistent throughout the task.
-3. Run `hfy auth status --json`. Read the exit status and `authenticated` together: a successful status command can report `false`. A network failure does not mean the user is logged out.
+2. Use the user's requested server. Otherwise retain their client configuration; the built-in default is `https://hireferry.lmm.best`. Settings apply in this order: defaults, client `config.toml`, `HFY_*` environment variables, command arguments. Keep `--server`, `--client-id`, `--account` and any `--config-dir` consistent throughout the task. Use `hfy auth accounts` to inspect saved aliases and `hfy auth use <name>` to set the default.
+3. Run `hfy auth status --json` for the configured default, or `hfy --account <name> auth status --json` for a specific account. Read the exit status and `authenticated` together: a successful status command can report `false`. A network failure does not mean the user is logged out.
 4. If signed in, run `hfy whoami --json` and `hfy capabilities --json`. Use the server's `capabilities` and `ai_eligibility`, not a guessed permission based on the account role.
 
 ## Sign in
 
 - For SSH, containers, or a browser on another device, run `hfy auth login --device --json`.
-- For a browser on the same desktop, run `hfy auth login --oauth --json`.
+- For a browser on the same desktop, run `hfy auth login --oauth --json`; explicit `--oauth` always starts a fresh approval flow. Add `--account <name>` to save a second account without replacing the default account.
 - Let `hfy auth login --json` choose the mode when appropriate.
 - Add `--no-browser` to display the URL without launching a browser. Use `--timeout <seconds>` when a bounded wait is needed.
 
