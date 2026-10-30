@@ -107,17 +107,17 @@
       }
     }
   },
-  "source_commit": "d3c12144ffe6041057557cd5df11448e2c804407",
+  "source_commit": "",
   "source_commits": {
-    "cli": "d3c12144ffe6041057557cd5df11448e2c804407",
+    "cli": "3e437d1d5eb6f3314e40e13ec87e2434e744e46c",
     "server": "d3c12144ffe6041057557cd5df11448e2c804407"
   },
   "versions": {
-    "cli": "0.1.3",
+    "cli": "0.1.4",
     "server": "0.1.0"
   },
   "releases": {
-    "cli": "cli-v0.1.3",
+    "cli": "cli-v0.1.4",
     "server": "server-v0.1.0"
   },
   "assets": [
@@ -126,78 +126,78 @@
       "architecture": "aarch64",
       "target": "aarch64-apple-darwin",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "tar.gz",
-      "name": "hireferry-cli-0.1.3-aarch64-apple-darwin.tar.gz",
-      "size": 1918502,
-      "sha256": "6f631861ab8e376898d7588d7eb7110b201c4ce5115401b554d2a185f50f367e",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-apple-darwin.tar.gz"
+      "name": "hireferry-cli-0.1.4-aarch64-apple-darwin.tar.gz",
+      "size": 2014294,
+      "sha256": "a3492935d92c5b0948d7905589373296c1aac8ca33f0405b1b95302fbd88b882",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-apple-darwin.tar.gz"
     },
     {
       "platform": "Windows",
       "architecture": "aarch64",
       "target": "aarch64-pc-windows-msvc",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "zip",
-      "name": "hireferry-cli-0.1.3-aarch64-pc-windows-msvc.zip",
-      "size": 1987462,
-      "sha256": "027f5acf49e2e6308addb2363c602ef18e112edbe998d859b85ff3b97b4821f0",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-pc-windows-msvc.zip"
+      "name": "hireferry-cli-0.1.4-aarch64-pc-windows-msvc.zip",
+      "size": 2095924,
+      "sha256": "11723d141d6fd431ea7145db6b6ad8a14b5faace9416bd6a6bc712196d17697f",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-pc-windows-msvc.zip"
     },
     {
       "platform": "Linux",
       "architecture": "aarch64",
       "target": "aarch64-unknown-linux-musl",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "tar.gz",
-      "name": "hireferry-cli-0.1.3-aarch64-unknown-linux-musl.tar.gz",
-      "size": 2033846,
-      "sha256": "903bd2f3cf66e6f6eba45190c02f12e168aeb1c476a47f2fa4dc63e41cd49f3e",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-unknown-linux-musl.tar.gz"
+      "name": "hireferry-cli-0.1.4-aarch64-unknown-linux-musl.tar.gz",
+      "size": 2135586,
+      "sha256": "07c19740735fc8f6bb02ce3b9e6aa5fe407bf34c44b14023ec31ca3619042d5a",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-unknown-linux-musl.tar.gz"
     },
     {
       "platform": "macOS",
       "architecture": "x86_64",
       "target": "x86_64-apple-darwin",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "tar.gz",
-      "name": "hireferry-cli-0.1.3-x86_64-apple-darwin.tar.gz",
-      "size": 2030321,
-      "sha256": "1d07d7eb9b60b53d011c09cc925fd84d71c6e76f3cfceb80d58c2477a4d2119f",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-apple-darwin.tar.gz"
+      "name": "hireferry-cli-0.1.4-x86_64-apple-darwin.tar.gz",
+      "size": 2137530,
+      "sha256": "53d5a503694a6bc0763ac10e3764287c6b5667b2a28a55757505ae4169ba752d",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-apple-darwin.tar.gz"
     },
     {
       "platform": "Windows",
       "architecture": "x86_64",
       "target": "x86_64-pc-windows-msvc",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "zip",
-      "name": "hireferry-cli-0.1.3-x86_64-pc-windows-msvc.zip",
-      "size": 2104447,
-      "sha256": "e60b949674cb1dc7b1c148865bbb43584d896e5f95b1af84b06ba221a462e3e3",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-pc-windows-msvc.zip"
+      "name": "hireferry-cli-0.1.4-x86_64-pc-windows-msvc.zip",
+      "size": 2216830,
+      "sha256": "daaadcfadf10bfed591fc81477a25b1633019b3a0ea0e8b6eeab9e67566093ce",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-pc-windows-msvc.zip"
     },
     {
       "platform": "Linux",
       "architecture": "x86_64",
       "target": "x86_64-unknown-linux-musl",
       "product": "cli",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "format": "tar.gz",
-      "name": "hireferry-cli-0.1.3-x86_64-unknown-linux-musl.tar.gz",
-      "size": 2176425,
-      "sha256": "8111e5fe8256f3d31fb60d2a64a86a1534cd5170fdd0d72b80b758b70af89177",
-      "tag": "cli-v0.1.3",
-      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-unknown-linux-musl.tar.gz"
+      "name": "hireferry-cli-0.1.4-x86_64-unknown-linux-musl.tar.gz",
+      "size": 2284078,
+      "sha256": "9141b1a137d256b18e8f99bb7fc0039e968ef60144140d95f0d454cca445cf9c",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-unknown-linux-musl.tar.gz"
     },
     {
       "platform": "Linux",
