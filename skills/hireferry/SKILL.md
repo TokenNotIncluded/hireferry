@@ -16,7 +16,7 @@ Use the `hfy` binary from `hireferry-cli`. Keep the `hireferry` server command s
 
 ## Sign in
 
-- For SSH, containers, or a browser on another device, run `hfy auth login --device --json`.
+- For SSH, containers, or a browser on another device, run `hfy auth login --device --json`; the CLI reuses a valid session or starts device authorization when needed.
 - For a browser on the same desktop, run `hfy auth login --oauth --json`; explicit `--oauth` always starts a fresh approval flow. Add `--account <name>` to save a second account without replacing the default account.
 - Let `hfy auth login --json` choose the mode when appropriate.
 - Add `--no-browser` to display the URL without launching a browser. Use `--timeout <seconds>` when a bounded wait is needed.
