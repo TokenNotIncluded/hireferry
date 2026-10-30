@@ -9,7 +9,7 @@
 
 **尚未收录已发布的桌面安装包。** 桌面构建目标见 `release/targets.json`。
 
-- **hfy CLI 0.1.3**：[Release](https://github.com/TokenNotIncluded/hireferry/releases/tag/cli-v0.1.3) · [校验文件](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/SHA256SUMS)
+- **hfy CLI 0.1.4**：[Release](https://github.com/TokenNotIncluded/hireferry/releases/tag/cli-v0.1.4) · [校验文件](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/SHA256SUMS)
 - **服务端 0.1.0**：[Release](https://github.com/TokenNotIncluded/hireferry/releases/tag/server-v0.1.0) · [校验文件](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/SHA256SUMS)
 
 ## 渠道矩阵
@@ -24,12 +24,12 @@
 
 | 组件 | 系统 | 架构 | 软件包 | 下载体积 |
 | --- | --- | --- | --- | --- |
-| hfy CLI | Linux | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-unknown-linux-musl.tar.gz) | 1.94 MiB |
-| hfy CLI | Linux | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-unknown-linux-musl.tar.gz) | 2.08 MiB |
-| hfy CLI | Windows | ARM64 | [.zip](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-pc-windows-msvc.zip) | 1.90 MiB |
-| hfy CLI | Windows | x64 | [.zip](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-pc-windows-msvc.zip) | 2.01 MiB |
-| hfy CLI | macOS | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-aarch64-apple-darwin.tar.gz) | 1.83 MiB |
-| hfy CLI | macOS | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.3/hireferry-cli-0.1.3-x86_64-apple-darwin.tar.gz) | 1.94 MiB |
+| hfy CLI | Linux | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-unknown-linux-musl.tar.gz) | 2.04 MiB |
+| hfy CLI | Linux | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-unknown-linux-musl.tar.gz) | 2.18 MiB |
+| hfy CLI | Windows | ARM64 | [.zip](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-pc-windows-msvc.zip) | 2.00 MiB |
+| hfy CLI | Windows | x64 | [.zip](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-pc-windows-msvc.zip) | 2.11 MiB |
+| hfy CLI | macOS | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-apple-darwin.tar.gz) | 1.92 MiB |
+| hfy CLI | macOS | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-apple-darwin.tar.gz) | 2.04 MiB |
 | 服务端 | Linux | ARM64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz) | 6.45 MiB |
 | 服务端 | Linux | x64 | [.tar.gz](https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz) | 6.79 MiB |
 
