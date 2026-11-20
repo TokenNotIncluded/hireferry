@@ -62,15 +62,19 @@ mode = "test"
 # Currency codes are explicit. Existing jobs/orders keep their original currency.
 # Empty allowed_currencies means only currency; add per-currency amounts below
 # before enabling additional currencies. No automatic exchange conversion.
+billing_mode = "donation" # fees or donation; donation keeps job services free.
 currency = "CNY"
 allowed_currencies = ["CNY"]
-onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+onboarding_cents = 10000 # Original integer minor units.
+onboarding_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
 publish_mode = "salary_percent" # salary_percent, fixed, or free
-publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
-publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
+publish_bps = 1000 # Original rate; 10000 basis points = 100%.
+publish_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+publish_fixed_minor = 30000 # Original amount in this currency's minor unit; discount applies after calculation.
 edit_mode = "salary_percent" # Snapshot is retained for the lifetime of each job.
-edit_bps = 100 # Percentage of the original base salary, not the publication fee.
-edit_fixed_minor = 3000
+edit_bps = 100 # Original percentage of base salary, not the publication fee.
+edit_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 max_edits = 3 # Applies to JD edits; headcount changes and deletion stay free.
 employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new jobs.
 
@@ -78,7 +82,7 @@ employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new j
 # Values are business settings, not exchange rates; review before enabling.
 # [pricing.currency_amounts.USD]
 # publish_fixed_minor = 30000
-# edit_fixed_minor = 3000
+# edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 # employer_ai_min_salary_minor = 300000
 # For JPY/KRW, one minor unit is one yen/won (no multiplication by 100).
 
@@ -117,3 +121,27 @@ rate_limit_requests = 100
 rate_limit_window_seconds = 300
 max_user_code_attempts = 30
 max_pending_grants = 1000
+
+# Early-stage platform AI replies are asynchronous and proactive, not always online.
+[chat.auto_reply]
+enabled = true
+delay_seconds = 1
+poll_seconds = 2
+max_attempts = 3
+title = "已收到，平台 AI 会异步处理"
+title_en = "Received — HireFerry AI will process this asynchronously"
+body_md = "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：消息会进入后台队列，有进展时我们会主动回到这里。"
+body_md_en = "HireFerry is still in the early stage. Platform AI works asynchronously and proactively; it is not a 24/7 live support channel. Messages enter a background queue and we return when there is progress."
+
+# Optional local welcome override; uncomment this entire block to try it.
+# Only empty, writable platform chats for job seekers use this audience.
+# Other audiences and omitted fields keep the built-in localized copy.
+# [chat.welcome.platform_seeker]
+# title = "欢迎来到开发环境"
+# title_en = "Welcome to the development workspace"
+# body_md = "可以从一段 **Markdown** 草稿开始。"
+# body_md_en = "Start with a **Markdown** draft."
+# prompts = [
+#   { label = "试写草稿", body = "你好，想聊聊我的求职方向。", label_en = "Try a draft", body_en = "Hello, I would like to discuss my job search." }
+# ]
+# Use prompts=[] instead to hide buttons. See docs/chat-agents.md.

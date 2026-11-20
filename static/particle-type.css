@@ -1,12 +1,18 @@
-.particle-title { position:relative; }
-.particle-title-canvas { position:absolute;inset:0;width:100%;height:100%;pointer-events:none; }
-.particle-title-ready,.hero .particle-title-ready em { color:transparent; }
+.particle-title { position:relative;isolation:isolate; }
+.particle-title-canvas { position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.18;z-index:0; }
+/* The DOM heading is the real title and must stay visible when the canvas is
+ * delayed, unavailable, reduced, or disabled. The canvas is only decoration. */
+.hero h1,.hero h1 em,.hero .particle-title { color:var(--ink);opacity:1; }
+.hero h1 em { color:var(--accent); }
 .particle-title-ready::selection,.particle-title-ready em::selection { color:var(--ink); }
 @media (forced-colors:active) {
   .particle-title-canvas { display:none; }
-  .particle-title-ready,.hero .particle-title-ready em { color:CanvasText; }
+  .hero h1,.hero h1 em,.hero .particle-title-ready { color:CanvasText; }
 }
 @media print {
   .particle-title-canvas { display:none; }
-  .particle-title-ready,.hero .particle-title-ready em { color:var(--ink); }
+  .hero h1,.hero h1 em,.hero .particle-title-ready { color:var(--ink); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .particle-title-canvas { display:none; }
 }

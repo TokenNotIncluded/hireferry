@@ -20,6 +20,11 @@ pub fn routes() -> Router<AppState> {
         .route("/api/config", get(config))
         .route("/api/ai/eligibility", get(ai_eligibility))
         .route("/api/profile", get(profile).put(update_profile))
+        .route("/api/public-profiles/{handle}", get(public_profile))
+        .route("/api/public/jobs", get(public_jobs))
+        .route("/api/public/jobs/{id}", get(public_job))
+        .route("/api/public/people", get(public_people))
+        .route("/api/public/people/{handle}", get(public_person))
         .route("/api/profile/avatar", post(upload_avatar).put(svg_avatar))
         .route("/api/avatars/{id}", get(avatar))
         .route("/api/role", post(role))
@@ -37,6 +42,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/orders", get(orders))
         .route("/api/orders/{id}", get(order))
         .route("/api/orders/{id}/checkout", post(checkout))
+        .route("/api/donations", post(create_donation))
         .route("/api/tokens", get(tokens).post(create_token))
         .route("/api/tokens/{id}", delete(revoke_token))
         .route("/api/markdown", post(markdown))
@@ -53,31 +59,80 @@ pub fn public_config(s: &AppState) -> Value {
     if s.cfg.payments.waffo.enabled {
         providers.push("waffo");
     }
-    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"payment_modes":{"waffo":s.cfg.payments.waffo.mode,"stripe":if s.cfg.payments.stripe.live_mode {"prod"} else {"test"}},"waffo_regions":s.cfg.payments.waffo.checkout_regions,"cli_distribution":s.cfg.cli_distribution,"pricing":s.cfg.pricing.public(),"limits":s.cfg.limits})
+    let mut pricing = s.cfg.pricing.public();
+    if let Ok(db) = s.conn() {
+        pricing["billing_mode"] = json!(
+            crate::commerce::billing_mode(s, &db).unwrap_or_else(|_| s
+                .cfg
+                .pricing
+                .billing_mode
+                .clone())
+        );
+    }
+    json!({"name":s.cfg.site.name,"public_origin":s.cfg.public_url,"default_language":s.cfg.site.default_language,"support_email":s.cfg.site.support_email,"source_url":s.cfg.site.source_url,"google_enabled":s.cfg.google.enabled,"humangrant_enabled":s.cfg.humangrant.enabled,"email_enabled":s.cfg.smtp.enabled||s.cfg.development,"email_notifications_enabled":s.cfg.smtp.enabled,"development":s.cfg.development,"providers":providers,"payment_currencies":s.cfg.payments.public_currencies(),"payment_modes":{"waffo":s.conn().and_then(|db| crate::payments::waffo_mode(s, &db)).unwrap_or_else(|_| "unavailable".into()),"stripe":if s.cfg.payments.stripe.live_mode {"prod"} else {"test"}},"waffo_regions":s.cfg.payments.waffo.checkout_regions,"cli_distribution":s.cfg.cli_distribution,"pricing":pricing,"limits":s.cfg.limits,"chat":s.cfg.chat.public()})
 }
-async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<User>> {
+async fn profile(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let id = user_id(&s, &h, false)?;
-    Ok(Json(models::load_user(&*s.conn()?, &id)?))
+    let mut user = {
+        let db = s.conn()?;
+        let mut user =
+            serde_json::to_value(models::load_user(&db, &id)?).map_err(AppError::internal)?;
+        user["referral"] = crate::referrals::profile_data(&db, &id, &s.cfg.public_url)?;
+        user
+    };
+    user["email_notifications"] = crate::notifications::settings(&s, &id)?;
+    Ok(Json(user))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileInput {
     pub name: String,
+    #[serde(default)]
+    pub handle: String,
     pub public_email: String,
     pub resume_md: String,
     #[serde(default)]
     pub visible: bool,
+    #[serde(default)]
+    pub public_profile: bool,
+    #[serde(default)]
+    pub ai_profile_links: std::collections::BTreeMap<String, String>,
 }
+
+fn is_generated_handle(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("user_") else {
+        return false;
+    };
+    (16..=27).contains(&suffix.len())
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<User> {
     safety::bounded_text(&input.name, 120, "Name")?;
+    let db = s.conn()?;
+    let user = models::load_user(&db, id)?;
+    let handle = if input.handle.trim().is_empty() {
+        user.handle.clone()
+    } else {
+        input.handle.trim().to_lowercase()
+    };
+    if !matches!(handle.len(), 3..=32)
+        || !handle
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+    {
+        return Err(AppError::bad_request(
+            "Username must be 3–32 lowercase letters, numbers, hyphens or underscores",
+        ));
+    }
     safety::bounded_text(&input.resume_md, 80_000, "Resume")?;
     let email = if input.public_email.trim().is_empty() {
         String::new()
     } else {
         safety::email(&input.public_email)?
     };
-    let db = s.conn()?;
-    let user = models::load_user(&db, id)?;
     if user.banned {
         return Err(AppError::forbidden("Account is suspended"));
     }
@@ -87,14 +142,226 @@ pub fn save_profile(s: &AppState, id: &str, input: ProfileInput) -> AppResult<Us
     if user.role != "seeker" && !input.resume_md.is_empty() {
         return Err(AppError::bad_request("Only seekers have a resume"));
     }
+    let links = input
+        .ai_profile_links
+        .iter()
+        .filter(|(_, url)| !url.trim().is_empty())
+        .map(|(name, url)| {
+            let name = name.trim();
+            if name.is_empty() || name.chars().count() > 32 || name.chars().any(char::is_control) {
+                return Err(AppError::bad_request(
+                    "Profile link names must be 1–32 visible characters",
+                ));
+            }
+            let parsed = url::Url::parse(url.trim())
+                .map_err(|_| AppError::bad_request("Profile links must be valid HTTPS URLs"))?;
+            if parsed.scheme() != "https"
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+            {
+                return Err(AppError::bad_request(
+                    "Profile links must be public HTTPS URLs",
+                ));
+            }
+            Ok((name.to_owned(), url.trim().to_owned()))
+        })
+        .collect::<AppResult<std::collections::BTreeMap<_, _>>>()?;
+    if links.len() > 12 {
+        return Err(AppError::bad_request(
+            "At most 12 AI profile links are allowed",
+        ));
+    }
+    let handle_taken: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE handle=?1 COLLATE NOCASE AND id<>?2)",
+        params![handle, id],
+        |r| r.get(0),
+    )?;
+    if handle_taken {
+        return Err(AppError::conflict("That username is already taken"));
+    }
+    if input.public_profile && is_generated_handle(&handle) {
+        return Err(AppError::bad_request(
+            "Claim a custom username before publishing your profile",
+        ));
+    }
     // Retain the legacy input field for compatibility, but it never grants
     // discovery access. Only the platform and explicit matches see a profile.
     db.execute(
-        "UPDATE users SET name=?2,public_email=?3,resume_md=?4,visible=0,updated_at=?5 WHERE id=?1",
-        params![id, input.name.trim(), email, input.resume_md, now()],
+        "UPDATE users SET name=?2,handle=?3,public_email=?4,resume_md=?5,visible=0,public_profile=?6,ai_profile_links=?7,updated_at=?8 WHERE id=?1",
+        params![id, input.name.trim(), handle, email, input.resume_md, input.public_profile, serde_json::to_string(&links).map_err(AppError::internal)?, now()],
     )?;
     crate::db::audit(&db, id, "profile_update", id, "")?;
     models::load_user(&db, id)
+}
+async fn public_profile(
+    State(s): State<AppState>,
+    Path(handle): Path<String>,
+) -> AppResult<Json<Value>> {
+    let db = s.conn()?;
+    let user = db
+        .query_row(
+            "SELECT * FROM users WHERE handle=?1 COLLATE NOCASE AND banned=0 AND public_profile=1",
+            [handle],
+            models::user_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public profile not found"))?;
+    Ok(Json(
+        json!({"profile":{"id":user.id,"name":user.name,"handle":user.handle,"avatar":user.avatar,"public_email":user.public_email,"resume_html":safety::markdown(&user.resume_md),"ai_profile_links":user.ai_profile_links,"created_at":user.created_at},"url":format!("{}/u/{}",s.cfg.public_url,user.handle)}),
+    ))
+}
+
+fn public_job_value(s: &AppState, db: &rusqlite::Connection, job: models::Job) -> AppResult<Value> {
+    let owner = models::load_user(db, &job.owner_id)?;
+    let public_name = owner.public_employer_name();
+    let employer_public = public_name.is_some();
+    Ok(json!({
+        "id": job.id,
+        "url": format!("{}/discover/jobs/{}", s.cfg.public_url, job.id),
+        "title": job.title,
+        "jd_md": job.jd_md,
+        "jd_html": safety::markdown(&job.jd_md),
+        "salary_cents": job.salary_cents,
+        "currency": job.currency,
+        "currency_decimals": job.currency_decimals,
+        "headcount": job.headcount,
+        "status": job.status,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "employer": {
+            "name": public_name.unwrap_or("公开招聘方"),
+            "handle": if employer_public { Some(owner.handle.clone()) } else { None::<String> },
+            "profile_url": if employer_public && !owner.handle.is_empty() { Some(format!("{}/u/{}", s.cfg.public_url, owner.handle)) } else { None::<String> }
+        }
+    }))
+}
+
+pub fn public_job_data(s: &AppState, id: &str) -> AppResult<Value> {
+    let db = s.conn()?;
+    let job = db
+        .query_row(
+            "SELECT j.* FROM jobs j JOIN users u ON u.id=j.owner_id WHERE j.id=?1 AND j.status='published' AND j.headcount>0 AND u.banned=0",
+            [id],
+            models::job_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public job not found"))?;
+    public_job_value(s, &db, job)
+}
+
+pub fn list_public_jobs(s: &AppState, q: &ListQuery) -> AppResult<Value> {
+    let db = s.conn()?;
+    let (limit, offset) = pagination(s, q);
+    let search = format!(
+        "%{}%",
+        q.q.as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(100)
+            .collect::<String>()
+    );
+    let clause = "j.status='published' AND j.headcount>0 AND u.banned=0 AND (j.title LIKE ?1 OR j.jd_md LIKE ?1 OR u.name LIKE ?1)";
+    let jobs = db
+        .prepare(&format!(
+            "SELECT j.* FROM jobs j JOIN users u ON u.id=j.owner_id WHERE {clause} ORDER BY j.created_at DESC,j.id LIMIT ?2 OFFSET ?3"
+        ))?
+        .query_map(params![search, limit, offset], models::job_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let items = jobs
+        .into_iter()
+        .map(|job| public_job_value(s, &db, job))
+        .collect::<AppResult<Vec<_>>>()?;
+    let total: i64 = db.query_row(
+        &format!("SELECT count(*) FROM jobs j JOIN users u ON u.id=j.owner_id WHERE {clause}"),
+        params![search],
+        |row| row.get(0),
+    )?;
+    Ok(json!({"items":items,"total":total,"limit":limit,"page":offset/limit+1}))
+}
+
+async fn public_jobs(
+    State(s): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_public_jobs(&s, &q)?))
+}
+
+async fn public_job(State(s): State<AppState>, Path(id): Path<String>) -> AppResult<Json<Value>> {
+    Ok(Json(public_job_data(&s, &id)?))
+}
+
+fn public_person_value(s: &AppState, user: User) -> Value {
+    json!({
+        "id": user.id,
+        "name": user.name,
+        "handle": user.handle,
+        "url": format!("{}/discover/people/{}", s.cfg.public_url, user.handle),
+        "avatar": user.avatar,
+        "public_email": user.public_email,
+        "resume_md": user.resume_md,
+        "resume_html": safety::markdown(&user.resume_md),
+        "ai_profile_links": user.ai_profile_links,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at
+    })
+}
+
+pub fn public_person_data(s: &AppState, handle: &str) -> AppResult<Value> {
+    let db = s.conn()?;
+    let user = db
+        .query_row(
+            "SELECT * FROM users WHERE handle=?1 COLLATE NOCASE AND role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>''",
+            [handle],
+            models::user_row,
+        )
+        .optional()?
+        .ok_or_else(|| AppError::not_found("Public résumé not found"))?;
+    Ok(public_person_value(s, user))
+}
+
+pub fn list_public_people(s: &AppState, q: &ListQuery) -> AppResult<Value> {
+    let db = s.conn()?;
+    let (limit, offset) = pagination(s, q);
+    let search = format!(
+        "%{}%",
+        q.q.as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(100)
+            .collect::<String>()
+    );
+    let clause = "role='seeker' AND banned=0 AND public_profile=1 AND resume_md<>'' AND (name LIKE ?1 OR handle LIKE ?1 OR resume_md LIKE ?1)";
+    let users = db
+        .prepare(&format!(
+            "SELECT * FROM users WHERE {clause} ORDER BY updated_at DESC,id LIMIT ?2 OFFSET ?3"
+        ))?
+        .query_map(params![search, limit, offset], models::user_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let items = users
+        .into_iter()
+        .map(|user| public_person_value(s, user))
+        .collect::<Vec<_>>();
+    let total: i64 = db.query_row(
+        &format!("SELECT count(*) FROM users WHERE {clause}"),
+        params![search],
+        |row| row.get(0),
+    )?;
+    Ok(json!({"items":items,"total":total,"limit":limit,"page":offset/limit+1}))
+}
+
+async fn public_people(
+    State(s): State<AppState>,
+    Query(q): Query<ListQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_public_people(&s, &q)?))
+}
+
+async fn public_person(
+    State(s): State<AppState>,
+    Path(handle): Path<String>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(public_person_data(&s, &handle)?))
 }
 async fn update_profile(
     State(s): State<AppState>,
@@ -209,7 +476,10 @@ async fn avatar(
             e
         }
     })?;
-    let allowed = if let Some(p) = principal {
+    let public_profile_avatar = !user.banned && user.public_profile;
+    let allowed = if public_profile_avatar {
+        true
+    } else if let Some(p) = principal {
         access::ensure_active(&db, &p)?;
         p.admin
             || (!user.banned && p.user_id.as_deref().is_some_and(|v| v == id))
@@ -408,6 +678,21 @@ pub struct JobInput {
     pub request_key: Option<String>,
     pub expected_amount_cents: Option<i64>,
 }
+impl<'a> From<&'a JobInput> for commerce::NewJob<'a> {
+    fn from(input: &'a JobInput) -> Self {
+        Self {
+            title: &input.title,
+            jd_md: &input.jd_md,
+            salary_cents: input.salary_cents,
+            provider: &input.provider,
+            headcount: input.headcount,
+            currency: input.currency.as_deref(),
+            promo_code: input.promo_code.as_deref(),
+            request_key: input.request_key.as_deref(),
+            expected_amount_cents: input.expected_amount_cents,
+        }
+    }
+}
 fn default_headcount() -> i64 {
     1
 }
@@ -417,19 +702,7 @@ async fn create_job(
     Json(i): Json<JobInput>,
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
-    let (job, order) = commerce::new_job_with_promo(
-        &s,
-        &uid,
-        &i.title,
-        &i.jd_md,
-        i.salary_cents,
-        &i.provider,
-        i.headcount,
-        i.currency.as_deref(),
-        i.promo_code.as_deref(),
-        i.request_key.as_deref(),
-        i.expected_amount_cents,
-    )?;
+    let (job, order) = commerce::create_job(&s, &uid, commerce::NewJob::from(&i))?;
     Ok(Json(json!({"job":job,"order":order})))
 }
 #[derive(Deserialize)]
@@ -648,6 +921,29 @@ pub fn user_order(s: &AppState, uid: &str, id: &str) -> AppResult<models::Order>
 async fn orders(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, false)?;
     Ok(Json(json!({"items":user_orders(&s,&uid)?})))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DonationInput {
+    amount_minor: i64,
+    currency: String,
+    provider: String,
+    request_key: String,
+}
+async fn create_donation(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<DonationInput>,
+) -> AppResult<Json<models::Order>> {
+    let uid = user_id(&s, &h, true)?;
+    Ok(Json(commerce::create_donation(
+        &s,
+        &uid,
+        input.amount_minor,
+        &input.currency,
+        &input.provider,
+        &input.request_key,
+    )?))
 }
 async fn order(
     State(s): State<AppState>,

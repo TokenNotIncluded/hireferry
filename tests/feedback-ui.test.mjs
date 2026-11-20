@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
 import {mountQuickFeedback, safeFeedbackPage} from '../static/feedback-ui.js';
 
 test('feedback references only a short local path, never query strings or secrets', () => {
@@ -14,9 +16,14 @@ test('feedback references only a short local path, never query strings or secret
 test('main app and standalone OAuth pages share saved Material 3 themes and feedback', async () => {
   for (const name of ['index.html','cli-auth.html','cli-connections.html']) {
     const html = await readFile(new URL(`../static/${name}`, import.meta.url), 'utf8');
-    for (const asset of ['theme.js','theme-palettes.css','theme.css','feedback.css','feedback-ui.js']) {
+    for (const asset of ['theme.js','theme-palettes.css','theme.css','feedback.css']) {
       assert.ok(html.includes(`/static/${asset}`), `${name}: missing ${asset}`);
     }
+    const entryPoints = [...html.matchAll(/<script\b[^>]*type="module"[^>]*src="\/static\/([^"]+)"/g)]
+      .map(([, path]) => fileURLToPath(new URL(`../static/${path}`, import.meta.url)));
+    assert.ok(entryPoints.length, `${name}: missing module entry point`);
+    const {metafile} = await build({entryPoints, bundle:true, write:false, metafile:true, outdir:'feedback-test-output', format:'esm', logLevel:'silent'});
+    assert.ok(Object.keys(metafile.inputs).some(path => path.endsWith('/feedback-ui.js')), `${name}: feedback is unreachable from page entry points`);
   }
   const css = await readFile(new URL('../static/cli-auth.css', import.meta.url), 'utf8');
   for (const variable of ['--paper','--surface','--ink','--accent','--on-accent','--line']) {
