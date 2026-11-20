@@ -75,7 +75,7 @@ export async function createNavigationHarness(directory,{latencyMs=0,mountChat=f
     const status=data?.httpStatus||200;
     return {ok:status>=200&&status<300,status,json:async()=>structuredClone(data?.httpStatus?data.body:data)};
   };
-  const mountPage=(target,html,pageKey,{busy=false}={})=>{target.innerHTML=html;target.dataset.pageKey=pageKey;target.classList.toggle('page-pending',busy);mounts.push({at:performance.now(),pageKey,busy,html,requestCount:network.length});};
+  const mountPage=(target,html,pageKey,{busy=false,preserveMain=false}={})=>{if(preserveMain){const main=target.innerHTML.match(/<main\b[\s\S]*<\/main>/)?.[0];if(main)html=html.replace(/<main\b[\s\S]*<\/main>/,()=>main);}target.innerHTML=html;target.dataset.pageKey=pageKey;target.classList.toggle('page-pending',busy);mounts.push({at:performance.now(),pageKey,busy,html,requestCount:network.length});};
   const createServiceUI=dependencies=>{
     const service=services.createServiceUI(dependencies);
     const original=service.stopChat;
