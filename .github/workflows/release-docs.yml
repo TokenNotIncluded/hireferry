@@ -67,7 +67,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/downloads.md docs/assets/release-matrix.svg release/latest.json
+          git add docs/downloads.md docs/assets/release-matrix.svg release/latest.json static/downloads.json
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "docs: refresh download matrix for $RELEASE_TAG"
           git pull --rebase origin "$DEFAULT_BRANCH"
