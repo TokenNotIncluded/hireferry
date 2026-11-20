@@ -2,11 +2,14 @@
 name = "hireferry-desktop"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 description = "HireFerry desktop client"
 authors = ["HireFerry contributors"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/TokenNotIncluded/hireferry"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 # The desktop toolchain is deliberately independent of the server/CLI workspace.
 [workspace]
