@@ -529,6 +529,8 @@ def docs(args):
         manifest = merge_manifests(current, manifest)
     data = manifest['catalog'] if manifest else catalog()
     outputs = {ROOT/'docs/downloads.md':markdown(data, manifest), ROOT/'docs/assets/release-matrix.svg':svg(data, manifest)}
+    if manifest:
+        outputs[ROOT/'static/downloads.json'] = json.dumps(manifest, indent=2) + '\n'
     if args.manifest:
         outputs[SNAPSHOT] = json.dumps(manifest, indent=2) + '\n'
     stale = []
