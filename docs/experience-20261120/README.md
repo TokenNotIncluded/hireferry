@@ -37,13 +37,15 @@
 
 浏览器检查没有出现未处理的 JavaScript 异常。手机目录、简历列表与首页均未出现文档级横向溢出。测试覆盖 Chromium；本轮未单独验收 Safari 或 Firefox。
 
+GitHub [PR #27](https://github.com/TokenNotIncluded/hireferry/pull/27) 已创建。仓库自动安全审查因付费账户达到用量上限而未完成，详见[机器人返回的原因](https://github.com/TokenNotIncluded/hireferry/pull/27#issuecomment-7026345092)。上表记录的是已完成的本地验收，不包含这项未完成的自动审查。
+
 可复查的浏览器记录：[页面与交互](browser-report.json)、[登录与失效详情](public-session-browser-report.json)。
 
 发布目录的针对性测试命令：
 
 ```sh
-python3 tests/release.test.py \\
-  ReleaseTests.test_published_catalog_survives_new_planned_formats_and_targets \\
+python3 tests/release.test.py \
+  ReleaseTests.test_published_catalog_survives_new_planned_formats_and_targets \
   ReleaseTests.test_cli_first_then_desktop_keeps_newer_cli_and_frozen_catalog
 python3 scripts/release.py docs --check
 ```
