@@ -50,26 +50,33 @@ pub fn run() {
                 if urls.len() != 1 || !policy::login_return(&urls[0]) {
                     return;
                 }
-                // The OS foregrounds the existing app. A fixed, payload-free
-                // event only asks its already-open login page to poll sooner.
-                // Never import a URL/session or navigate on a cold start.
-                let Some(window) = return_app.get_webview_window("launcher") else {
-                    return;
-                };
-                if window.url().is_ok_and(|current| {
-                    current.path() == "/auth/app"
-                        && return_app
-                            .state::<Connection>()
-                            .0
-                            .read()
-                            .is_ok_and(|selected| {
-                                selected.as_ref().is_some_and(|origin| {
-                                    policy::service_navigation(origin, &current)
+                // Reading a WebView URL waits for the platform event loop.
+                // A deep-link callback can run on that loop, so dispatch the
+                // guarded notification without blocking Android focus/resume.
+                let return_app = return_app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    // The OS foregrounds the existing app. A fixed, payload-free
+                    // event only asks its already-open login page to poll sooner.
+                    // Never import a URL/session or navigate on a cold start.
+                    let Some(window) = return_app.get_webview_window("launcher") else {
+                        return;
+                    };
+                    if window.url().is_ok_and(|current| {
+                        current.path() == "/auth/app"
+                            && return_app
+                                .state::<Connection>()
+                                .0
+                                .read()
+                                .is_ok_and(|selected| {
+                                    selected.as_ref().is_some_and(|origin| {
+                                        policy::service_navigation(origin, &current)
+                                    })
                                 })
-                            })
-                }) {
-                    let _ = window.eval("window.dispatchEvent(new Event('hireferry-app-return'))");
-                }
+                    }) {
+                        let _ =
+                            window.eval("window.dispatchEvent(new Event('hireferry-app-return'))");
+                    }
+                });
             });
             let navigation_app = app.handle().clone();
             WebviewWindowBuilder::new(app, "launcher", WebviewUrl::App("index.html".into()))
