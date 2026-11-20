@@ -1,10 +1,15 @@
 pub mod access;
 pub mod admin;
 pub mod admin_ai;
+pub mod announcements;
 pub mod api;
 mod assets;
 pub mod auth;
+pub mod badges;
 pub mod chat;
+pub mod chat_ai;
+pub mod chat_capabilities;
+pub mod chat_stream;
 pub mod cli_auth;
 pub mod cli_distribution;
 pub mod commerce;
@@ -14,13 +19,19 @@ pub mod error;
 pub mod feedback;
 pub mod humangrant;
 pub mod humangrant_access;
+pub mod job_interactions;
 pub mod legal;
 pub mod maintenance;
 pub mod mcp;
 pub mod models;
+pub mod notifications;
 pub mod payments;
 pub mod promos;
+pub mod referrals;
+pub mod relation_views;
+pub mod relations;
 pub mod safety;
+mod seo;
 pub mod staff;
 pub mod team;
 pub mod webhooks;
@@ -40,8 +51,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub struct AppState {
     pub cfg: Arc<config::Config>,
     pub db: Arc<Mutex<rusqlite::Connection>>,
+    pub relations_cache: Arc<Mutex<relations::Cache>>,
     pub client: reqwest::Client,
     pub auth: Arc<auth::AuthService>,
+    /// Database cursors survive restarts; notifications only wake live readers.
+    pub chat_notify: Arc<tokio::sync::Notify>,
     // Scoped per request; never placed in the shared application router state.
     humangrant: Option<humangrant_access::Execution>,
 }
@@ -56,16 +70,31 @@ impl AppState {
             .ascii_serialization();
         let db = db::open(&cfg.database)?;
         webhooks::configure(&db, &cfg.webhooks)?;
+        notifications::configure(&db, cfg.smtp.enabled)?;
+        let saved_mode: Option<String> = {
+            use rusqlite::OptionalExtension;
+            db.query_row(
+                "SELECT mode FROM payment_settings WHERE provider='waffo'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?
+        };
+        if let Some(mode) = saved_mode {
+            cfg.payments.waffo.for_mode(&mode)?;
+        }
         let auth = auth::AuthService::new(&cfg)?;
         Ok(Self {
             cfg: Arc::new(cfg),
             db: Arc::new(Mutex::new(db)),
+            relations_cache: Arc::new(Mutex::new(relations::Cache::default())),
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(std::time::Duration::from_secs(20))
                 .build()
                 .map_err(AppError::internal)?,
             auth: Arc::new(auth),
+            chat_notify: Arc::new(tokio::sync::Notify::new()),
             humangrant: None,
         })
     }
@@ -120,24 +149,32 @@ pub fn app(state: AppState) -> Router {
         .merge(cli_auth::routes())
         .merge(cli_distribution::routes())
         .merge(api::routes())
+        .merge(announcements::routes())
+        .merge(badges::routes())
         .merge(feedback::routes())
+        .merge(job_interactions::routes())
         .merge(legal::routes())
         .merge(admin::routes())
         .merge(staff::routes())
         .merge(admin_ai::routes())
         .merge(team::routes())
         .merge(chat::routes())
+        .merge(chat_capabilities::routes())
         .merge(payments::routes())
         .merge(promos::routes())
         .merge(mcp::routes())
         .merge(webhooks::routes())
+        .merge(notifications::routes())
         .merge(workbench::routes())
+        .merge(relations::routes())
+        .merge(relation_views::routes())
         .route(
             "/healthz",
             axum::routing::get(|| async { StatusCode::NO_CONTENT }),
         )
         .fallback_service(
             axum::routing::get(assets::serve)
+                .with_state(state.clone())
                 .layer(tower_http::compression::CompressionLayer::new()),
         )
         .layer(DefaultBodyLimit::max(3 * 1024 * 1024))
@@ -145,13 +182,19 @@ pub fn app(state: AppState) -> Router {
         .with_state(state)
 }
 async fn security(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    if let Some(origin) = req.headers().get("origin") {
-        if origin.to_str().ok() != Some(state.cfg.public_url.trim_end_matches('/')) {
-            return AppError::forbidden("Origin is not allowed").into_response();
-        }
+    if let Some(origin) = req.headers().get("origin")
+        && origin.to_str().ok() != Some(state.cfg.public_url.trim_end_matches('/'))
+    {
+        return AppError::forbidden("Origin is not allowed").into_response();
     }
+    let indexable = seo::PUBLIC_PAGES.contains(&req.uri().path())
+        || seo::is_public_profile_path(req.uri().path())
+        || seo::is_public_directory_path(req.uri().path());
     let mut res = next.run(req).await;
     let h = res.headers_mut();
+    if !indexable {
+        h.insert("x-robots-tag", HeaderValue::from_static("noindex, follow"));
+    }
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),

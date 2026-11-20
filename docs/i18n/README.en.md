@@ -28,11 +28,16 @@
   <a href="https://github.com/TokenNotIncluded/hireferry/issues">Report an issue</a>
 </p>
 
+<p align="center">
+  <a href="https://hireferry.lmm.best/login?role=seeker&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=seeker">Free job-seeker sign-up</a> ·
+  <a href="https://hireferry.lmm.best/login?role=employer&amp;utm_source=github&amp;utm_medium=readme&amp;utm_campaign=evergreen&amp;utm_content=employer">Permanent-free role publishing</a>
+</p>
+
 HireFerry is a recruitment platform you can host yourself. Job seekers and employers each communicate with the platform AI. Authorized AI agents connected through MCP automate requirement analysis, résumé screening, matching and follow-up. Connected agent clients run the automation loop; the server provides permissions, business tools and records. Once introduced, both parties can view the relevant profile and job and start a separate conversation.
 
-The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seekers use the service for free. Employer fees follow the site's configuration.
+The server uses **Rust + Axum + SQLite**. One binary embeds the website, with configuration in TOML. Job seeking and hiring are permanently free by default. Each self-hosted instance operator can configure their own payment account and accept voluntary donations at that instance's `/donate` page. Donations go to the operator of the current instance, not the upstream HireFerry project.
 
-**On this page**: [Features](#features) · [How it works](#workflow) · [Quick start](#quick-start) · [CLI and AI](#cli-and-ai) · [Architecture](#architecture) · [Documentation](#documentation) · [Contributing](#contributing)
+**On this page**: [Features](#features) · [How it works](#workflow) · [Quick start](#quick-start) · [CLI and AI](#cli-and-ai) · [Public discovery](#public-discovery) · [Architecture](#architecture) · [Documentation](#documentation) · [Contributing](#contributing)
 
 <a id="features"></a>
 
@@ -148,6 +153,20 @@ npx skills add TokenNotIncluded/hireferry --skill hireferry
 ```
 
 Skill installation requires Node.js 22.20+. Use `npx.cmd` in Windows PowerShell if needed. Site operators connect AI models, external search and outreach tools separately.
+
+<a id="public-discovery"></a>
+
+## Public discovery and free MCP
+
+Open the [public directory](https://hireferry.lmm.best/discover) to browse published roles that are still hiring and résumés that seekers have explicitly made public. Private messages, match history, orders and sign-in email addresses stay out of the directory.
+
+AI clients can read the same public opportunities through the free, read-only endpoint:
+
+```text
+POST https://hireferry.lmm.best/mcp/public
+```
+
+No login, API token or account is required. It exposes five tools for site configuration, job search and details, and public résumé search and details. A browser that supports native WebMCP registers the same tools when `/discover` is open. See [public MCP documentation](../mcp-public.md) for JSON-RPC examples and privacy boundaries.
 
 <a id="architecture"></a>
 

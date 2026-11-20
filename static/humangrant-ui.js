@@ -107,7 +107,7 @@ export function createHumanGrantUI({ state, api, t, esc, icon, notice, empty, no
 
   function loginButton() {
     if (!enabled()) return '';
-    return `<div class="hg-login-option"><a href="/humangrant" data-nav class="button hg-continue full"><span class="hg-login-icon">${mark()}</span><span class="hg-login-copy"><span class="hg-login-label">${loginName()}</span><span class="hg-login-description">${t('由你确认，再让 AI 登录。', 'Approve access for your AI.')}</span></span>${icon('arrow')}</a></div>`;
+    return `<a href="/humangrant" hidden data-nav data-agent-auth="humangrant" data-config-url="/api/humangrant/config">${loginName()}</a>`;
   }
 
   function intro() {

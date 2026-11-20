@@ -146,6 +146,7 @@ fn product_name(kind: &str) -> &'static str {
         "onboarding" | "recruiter_activation" | "activation" | "recruiter" => {
             "HireFerry recruiter access"
         }
+        "donation" => "Voluntary donation to the current site operator",
         "job_edit" | "edit" => "HireFerry job description update",
         _ => "HireFerry job advertisement",
     }
@@ -175,6 +176,14 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
     }
     let destination = return_url(&state.cfg.public_url, &order.id, "stripe", false)?;
     let canceled = return_url(&state.cfg.public_url, &order.id, "stripe", true)?;
+    let checkout_product_name = if order.kind == "donation" {
+        format!(
+            "Voluntary donation to the {} site operator",
+            state.cfg.site.name
+        )
+    } else {
+        product_name(&order.kind).to_string()
+    };
     let fields = [
         ("mode", "payment".to_string()),
         (
@@ -187,7 +196,7 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
         ),
         (
             "line_items[0][price_data][product_data][name]",
-            product_name(&order.kind).to_string(),
+            checkout_product_name,
         ),
         ("line_items[0][quantity]", "1".to_string()),
         ("client_reference_id", order.id.clone()),
@@ -230,8 +239,24 @@ async fn stripe_checkout(state: &AppState, order: &Order, email: &str) -> AppRes
     })
 }
 
+pub fn waffo_mode(state: &AppState, db: &rusqlite::Connection) -> AppResult<String> {
+    use rusqlite::OptionalExtension;
+    Ok(db
+        .query_row(
+            "SELECT mode FROM payment_settings WHERE provider='waffo'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or_else(|| state.cfg.payments.waffo.mode.clone()))
+}
+
 async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResult<Checkout> {
-    let cfg = &state.cfg.payments.waffo;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(if order.live_mode { "prod" } else { "test" })?;
     if !cfg.enabled
         || cfg.merchant_id.is_empty()
         || cfg.store_id.is_empty()
@@ -318,7 +343,11 @@ async fn waffo_checkout(state: &AppState, order: &Order, email: &str) -> AppResu
 }
 
 fn waffo_checkout_body(state: &AppState, order: &Order, email: &str) -> AppResult<Value> {
-    let cfg = &state.cfg.payments.waffo;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(if order.live_mode { "prod" } else { "test" })?;
     let snapshot: Value = serde_json::from_str(&order.snapshot_json).map_err(AppError::internal)?;
     let (_, region) = cfg.checkout_region(&order.currency, snapshot["payment_region"].as_str())?;
     Ok(json!({
@@ -405,7 +434,17 @@ async fn waffo_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> AppResult<StatusCode> {
-    let cfg = &state.cfg.payments.waffo;
+    let event: Value = serde_json::from_slice(&body)
+        .map_err(|_| AppError::bad_request("Invalid payment event"))?;
+    let mode = event["mode"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing payment mode"))?;
+    let cfg = state
+        .cfg
+        .payments
+        .waffo
+        .for_mode(mode)
+        .map_err(|_| AppError::bad_request("Incorrect or unconfigured payment environment"))?;
     if !cfg.enabled
         || cfg.webhook_public_key_pem.is_empty()
         || cfg.store_id.is_empty()
@@ -422,8 +461,6 @@ async fn waffo_webhook(
     ) {
         return Err(AppError::unauthorized("Invalid payment signature"));
     }
-    let event: Value = serde_json::from_slice(&body)
-        .map_err(|_| AppError::bad_request("Invalid payment event"))?;
     if let Some(receipt) = waffo_receipt(&event, &cfg.mode, &cfg.store_id)? {
         crate::commerce::settle_payment(&state, receipt).await?;
     } else if let Some(receipt) = waffo_refund(&event, &cfg.mode, &cfg.store_id)? {
@@ -529,10 +566,9 @@ fn waffo_receipt(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<
     if let Some(metadata_id) = data
         .pointer("/orderMetadata/hireferry_order_id")
         .and_then(Value::as_str)
+        && metadata_id != order_id
     {
-        if metadata_id != order_id {
-            return Err(AppError::bad_request("Payment order references disagree"));
-        }
+        return Err(AppError::bad_request("Payment order references disagree"));
     }
     Ok(Some(PaymentReceipt {
         provider: "waffo".into(),
@@ -577,10 +613,10 @@ fn waffo_refund(event: &Value, mode: &str, store_id: &str) -> AppResult<Option<R
         return Err(AppError::bad_request("Refund identifiers disagree"));
     }
     let order_id = required_string(data, "orderMerchantExternalId")?;
-    if let Some(metadata_id) = data.pointer("/orderMetadata/hireferry_order_id") {
-        if metadata_id.as_str() != Some(order_id.as_str()) {
-            return Err(AppError::bad_request("Refund order references disagree"));
-        }
+    if let Some(metadata_id) = data.pointer("/orderMetadata/hireferry_order_id")
+        && metadata_id.as_str() != Some(order_id.as_str())
+    {
+        return Err(AppError::bad_request("Refund order references disagree"));
     }
     let currency = required_string(data, "currency")?;
     if crate::config::currency_decimals(&currency).is_none() {

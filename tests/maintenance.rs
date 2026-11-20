@@ -4,9 +4,11 @@ use rusqlite::{Connection, params};
 use std::time::Duration;
 
 fn state(batch: i64) -> AppState {
-    let mut cfg = Config::default();
-    cfg.development = true;
-    cfg.database = ":memory:".into();
+    let mut cfg = Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    };
     cfg.maintenance.batch_size = batch;
     AppState::new(cfg).unwrap()
 }
@@ -166,9 +168,11 @@ fn webhook_retention_is_bounded_and_does_not_remove_inflight_delivery() {
 
 #[tokio::test]
 async fn background_worker_cleans_disabled_features_and_drains_backlog() {
-    let mut cfg = Config::default();
-    cfg.development = true;
-    cfg.database = ":memory:".into();
+    let mut cfg = Config {
+        development: true,
+        database: ":memory:".into(),
+        ..Default::default()
+    };
     cfg.maintenance.batch_size = 2;
     cfg.maintenance.interval_minutes = 1440;
     cfg.feedback.enabled = false;
@@ -404,8 +408,10 @@ async fn one_failed_phase_does_not_prevent_other_cleanup() {
 #[test]
 fn invalid_batch_configuration_is_rejected() {
     for batch in [-1, 0, 1001] {
-        let mut cfg = Config::default();
-        cfg.development = true;
+        let mut cfg = Config {
+            development: true,
+            ..Default::default()
+        };
         cfg.maintenance.batch_size = batch;
         assert!(cfg.validate().is_err());
     }

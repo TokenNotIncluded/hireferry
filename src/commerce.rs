@@ -1,6 +1,7 @@
 //! All paid changes pass through this module, from both the website and MCP.
 use crate::{
     AppState,
+    config::Pricing,
     db::audit,
     error::{AppError, AppResult},
     models::{self, Job, Order, User},
@@ -59,6 +60,14 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
  live_mode INTEGER NOT NULL CHECK(live_mode IN (0,1)),created_at INTEGER NOT NULL,
  PRIMARY KEY(provider,live_mode,event_id,event_type));
  "#)?;
+    db.execute_batch(
+        r#"
+ CREATE TABLE IF NOT EXISTS donation_requests(
+  user_id TEXT NOT NULL REFERENCES users(id),request_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
+  created_at INTEGER NOT NULL,PRIMARY KEY(user_id,request_key));
+ "#,
+    )?;
     Ok(())
 }
 
@@ -85,12 +94,13 @@ fn migrate_free_orders(db: &Connection) -> AppResult<()> {
         [],
         |row| row.get(0),
     )?;
-    if !sql
+    let normalized = sql
         .split_whitespace()
         .collect::<String>()
-        .to_ascii_lowercase()
-        .contains("check(amount_cents>0)")
-    {
+        .to_ascii_lowercase();
+    let needs_zero_amount_migration = normalized.contains("check(amount_cents>0)");
+    let supports_donations = normalized.contains("'donation'");
+    if !needs_zero_amount_migration && supports_donations {
         return Ok(());
     }
     // SQLite cannot alter a CHECK constraint. Rebuild only the parent table,
@@ -102,7 +112,7 @@ fn migrate_free_orders(db: &Connection) -> AppResult<()> {
     let result = db.execute_batch(r#"
 BEGIN IMMEDIATE;
 DROP TRIGGER IF EXISTS webhook_fanout;
-CREATE TABLE orders_free_migration(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER,refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK(refunded_cents>=0));
+CREATE TABLE orders_free_migration(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit','donation')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER,refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK(refunded_cents>=0));
 INSERT INTO orders_free_migration SELECT id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,status,snapshot_json,provider_session,checkout_url,checkout_started_at,created_at,paid_at,refunded_cents FROM orders;
 DROP TABLE orders;
 ALTER TABLE orders_free_migration RENAME TO orders;
@@ -120,8 +130,7 @@ COMMIT;
 }
 
 pub fn fee(salary_cents: i64, basis_points: i64) -> AppResult<i64> {
-    if salary_cents < 1 || salary_cents > 1_000_000_000 || basis_points <= 0 || basis_points > 10000
-    {
+    if !(1..=1_000_000_000).contains(&salary_cents) || basis_points <= 0 || basis_points > 10000 {
         return Err(AppError::bad_request(
             "Invalid base monthly salary or fee rate",
         ));
@@ -166,36 +175,169 @@ pub fn provider_currency_enabled(
     }
     Ok(())
 }
-fn provider_live(state: &AppState, provider: &str) -> bool {
-    match provider {
+fn provider_live(state: &AppState, db: &Connection, provider: &str) -> AppResult<bool> {
+    Ok(match provider {
         "stripe" => state.cfg.payments.stripe.live_mode,
-        "waffo" => state.cfg.payments.waffo.mode == "prod",
+        "waffo" => crate::payments::waffo_mode(state, db)? == "prod",
         _ => false,
-    }
+    })
 }
+
+/// Return the current operator-selected billing mode. The setting is stored in
+/// SQLite so an administrator can change donation mode without editing TOML or
+/// restarting the service. Historical orders keep their own immutable terms.
+pub fn billing_mode(state: &AppState, db: &Connection) -> AppResult<String> {
+    let saved: Option<String> = db
+        .query_row("SELECT mode FROM pricing_settings WHERE id=1", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    let mode = saved.unwrap_or_else(|| state.cfg.pricing.billing_mode.clone());
+    if !matches!(mode.as_str(), "fees" | "donation") {
+        return Err(AppError::conflict("Invalid billing mode"));
+    }
+    Ok(mode)
+}
+
 fn employer(db: &Connection, id: &str) -> AppResult<User> {
     let u = models::load_user(db, id)?;
     if u.banned || u.role != "employer" || !u.employer_paid {
-        return Err(AppError::forbidden("A paid employer account is required"));
+        return Err(AppError::forbidden(
+            "An active employer account is required",
+        ));
     }
     Ok(u)
 }
-pub(crate) fn insert_order(
-    db: &Connection,
-    user: &str,
-    kind: &str,
-    job: Option<&str>,
-    amount: i64,
-    provider: &str,
-    live_mode: bool,
-    currency: &str,
-    snapshot: Value,
-) -> AppResult<Order> {
+#[derive(Debug)]
+pub(crate) enum OrderPurpose<'a> {
+    Onboarding,
+    Publish(&'a str),
+    Edit(&'a str),
+    Donation,
+}
+
+#[derive(Debug)]
+pub(crate) struct OrderDraft<'a> {
+    pub user_id: &'a str,
+    pub purpose: OrderPurpose<'a>,
+    pub amount_cents: i64,
+    pub provider: &'a str,
+    pub live_mode: bool,
+    pub currency: &'a str,
+    pub snapshot: Value,
+}
+
+pub(crate) fn insert_order(db: &Connection, draft: OrderDraft<'_>) -> AppResult<Order> {
+    let OrderDraft {
+        user_id: user,
+        purpose,
+        amount_cents: amount,
+        provider,
+        live_mode,
+        currency,
+        snapshot,
+    } = draft;
+    let (kind, job) = match purpose {
+        OrderPurpose::Onboarding => ("onboarding", None),
+        OrderPurpose::Publish(id) => ("publish", Some(id)),
+        OrderPurpose::Edit(id) => ("edit", Some(id)),
+        OrderPurpose::Donation => ("donation", None),
+    };
     let id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
-    let expires = (amount > 0 && kind == "onboarding").then_some(timestamp + UNSTARTED_ORDER_TTL);
+    let expires = (amount > 0 && matches!(kind, "onboarding" | "donation"))
+        .then_some(timestamp + UNSTARTED_ORDER_TTL);
     db.execute("INSERT INTO orders(id,user_id,kind,job_id,amount_cents,currency,provider,live_mode,snapshot_json,status,created_at,paid_at,checkout_expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![id,user,kind,job,amount,currency,if amount == 0 {"free"} else {provider},live_mode,snapshot.to_string(),if amount == 0 {"paid"} else {"pending"},timestamp,if amount == 0 {Some(timestamp)} else {None},expires])?;
     models::load_order(db, &id)
+}
+
+/// Create a voluntary, one-time donation through the site's configured payment provider.
+/// A stable request key prevents a lost response from creating a second payable order.
+pub fn create_donation(
+    state: &AppState,
+    uid: &str,
+    amount_minor: i64,
+    currency: &str,
+    provider: &str,
+    request_key: &str,
+) -> AppResult<Order> {
+    let currency = currency.trim().to_ascii_uppercase();
+    if !state.cfg.pricing.permits_currency(&currency) {
+        return Err(AppError::bad_request("Choose an enabled donation currency"));
+    }
+    let decimals = crate::config::currency_decimals(&currency)
+        .ok_or_else(|| AppError::bad_request("Choose an enabled donation currency"))?;
+    let minimum = 10_i64.pow(decimals);
+    let maximum = 100_000_i64 * minimum;
+    if !(minimum..=maximum).contains(&amount_minor) {
+        return Err(AppError::bad_request(
+            "Donation amount must be between 1 and 100000 major units in the selected currency",
+        ));
+    }
+    let request_key = promos::validate_request_key(Some(request_key))?;
+    provider_currency_enabled(state, provider, &currency)?;
+    let request_hash = promos::request_hash(
+        &json!({"amount_minor":amount_minor,"currency":currency,"provider":provider}),
+    );
+    let mut db = state.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if billing_mode(state, &tx)? != "donation" {
+        return Err(AppError::conflict("Donations are not enabled on this site"));
+    }
+    let user = models::load_user(&tx, uid)?;
+    if user.banned {
+        return Err(AppError::forbidden("Account is suspended"));
+    }
+    let existing: Option<(String, String)> = tx
+        .query_row(
+            "SELECT order_id,request_hash FROM donation_requests WHERE user_id=?1 AND request_key=?2",
+            params![uid, request_key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((order_id, previous_hash)) = existing {
+        if previous_hash != request_hash {
+            return Err(AppError::conflict(
+                "This request_key was already used for a different donation",
+            ));
+        }
+        let order = models::load_order(&tx, &order_id)?;
+        tx.commit()?;
+        return Ok(order);
+    }
+    let pending: i64 = tx.query_row(
+        "SELECT count(*) FROM orders WHERE user_id=?1 AND status='pending'",
+        [uid],
+        |row| row.get(0),
+    )?;
+    if pending >= state.cfg.limits.max_pending_orders_per_user as i64 {
+        return Err(AppError::conflict("Complete existing pending orders first"));
+    }
+    let order = insert_order(
+        &tx,
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Donation,
+            amount_cents: amount_minor,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency: &currency,
+            snapshot: json!({"request_key":request_key,"voluntary":true}),
+        },
+    )?;
+    tx.execute(
+        "INSERT INTO donation_requests(user_id,request_key,request_hash,order_id,created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![uid, request_key, request_hash, order.id, now()],
+    )?;
+    audit(
+        &tx,
+        uid,
+        "donation_order_created",
+        &order.id,
+        &json!({"amount_minor":amount_minor,"currency":currency,"provider":provider}).to_string(),
+    )?;
+    tx.commit()?;
+    Ok(order)
 }
 pub fn choose_role(
     state: &AppState,
@@ -264,7 +406,11 @@ pub fn choose_role_with_promo(
             .optional()?;
         let requested_currency = currency;
         let currency = currency.unwrap_or(&state.cfg.pricing.currency);
-        let amount = state.cfg.pricing.onboarding_amount(currency)?;
+        let amount = if billing_mode(state, &tx)? == "donation" {
+            0
+        } else {
+            state.cfg.pricing.onboarding_amount(currency)?
+        };
         if let Some(existing) = existing {
             if requested_currency.is_some_and(|code| existing.currency != code)
                 || provider.is_some_and(|p| p != existing.provider)
@@ -281,14 +427,15 @@ pub fn choose_role_with_promo(
             provider_currency_enabled(state, provider, currency)?;
             Some(insert_order(
                 &tx,
-                uid,
-                "onboarding",
-                None,
-                amount,
-                provider,
-                provider_live(state, provider),
-                currency,
-                json!({}),
+                OrderDraft {
+                    user_id: uid,
+                    purpose: OrderPurpose::Onboarding,
+                    amount_cents: amount,
+                    provider,
+                    live_mode: provider_live(state, &tx, provider)?,
+                    currency,
+                    snapshot: json!({}),
+                },
             )?)
         } else {
             None
@@ -301,6 +448,37 @@ pub fn choose_role_with_promo(
     tx.commit()?;
     Ok((user, order))
 }
+/// Raw publication input, validated together before creating the job and order.
+#[derive(Debug)]
+pub struct NewJob<'a> {
+    pub title: &'a str,
+    pub jd_md: &'a str,
+    pub salary_cents: i64,
+    pub provider: &'a str,
+    pub headcount: i64,
+    pub currency: Option<&'a str>,
+    pub promo_code: Option<&'a str>,
+    pub request_key: Option<&'a str>,
+    pub expected_amount_cents: Option<i64>,
+}
+
+impl<'a> NewJob<'a> {
+    /// Required job content with one opening and the configured default currency.
+    pub fn new(title: &'a str, jd_md: &'a str, salary_cents: i64) -> Self {
+        Self {
+            title,
+            jd_md,
+            salary_cents,
+            provider: "",
+            headcount: 1,
+            currency: None,
+            promo_code: None,
+            request_key: None,
+            expected_amount_cents: None,
+        }
+    }
+}
+
 pub fn new_job(
     state: &AppState,
     uid: &str,
@@ -340,50 +518,63 @@ pub fn new_job_with_headcount(
     provider: &str,
     headcount: i64,
 ) -> AppResult<(Job, Order)> {
-    new_job_with_currency(state, uid, title, jd, salary, provider, headcount, None)
-}
-
-pub fn new_job_with_currency(
-    state: &AppState,
-    uid: &str,
-    title: &str,
-    jd: &str,
-    salary: i64,
-    provider: &str,
-    headcount: i64,
-    currency: Option<&str>,
-) -> AppResult<(Job, Order)> {
-    new_job_with_promo(
-        state, uid, title, jd, salary, provider, headcount, currency, None, None, None,
+    create_job(
+        state,
+        uid,
+        NewJob {
+            provider,
+            headcount,
+            ..NewJob::new(title, jd, salary)
+        },
     )
 }
 
-pub(crate) fn publication_amount(state: &AppState, salary: i64, currency: &str) -> AppResult<i64> {
+pub(crate) fn publication_amount(
+    state: &AppState,
+    db: &Connection,
+    salary: i64,
+    currency: &str,
+) -> AppResult<i64> {
     let pricing = &state.cfg.pricing;
     if !pricing.permits_currency(currency) {
         return Err(AppError::bad_request("Choose an enabled salary currency"));
     }
-    configured_fee(
+    if billing_mode(state, db)? == "donation" {
+        return Ok(0);
+    }
+    let amounts = pricing.amounts(currency)?;
+    let original = configured_fee(
         salary,
         &pricing.publish_mode,
         pricing.publish_bps,
-        pricing.amounts(currency)?.publish_fixed_minor,
+        amounts.publish_fixed_minor,
+    )?;
+    Pricing::discount_amount(
+        original,
+        if currency == pricing.currency {
+            pricing.publish_discount_percent
+        } else {
+            amounts.publish_discount_percent
+        },
     )
 }
 
-pub fn new_job_with_promo(
-    state: &AppState,
-    uid: &str,
-    title: &str,
-    jd: &str,
-    salary: i64,
-    provider: &str,
-    headcount: i64,
-    currency: Option<&str>,
-    promo_code: Option<&str>,
-    request_key: Option<&str>,
-    expected_amount_cents: Option<i64>,
-) -> AppResult<(Job, Order)> {
+/// Create a draft or free published role, preserving its pricing and retry snapshot.
+///
+/// # Errors
+/// Rejects invalid content, account permissions, pricing, promotions or retry state.
+pub fn create_job(state: &AppState, uid: &str, input: NewJob<'_>) -> AppResult<(Job, Order)> {
+    let NewJob {
+        title,
+        jd_md: jd,
+        salary_cents: salary,
+        provider,
+        headcount,
+        currency,
+        promo_code,
+        request_key,
+        expected_amount_cents,
+    } = input;
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 120 {
         return Err(AppError::bad_request("Job title must be 1–120 characters"));
@@ -404,18 +595,18 @@ pub fn new_job_with_promo(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     employer(&tx, uid)?;
     promos::expire_reservations(&tx)?;
-    if let Some(key) = key {
-        if let Some(result) = promos::replay_publication(&tx, uid, key, &request_hash)? {
-            tx.commit()?;
-            return Ok(result);
-        }
+    if let Some(key) = key
+        && let Some(result) = promos::replay_publication(&tx, uid, key, &request_hash)?
+    {
+        tx.commit()?;
+        return Ok(result);
     }
     // A retry restores its immutable result even if current pricing, available
     // currencies or headcount limits have changed since the original operation.
     validate_configured_headcount(state, headcount)?;
     let pricing = &state.cfg.pricing;
     let currency = currency.unwrap_or(&pricing.currency);
-    let original_amount = publication_amount(state, salary, currency)?;
+    let original_amount = publication_amount(state, &tx, salary, currency)?;
     let amounts = pricing.amounts(currency)?;
     let promo = promo_code
         .as_deref()
@@ -445,20 +636,21 @@ pub fn new_job_with_promo(
     }
     let id = uuid::Uuid::new_v4().to_string();
     tx.execute("INSERT INTO jobs(id,owner_id,title,jd_md,salary_cents,currency,ai_min_salary_cents,headcount,status,version,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",params![id,uid,title,jd,salary,currency,amounts.employer_ai_min_salary_minor,headcount,if amount == 0 {"published"} else {"draft"},if amount == 0 {1} else {0},now()])?;
-    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
+    let mut snapshot = json!({"version":0,"max_edits":pricing.max_edits,"billing_mode":billing_mode(state, &tx)?,"publish_mode":pricing.publish_mode,"publish_bps":pricing.publish_bps,"publish_fixed_minor":amounts.publish_fixed_minor,"edit_mode":pricing.edit_mode,"edit_bps":pricing.edit_bps,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,"currency":currency,"employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor});
     if let Some(code) = &promo {
         snapshot["promo"] = json!({"code_id":code.id,"code":code.code,"discount_percent":code.discount_percent,"original_amount_cents":original_amount});
     }
     let mut order = insert_order(
         &tx,
-        uid,
-        "publish",
-        Some(&id),
-        amount,
-        provider,
-        provider_live(state, provider),
-        currency,
-        snapshot,
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Publish(&id),
+            amount_cents: amount,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency,
+            snapshot,
+        },
     )?;
     if let (Some(code), Some(key)) = (&promo, key) {
         promos::record_publication(&tx, code, &order, key, &request_hash)?;
@@ -544,12 +736,25 @@ pub fn edit_job(
     let max_edits = terms["max_edits"].as_i64().unwrap_or(3);
     let edit_bps = terms["edit_bps"].as_i64().unwrap_or(100);
     let edit_mode = terms["edit_mode"].as_str().unwrap_or("salary_percent");
-    let amount = configured_fee(
-        job.salary_cents,
-        edit_mode,
-        edit_bps,
-        terms["edit_fixed_minor"].as_i64().unwrap_or(0),
-    )?;
+    let billing_mode = terms["billing_mode"].as_str().unwrap_or("fees");
+    let original_amount = if billing_mode == "donation" {
+        0
+    } else {
+        configured_fee(
+            job.salary_cents,
+            edit_mode,
+            edit_bps,
+            terms["edit_fixed_minor"].as_i64().unwrap_or(0),
+        )?
+    };
+    let amount = if billing_mode == "donation" {
+        0
+    } else {
+        Pricing::discount_amount(
+            original_amount,
+            terms["edit_discount_percent"].as_i64().unwrap_or(0),
+        )?
+    };
     if amount > 0 {
         provider_currency_enabled(state, provider, &job.currency)?;
     }
@@ -583,14 +788,15 @@ pub fn edit_job(
     }
     let order = insert_order(
         &tx,
-        uid,
-        "edit",
-        Some(id),
-        amount,
-        provider,
-        provider_live(state, provider),
-        &job.currency,
-        json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_fixed_minor":terms["edit_fixed_minor"],"currency":job.currency}),
+        OrderDraft {
+            user_id: uid,
+            purpose: OrderPurpose::Edit(id),
+            amount_cents: amount,
+            provider,
+            live_mode: provider_live(state, &tx, provider)?,
+            currency: &job.currency,
+            snapshot: json!({"jd_md":jd,"version":job.version,"max_edits":max_edits,"edit_mode":edit_mode,"edit_bps":edit_bps,"edit_discount_percent":terms["edit_discount_percent"],"edit_fixed_minor":terms["edit_fixed_minor"],"original_amount_cents":original_amount,"currency":job.currency}),
+        },
     )?;
     if amount == 0 {
         tx.execute("UPDATE jobs SET jd_md=?2,edits_used=edits_used+1,version=version+1,updated_at=?3 WHERE id=?1",params![id,jd,now()])?;
@@ -726,6 +932,8 @@ pub fn delete_job_record(
     check_job_version(&job, expected_version)?;
     let permanent = permanent || job.delete_count >= 1;
     if permanent {
+        db.execute("DELETE FROM job_votes WHERE job_id=?1", [id])?;
+        db.execute("DELETE FROM job_comments WHERE job_id=?1", [id])?;
         db.execute(
             "UPDATE jobs SET status='deleted',delete_count=2,headcount=0,title='',jd_md='',deleted_from_status=NULL,deleted_headcount=NULL,version=version+1,updated_at=?2 WHERE id=?1",
             params![id, now()],
@@ -996,10 +1204,10 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
             "Payment amount, currency or provider does not match the order",
         ));
     }
-    if let (Some(expected), Some(actual)) = (&order.provider_session, &receipt.session_id) {
-        if expected != actual {
-            return Err(AppError::bad_request("Checkout session does not match"));
-        }
+    if let (Some(expected), Some(actual)) = (&order.provider_session, &receipt.session_id)
+        && expected != actual
+    {
+        return Err(AppError::bad_request("Checkout session does not match"));
     }
     let duplicate: Option<(String, String)> = tx
         .query_row(
@@ -1093,6 +1301,7 @@ pub async fn settle_payment(state: &AppState, receipt: PaymentReceipt) -> AppRes
                     tx.execute("UPDATE jobs SET jd_md=?2,edits_used=edits_used+1,version=version+1,updated_at=?3 WHERE id=?1",params![job.id,jd,now()])?;
                 }
             }
+            "donation" => {}
             _ => return Err(AppError::bad_request("Invalid order kind")),
         }
     }
@@ -1179,17 +1388,15 @@ pub async fn settle_refund(state: &AppState, receipt: RefundReceipt) -> AppResul
         .optional()?;
     if let Some((old_order, old_payment, old_provider_order, old_amount, old_currency, _)) =
         &previous
-    {
-        if old_order != &order.id
+        && (old_order != &order.id
             || old_payment != &receipt.payment_id
             || old_provider_order != &receipt.provider_order_id
             || *old_amount != receipt.amount_cents
-            || old_currency != &receipt.currency
-        {
-            return Err(AppError::conflict(
-                "Refund ID is already associated with different details",
-            ));
-        }
+            || old_currency != &receipt.currency)
+    {
+        return Err(AppError::conflict(
+            "Refund ID is already associated with different details",
+        ));
     }
     let event_type = if receipt.succeeded {
         "refund.succeeded"
@@ -1261,6 +1468,7 @@ pub async fn settle_refund(state: &AppState, receipt: RefundReceipt) -> AppResul
                 // The editorial work has already been applied. Do not revert
                 // newer text or restore an edit allowance after a cash refund.
                 "edit" => {}
+                "donation" => {}
                 _ => return Err(AppError::bad_request("Invalid refunded order kind")),
             }
         }
