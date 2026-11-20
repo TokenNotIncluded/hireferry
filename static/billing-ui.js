@@ -13,7 +13,7 @@ function promotionPaymentDeadline(order) {
 }
 
 export function effectiveOrderStatus(order, now = Date.now()) {
-  const deadline = order.kind === 'onboarding' ? Number(order.checkout_expires_at) : promotionPaymentDeadline(order);
+  const deadline = ['onboarding', 'donation'].includes(order.kind) ? Number(order.checkout_expires_at) : promotionPaymentDeadline(order);
   return order.status === 'pending' && deadline > 0 && deadline * 1000 <= now ? 'expired' : order.status;
 }
 

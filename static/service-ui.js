@@ -16,6 +16,33 @@ export function chatSendShortcut(event) {
   return event.key === 'Enter' && !!(event.ctrlKey || event.metaKey) && !event.shiftKey && !event.isComposing && event.keyCode !== 229;
 }
 
+// Event IDs order transport delivery; sequences order edits to one message.
+export function applyChatEvent(messages, event) {
+  if (!event || !Number.isSafeInteger(event.message_id) || event.message_id < 1) return { resync: true };
+  const previous = messages.find(message => message.id === event.message_id);
+  if (event.type === 'message.delta') {
+    if (!previous || !Number.isSafeInteger(event.sequence)) return { resync: true };
+    if (event.sequence <= (previous.sequence || 0)) return {};
+    if (previous.status !== 'streaming' || event.sequence !== (previous.sequence || 0) + 1 || typeof event.delta !== 'string') return { resync: true };
+    const body = (previous.body || '') + event.delta;
+    if ([...body].length > 10000) return { resync: true };
+    return { message: { ...previous, body, body_html: '', sequence: event.sequence } };
+  }
+  if (!['message.created', 'message.started', 'message.completed', 'message.cancelled'].includes(event.type)) return {};
+  const message = event.message;
+  if (!message || message.id !== event.message_id || message.conversation_id !== event.conversation_id || typeof message.body !== 'string') return { resync: true };
+  if (previous && (message.sequence || 0) < (previous.sequence || 0)) return {};
+  return { message };
+}
+
+export function chatActionDraft(detail) {
+  if (detail?.type !== 'draft' || typeof detail.text !== 'string' || !detail.text.trim() || detail.text.length > 4096) return null;
+  const fields = detail.formState && typeof detail.formState === 'object' && !Array.isArray(detail.formState) ? Object.entries(detail.formState).slice(0, 32) : [];
+  const values = fields.filter(([key, value]) => key.length <= 80 && !['__proto__', 'constructor', 'prototype'].includes(key) && (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)))
+    .map(([key, value]) => `${key}: ${String(value).slice(0, 1024)}`);
+  return detail.text.trim() + (values.length ? `\n\n${values.join('\n')}` : '');
+}
+
 const atChatBottom = scroll => !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 8;
 
 function chatPosition(scroll) {
@@ -82,6 +109,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   let chat = null;
   let chatCleanup = null;
   let chatOwner = '';
+  let rendererModule;
   let conversationFilter = 'all';
   let conversationSearch = '';
   const chatDrafts = new Map();
@@ -93,6 +121,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   const statuses = ['introduced', 'interview', 'hired', 'declined'];
   const outreachStages = ['identified', 'contacted', 'replied', 'interview', 'offer', 'closed'];
   const query = () => new URLSearchParams(location.search);
+  const isGeneratedHandle = value => /^user_[0-9a-f]{16,27}$/.test(String(value || ''));
   const route = (admin, tab, extra = {}) => (admin ? '/admin' : '/app') + '?' + new URLSearchParams({ tab, ...extra });
   const chatUrl = (admin, id) => route(admin, 'messages', { conversation: id });
   const chatDates = createChatDateFormatter(() => state.lang === 'en' ? 'en-GB' : 'zh-CN');
@@ -128,6 +157,8 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     syncChatOwner();
     saveChatDraft();
     chat?.controller?.abort();
+    chat?.stream?.close();
+    disposeChatRenderers(chat);
     chatCleanup?.(); chatCleanup = null;
     generation += 1;
     workbenchGeneration += 1;
@@ -231,7 +262,45 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const staffLabels = { '超级管理员': t('超级管理员', 'Super administrator'), '平台AI': t('平台 AI', 'Platform AI'), '员工': t('员工', 'Staff') };
     const staffName = admin && m.staff_name ? (Object.hasOwn(staffLabels, m.staff_name) ? staffLabels[m.staff_name] : m.staff_name) : t('聘渡团队', 'HireFerry team');
     const author = m.sender_kind === 'platform' ? staffName : m.sender_name || t('参与者', 'Participant');
-    return `<article class="chat-message ${own ? 'own' : ''} ${m.sender_kind === 'platform' ? 'from-platform' : ''}" data-message-id="${Number(m.id)}"><div class="message-meta"><strong>${esc(author)}</strong>${m.via_ai ? `<span class="ai-label">${icon('bot')} ${t('AI 代发', 'via AI')}</span>` : ''}</div><div class="message-body markdown">${m.body_html || esc(m.body).replace(/\n/g, '<br>')}</div><time class="message-time" title="${esc(humanTime(m.created_at))}">${esc(compactTime(m.created_at))}${own ? `<span class="message-delivery">${t('已发送', 'Sent')}</span>` : ''}</time></article>`;
+    return `<article class="chat-message ${own ? 'own' : ''} ${m.sender_kind === 'platform' ? 'from-platform' : ''}" data-message-id="${Number(m.id)}" data-message-status="${esc(m.status || 'complete')}" data-message-format="${esc(m.format || 'markdown')}"><div class="message-meta"><strong>${esc(author)}</strong>${m.via_ai ? `<span class="ai-label">${icon('bot')} ${t('AI 代发', 'via AI')}</span>` : ''}</div><div class="message-body markdown">${messageBody(m)}</div><time class="message-time" title="${esc(humanTime(m.created_at))}">${esc(compactTime(m.created_at))}<span class="message-delivery">${messageStatus(m, own)}</span></time></article>`;
+  }
+
+  function messageBody(message) {
+    if (message.format === 'openui') return `<pre class="openui-source">${esc(message.body)}</pre>`;
+    if (message.format === 'plain') return esc(message.body).replace(/\n/g, '<br>');
+    return message.body_html || esc(message.body).replace(/\n/g, '<br>');
+  }
+
+  function messageStatus(message, own) {
+    return message.status === 'streaming' ? t('正在输入…', 'Streaming…') : message.status === 'cancelled' ? t('已停止', 'Stopped') : own ? t('已发送', 'Sent') : '';
+  }
+
+  function disposeChatRenderers(current) {
+    for (const renderer of current?.renderers?.values() || []) renderer.handle.unmount();
+    current?.renderers?.clear();
+  }
+
+  function hydrateChatMessages(current, messages = current.messages) {
+    // Sanitized server Markdown remains usable while the optional bundle loads.
+    if (!globalThis.document?.defaultView || !messages?.length) return;
+    rendererModule ||= import('./chat-renderer.js').catch(() => { rendererModule = null; return null; });
+    void rendererModule.then(renderer => {
+      if (!renderer || chat !== current || current.owner !== ownerKey() || current.denied) return;
+      current.renderers ||= new Map();
+      for (const initial of messages) {
+        const message = current.messages.find(item => item.id === initial.id);
+        if (!message || message.format === 'plain') continue;
+        const node = document.querySelector(`[data-message-id="${Number(message.id)}"] .message-body`);
+        if (!node?.isConnected) continue;
+        const previous = current.renderers.get(message.id);
+        const props = { body: message.body, format: message.format || 'markdown', status: message.status || 'complete' };
+        if (previous?.node === node) previous.handle.update(props);
+        else {
+          previous?.handle.unmount();
+          current.renderers.set(message.id, { node, handle: renderer.mount(node, props) });
+        }
+      }
+    });
   }
 
   function messagesHtml(items, admin, previousDate = '') {
@@ -246,10 +315,17 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
   }
 
   function chatPrompts(current, admin) {
+    const configured = chatWelcomeConfig(current, admin)?.prompts;
+    if (Array.isArray(configured)) return configured.map(prompt => [state.lang === 'en' ? prompt.label_en ?? prompt.label : prompt.label, state.lang === 'en' ? prompt.body_en ?? prompt.body : prompt.body, 'message']);
     if (admin) return [[t('确认需求', 'Clarify the brief'), t('你好，我想进一步了解你的需求。你目前最看重哪些条件？', 'Hello! I’d like to understand your brief. What matters most to you?'), 'target'], [t('跟进进展', 'Share an update'), t('你好，关于这次寻找，我想和你同步一下进展：', 'Hello! Here is an update on your search: '), 'message']];
     if (current.kind === 'matched' && state.user?.role === 'employer') return [[t('介绍岗位', 'Introduce the role'), t('你好，我想先介绍一下团队、岗位的工作内容和招聘安排：', 'Hello! Here is some context about our team, the role, and the hiring process: '), 'briefcase'], [t('了解相关经历', 'Ask about experience'), t('你好，想了解一下你与这个岗位相关的经历，以及你对下一份工作的期待。', 'Hello! Could you share your relevant experience and what you are looking for in your next role?'), 'person']];
     if (current.kind === 'matched') return [[t('打个招呼', 'Say hello'), t('你好，很高兴认识你！想和你进一步聊聊这个岗位。', 'Hello, nice to meet you! I’d love to discuss this role.'), 'message'], [t('了解岗位', 'Ask about the role'), t('想请教一下，这个岗位日常主要负责哪些工作？', 'Could you tell me more about the day-to-day work for this role?'), 'briefcase']];
     return state.user?.role === 'employer' ? [[t('说明招聘需求', 'Describe a role'), t('你好，我们正在招聘。想和你聊聊岗位要求、团队情况和招聘计划。', 'Hello! We’re hiring and would like to discuss the role, team, and hiring plans.'), 'briefcase'], [t('询问招聘进展', 'Check progress'), t('你好，想了解一下目前的招聘进展。', 'Hello! Could you share an update on our hiring search?'), 'target']] : [[t('聊聊求职方向', 'Talk about my search'), t('你好，我想找一份新工作。希望和你聊聊我的经历以及下一份工作的期待。', 'Hello! I’m looking for a new role and would like to discuss my experience and what I’m looking for next.'), 'target'], [t('请帮我看看简历', 'Discuss my résumé'), t('你好，想请你帮我看看简历，并聊聊哪些方向比较适合。', 'Hello! I’d appreciate your thoughts on my résumé and which directions might be a good fit.'), 'file']];
+  }
+
+  function chatWelcomeConfig(current, admin) {
+    const audience = admin ? 'staff' : current.kind === 'matched' ? 'matched' : state.user?.role === 'employer' ? 'platform_employer' : 'platform_seeker';
+    return state.config?.chat?.welcome?.[audience];
   }
 
   function chatWelcome(current, admin) {
@@ -257,7 +333,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const employer = state.user?.role === 'employer';
     const title = current.writable === false ? t('这里保留会话记录', 'Your conversation history') : admin ? t('确认需求，明确下一步', 'Confirm the next step') : introduced ? t('在这里沟通岗位', 'Discuss the role') : employer ? t('一起理清招聘需求', 'Let’s clarify your hiring needs') : t('先说说你的情况', 'Start with what matters to you');
     const description = current.writable === false ? t('此会话已归档，可以查看已有消息。', 'This conversation is archived. You can read its existing messages.') : admin ? t('核对当前沟通对象，确认需要跟进的事项。', 'Check who you are speaking with and agree on what needs to happen next.') : introduced ? t('工作内容、彼此期待和后续安排，都可以在这里确认。', 'Use this space to clarify the work, expectations, and next steps.') : employer ? t('岗位、要求和时间安排，可以逐步补充。', 'Start with the role, requirements, or timing. You can add details as you go.') : t('想找什么工作，或眼前有什么疑问，都可以慢慢说。', 'Share the work you are looking for, or a question on your mind. Take it at your own pace.');
-    return `<div id="chat-empty" class="chat-welcome"><h3>${title}</h3><p>${description}</p>${current.writable === false ? '' : `<div class="chat-prompts">${chatPrompts(current, admin).map(([label, body, glyph]) => `<button type="button" data-chat-prompt="${esc(body)}">${icon(glyph)}<span>${label}</span>${icon('arrow')}</button>`).join('')}</div><span class="chat-prompt-note">${t('点选后可编辑，由你决定发送', 'Edit a suggestion before you choose to send it')}</span>`}</div>`;
+    const configured = current.writable === false ? null : chatWelcomeConfig(current, admin);
+    const configuredTitle = state.lang === 'en' ? configured?.title_en ?? configured?.title : configured?.title;
+    const configuredBody = state.lang === 'en' ? configured?.body_html_en ?? configured?.body_html : configured?.body_html;
+    return `<div id="chat-empty" class="chat-welcome"><h3>${esc(configuredTitle ?? title)}</h3><div class="chat-welcome-body markdown">${configuredBody ?? `<p>${esc(description)}</p>`}</div>${current.writable === false ? '' : `<div class="chat-prompts">${chatPrompts(current, admin).map(([label, body, glyph]) => `<button type="button" data-chat-prompt="${esc(body)}">${icon(glyph)}<span>${esc(label)}</span>${icon('arrow')}</button>`).join('')}</div><span class="chat-prompt-note">${t('点选后可编辑，由你决定发送', 'Edit a suggestion before you choose to send it')}</span>`}</div>`;
   }
 
   function chatAccountNote(admin) {
@@ -346,6 +425,25 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     return room.writable === false ? t('历史会话 · 只读', 'Archived conversation · read-only') : room.kind === 'matched' ? t('匹配双方与聘渡团队', 'You, your match & HireFerry') : admin ? t('用户与平台的私聊', 'Private conversation with HireFerry') : t('仅你与聘渡团队可见', 'Private with HireFerry');
   }
 
+  function chatServiceLinks(room, admin) {
+    if (room.kind !== 'platform') return '';
+    if (admin && room.user_id) {
+      return `<nav class="chat-shortcuts" aria-label="${t('用户快捷入口', 'User shortcuts')}"><button type="button" class="chat-shortcut" data-action="admin-edit-user" data-id="${esc(room.user_id)}">${icon('file')}<span>${t('查看简历', 'View résumé')}</span></button><a class="chat-shortcut" href="/admin?tab=matches&view=search&candidate=${encodeURIComponent(room.user_id)}" data-nav>${icon('briefcase')}<span>${t('推荐岗位', 'Recommend roles')}</span></a><button type="button" class="chat-shortcut" data-action="chat-job-card">${icon('send')}<span>${t('发送岗位卡片', 'Send role card')}</span></button></nav>`;
+    }
+    const employer = state.user?.role === 'employer';
+    return `<nav class="chat-shortcuts" aria-label="${t('工作台快捷入口', 'Workspace shortcuts')}"><a class="chat-shortcut" href="/app?tab=${employer ? 'jobs' : 'profile'}" data-nav>${icon(employer ? 'briefcase' : 'file')}<span>${t(employer ? '查看我的岗位' : '查看我的简历', employer ? 'View my roles' : 'View my résumé')}</span></a><a class="chat-shortcut" href="/app?tab=matches" data-nav>${icon('link')}<span>${t(employer ? '查看匹配候选人' : '查看推荐岗位', employer ? 'View matched candidates' : 'View recommended roles')}</span></a></nav>`;
+  }
+
+  function chatAiNotice(room) {
+    if (room.kind !== 'platform') return '';
+    const copy = state.config?.chat?.auto_reply || {};
+    const title = state.lang === 'en' ? (copy.title_en || copy.title) : (copy.title || copy.title_en);
+    const body = state.lang === 'en' ? (copy.body_md_en || copy.body_md) : (copy.body_md || copy.body_md_en);
+    const fallbackTitle = t('平台 AI：异步、主动式服务', 'Platform AI: asynchronous and proactive');
+    const fallbackBody = t('目前仍在早期阶段，不是时刻在线的实时客服。消息会进入后台队列，有进展时我们会主动回到这里。', 'We are still in the early stage. This is not a 24/7 live chat; messages enter a background queue and we will proactively return here when there is progress.');
+    return `<aside class="chat-ai-notice" role="note">${icon('clock')}<span><strong>${esc(title || fallbackTitle)}</strong>${esc(body || fallbackBody).replace(/\r?\n/g, '<br>')}</span></aside>`;
+  }
+
   function chatThread(current) {
     const room = current.current;
     if (!room) return `<div class="chat-unselected">${inboxToggle(true)}${icon('message')}<h2>${t('选择一个会话', 'Choose a conversation')}</h2><p>${t('选择沟通对象，查看记录并继续处理。', 'Choose who to speak with, review the history, and continue.')}</p></div>`;
@@ -355,9 +453,14 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     const draft = current.loading ? '' : chatDrafts.get(current.id)?.body || '';
     const subtitle = chatSubtitle(room, current.admin);
     const status = current.loading ? t('正在加载消息…', 'Loading messages…') : '';
-    return `<header class="chat-thread-header">${inboxToggle(true)}<button type="button" class="icon-button chat-back" data-chat-back aria-label="${t('返回会话列表', 'Back to conversations')}">${icon('back')}</button>${conversationAvatar(room, current.admin)}<div class="chat-thread-title"><h2>${esc(conversationLabel(room))}</h2><p data-chat-subtitle>${subtitle}</p></div>${chatContextLink(room, current.admin)}<details class="chat-tools"><summary class="icon-button" aria-label="${t('会话选项', 'Conversation options')}" title="${t('会话选项', 'Conversation options')}">${icon('more')}</summary><div class="chat-tools-menu"><p class="chat-privacy">${icon('shield')}<span>${privacy}</span></p><a href="${esc(route(current.admin, 'messages', { view: 'list' }))}" data-nav>${icon('panel')}${t('返回工作台导航', 'Workspace navigation')}</a><button type="button" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${icon('info')}${t('反馈问题', 'Report a problem')}</button><p class="chat-keyboard-hint">${t('Enter 换行 · Ctrl / ⌘ Enter 发送', 'Enter for a new line · Ctrl / ⌘ Enter to send')}</p></div></details></header>
+    return `<header class="chat-thread-header">${inboxToggle(true)}<button type="button" class="icon-button chat-back" data-chat-back aria-label="${t('返回会话列表', 'Back to conversations')}">${icon('back')}</button>${conversationAvatar(room, current.admin)}<div class="chat-thread-title"><h2>${esc(conversationLabel(room))}</h2><p data-chat-subtitle>${subtitle}</p></div>${chatContextLink(room, current.admin)}<details class="chat-tools"><summary class="icon-button" aria-label="${t('会话选项', 'Conversation options')}" title="${t('会话选项', 'Conversation options')}">${icon('more')}</summary><div class="chat-tools-menu"><p class="chat-privacy">${icon('shield')}<span>${privacy}</span></p><a href="${esc(route(current.admin, 'messages', { view: 'list' }))}" data-nav>${icon('panel')}${t('返回工作台导航', 'Workspace navigation')}</a><button type="button" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${icon('info')}${t('反馈问题', 'Report a problem')}</button><p class="chat-keyboard-hint">${t('Enter 换行 · Ctrl / ⌘ Enter 发送', 'Enter for a new line · Ctrl / ⌘ Enter to send')}</p></div></details></header>${chatServiceLinks(room, current.admin)}${chatAiNotice(room)}
       <div class="chat-scroll" id="chat-scroll" tabindex="0" aria-label="${t('聊天记录', 'Conversation history')}" aria-busy="${current.loading}">${chatAccountNote(current.admin)}<button type="button" class="chat-history text-button" data-action="chat-older" ${current.hasOlder ? '' : 'hidden'}>${t('加载更早的消息', 'Load earlier messages')}</button><div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="${t('消息', 'Messages')}">${current.loading ? chatPlaceholder() : current.messages?.length ? messagesHtml(current.messages, current.admin) : chatWelcome(room, current.admin)}</div></div>
       <form data-form="chat" class="chat-composer"><button type="button" data-action="chat-latest" class="chat-new-message" hidden>${t('有新消息 · 回到最新', 'New messages · Jump to latest')} ↓</button><div class="chat-composer-surface"><label class="sr-only" for="chat-body">${t('写一条消息', 'Write a message')}</label><textarea id="chat-body" name="body" rows="1" maxlength="10000" required ${disabled ? 'disabled' : ''} placeholder="${esc(readOnly ? t('此会话已归档', 'This conversation is archived') : t('写一条消息…', 'Write a message…'))}">${esc(draft)}</textarea><button class="button small" type="submit" ${disabled ? 'disabled' : ''} aria-label="${t('发送', 'Send')}" title="${t('发送', 'Send')}">${icon('send')}<span class="sr-only">${t('发送', 'Send')}</span></button></div><div class="chat-composer-status" data-chat-status ${status ? '' : 'hidden'}><span id="chat-connection" role="status">${status}</span><button type="button" class="text-button" data-chat-resend hidden>${t('重试发送', 'Retry send')}</button></div></form>`;
+  }
+
+  function profileClaimNudge(admin = false) {
+    if (admin || state.user?.role !== 'seeker' || !isGeneratedHandle(state.user.handle)) return '';
+    return `<aside class="profile-claim-nudge" aria-labelledby="profile-claim-nudge-title">${icon('user')}<div><strong id="profile-claim-nudge-title">${t('先抢注你的独一无二名字', 'Claim your unique name first')}</strong><p>${t('设置名字后，招聘方和 AI 才能找到你的公开主页。', 'Set your name so employers and AI can find your public profile.')}</p><a href="/app?tab=profile" data-nav class="button secondary small">${t('去设置个人主页', 'Set up my profile')}${icon('arrow')}</a></div></aside>`;
   }
 
   async function messagesPage(admin = false) {
@@ -392,12 +495,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (requestGeneration !== generation || owner !== ownerKey()) return '';
     const result = prepared?.result;
     const messages = result?.items || [];
-    chat = { id: selected, admin, items, current: room, owner, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation, hasMore: !!result?.has_more, language: state.lang, location: (admin ? '/admin' : '/app') + location.search, rowCache: new Map(), controller: new AbortController() };
+    chat = { id: selected, admin, items, current: room, owner, eventCursor: result?.event_cursor, cursor: result?.next_cursor || 0, first: result?.first_cursor || messages[0]?.id || 0, hasOlder: !!result?.has_older, seen: new Set(messages.map(message => message.id)), messages, lastDate: messageDateKey(messages.at(-1)?.created_at), historyReady: !!result, loading: !!pending && !result, pending, error: prepared?.error, page: generation, hasMore: !!result?.has_more, language: state.lang, location: (admin ? '/admin' : '/app') + location.search, rowCache: new Map(), controller: new AbortController() };
     confirmPendingMessage(chat, messages);
     chat.listSnapshot = conversationView(items, selected, admin, chat.rowCache);
     const unread = items.reduce((count, item) => count + Number(item.unread_count || 0), 0);
 
-    return shell(`<section class="chat-workspace ${requested && query().get('view') !== 'list' ? 'thread-selected' : ''}" aria-label="${t('消息工作台', 'Conversation workspace')}"><aside id="conversation-sidebar" class="conversation-sidebar"><div class="conversation-sidebar-heading"><div><span class="inbox-eyebrow">${t('保持联系', 'STAY IN TOUCH')}</span><h1>${t('消息', 'Inbox')}<span class="inbox-count">${items.length}</span></h1></div>${inboxToggle()}</div><div class="conversation-tools"><label class="conversation-search">${icon('search')}<input id="conversation-search" type="search" value="${esc(conversationSearch)}" placeholder="${esc(t(admin ? '搜索近期会话' : '搜索会话', admin ? 'Search recent conversations' : 'Search conversations'))}" aria-label="${t('按名称或消息搜索会话', 'Search conversations by name or message')}" autocomplete="off"></label><div class="conversation-filters" aria-label="${t('会话筛选', 'Conversation filters')}"><button type="button" data-chat-filter="all" aria-pressed="${conversationFilter === 'all'}">${t('全部', 'All')}</button><button type="button" data-chat-filter="unread" aria-pressed="${conversationFilter === 'unread'}">${t('未读', 'Unread')}<span data-chat-unread-count ${unread ? '' : 'hidden'}>${unread > 99 ? '99+' : unread}</span></button></div></div><div id="conversation-list">${chat.listSnapshot.html}</div><div class="conversation-sidebar-note">${icon('shield')}<span>${admin ? t('显示近期会话，按关键词筛选', 'Search within recent conversations') : t('消息按会话保存', 'Messages stay with their conversation')}</span><button type="button" class="chat-feedback-link" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${t('反馈问题', 'Report a problem')}</button></div></aside><section class="chat-thread" data-page-key="conversation:${esc(selected || '')}" aria-label="${t('消息内容', 'Messages')}">${chatThread(chat)}</section></section>`, 'messages', admin);
+    return shell(`<section class="chat-workspace ${requested && query().get('view') !== 'list' ? 'thread-selected' : ''}" aria-label="${t('消息工作台', 'Conversation workspace')}"><aside id="conversation-sidebar" class="conversation-sidebar"><div class="conversation-sidebar-heading"><div><span class="inbox-eyebrow">${t('保持联系', 'STAY IN TOUCH')}</span><h1>${t('消息', 'Inbox')}<span class="inbox-count">${items.length}</span></h1></div>${inboxToggle()}</div>${profileClaimNudge(admin)}<div class="conversation-tools"><label class="conversation-search">${icon('search')}<input id="conversation-search" type="search" value="${esc(conversationSearch)}" placeholder="${esc(t(admin ? '搜索近期会话' : '搜索会话', admin ? 'Search recent conversations' : 'Search conversations'))}" aria-label="${t('按名称或消息搜索会话', 'Search conversations by name or message')}" autocomplete="off"></label><div class="conversation-filters" aria-label="${t('会话筛选', 'Conversation filters')}"><button type="button" data-chat-filter="all" aria-pressed="${conversationFilter === 'all'}">${t('全部', 'All')}</button><button type="button" data-chat-filter="unread" aria-pressed="${conversationFilter === 'unread'}">${t('未读', 'Unread')}<span data-chat-unread-count ${unread ? '' : 'hidden'}>${unread > 99 ? '99+' : unread}</span></button></div></div><div id="conversation-list">${chat.listSnapshot.html}</div><div class="conversation-sidebar-note">${icon('shield')}<span>${admin ? t('显示近期会话，按关键词筛选', 'Search within recent conversations') : t('消息按会话保存', 'Messages stay with their conversation')}</span><button type="button" class="chat-feedback-link" data-chat-feedback aria-haspopup="dialog" aria-controls="feedback-panel">${t('反馈问题', 'Report a problem')}</button></div></aside><section class="chat-thread" data-page-key="conversation:${esc(selected || '')}" aria-label="${t('消息内容', 'Messages')}">${chatThread(chat)}</section></section>`, 'messages', admin);
   }
 
   function navigateChat(next, { onlyIfChanged = false } = {}) {
@@ -502,15 +605,31 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     confirmPendingMessage(current, messages);
     const position = scroll.clientHeight ? chatPosition(scroll) : current.readingPosition || { top: 0, atBottom: true };
     const fresh = (messages || []).filter(m => !current.seen.has(m.id));
-    if (!fresh.length) return;
+    const changed = (messages || []).filter(message => {
+      const previous = current.messages?.find(item => item.id === message.id);
+      return previous && (message.sequence || 0) >= (previous.sequence || 0) && (previous.body !== message.body || previous.status !== message.status || previous.format !== message.format);
+    });
+    if (!fresh.length && !changed.length) return;
     document.querySelector('#chat-empty')?.remove();
     fresh.forEach(m => current.seen.add(m.id));
-    const reordered = (current.messages?.at(-1)?.id || 0) > fresh[0].id;
-    current.messages = [...(current.messages || []), ...fresh].sort((a, b) => a.id - b.id);
-    if (reordered) container.innerHTML = messagesHtml(current.messages, current.admin);
-    else container.insertAdjacentHTML('beforeend', messagesHtml(fresh, current.admin, current.lastDate));
+    const reordered = fresh.length && (current.messages?.at(-1)?.id || 0) > fresh[0].id;
+    const replacements = new Map(changed.map(message => [message.id, message]));
+    current.messages = [...(current.messages || []).map(message => replacements.get(message.id) || message), ...fresh].sort((a, b) => a.id - b.id);
+    if (reordered) { disposeChatRenderers(current); container.innerHTML = messagesHtml(current.messages, current.admin); }
+    else {
+      if (fresh.length) container.insertAdjacentHTML('beforeend', messagesHtml(fresh, current.admin, current.lastDate));
+      for (const message of changed) {
+        const article = document.querySelector(`[data-message-id="${Number(message.id)}"]`);
+        const body = article?.querySelector?.('.message-body');
+        if (body && current.renderers?.get(message.id)?.node !== body) body.innerHTML = messageBody(message);
+        if (article) article.dataset.messageStatus = message.status || 'complete';
+        const label = article?.querySelector?.('.message-delivery');
+        if (label) label.textContent = messageStatus(message, current.admin ? message.is_own === true : message.sender_id === state.user?.id);
+      }
+    }
     current.lastDate = messageDateKey(current.messages.at(-1).created_at);
-    current.first ||= fresh[0].id;
+    current.first ||= fresh[0]?.id || 0;
+    hydrateChatMessages(current, reordered ? current.messages : [...fresh, ...changed]);
     if (position.atBottom || forceScroll) scrollLatest();
     else { if (scroll.clientHeight) restoreChatPosition(scroll, position); const button = document.querySelector('[data-action="chat-latest"]'); if (button) button.hidden = false; }
     current.readingPosition = scroll.clientHeight ? chatPosition(scroll) : { ...position, atBottom: position.atBottom || forceScroll };
@@ -530,12 +649,92 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (badge) { const unread = current.items.reduce((count, item) => count + Number(item.unread_count || 0), 0); badge.textContent = unread > 99 ? '99+' : String(unread); badge.hidden = !unread; }
   }
 
+  async function resyncChat(current) {
+    if (current.resyncing || chat !== current || current.denied) return;
+    current.stream?.close(); current.stream = null;
+    current.resyncing = true;
+    try {
+      const result = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
+      if (chat !== current || current.owner !== ownerKey() || current.denied) return;
+      const scroll = document.querySelector('#chat-scroll');
+      const position = scroll?.clientHeight ? chatPosition(scroll) : current.readingPosition;
+      disposeChatRenderers(current);
+      current.messages = result.items || []; current.seen = new Set(current.messages.map(message => message.id));
+      current.cursor = result.next_cursor || 0; current.eventCursor = result.event_cursor;
+      current.first = result.first_cursor || current.messages[0]?.id || 0; current.hasOlder = !!result.has_older;
+      current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
+      const container = document.querySelector('#chat-messages');
+      if (container) container.innerHTML = current.messages.length ? messagesHtml(current.messages, current.admin) : chatWelcome(current.current, current.admin);
+      const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
+      if (position?.atBottom) scrollLatest(); else if (scroll && position) restoreChatPosition(scroll, position);
+      hydrateChatMessages(current);
+      current.error = null;
+      startChatStream(current);
+    } catch (error) {
+      if (chat === current && !current.controller.signal.aborted) setChatAccess(current, error);
+    } finally { current.resyncing = false; }
+  }
+
+  function startChatStream(current) {
+    if (!globalThis.EventSource || current.stream || !Number.isSafeInteger(current.eventCursor) || current.denied || document.hidden) return false;
+    const source = new EventSource(`/api/chat/events/stream?conversation_id=${encodeURIComponent(current.id)}&after=${current.eventCursor}`);
+    current.stream = source;
+    const valid = () => chat === current && current.page === generation && current.owner === ownerKey() && !current.denied && current.stream === source;
+    source.onopen = () => { if (valid()) { current.error = null; updateChatStatus(current); } };
+    const receive = event => {
+      if (!valid()) return;
+      try {
+        const value = JSON.parse(event.data);
+        if (value.conversation_id !== current.id) return;
+        const result = applyChatEvent(current.messages, value);
+        if (result.resync) { void resyncChat(current); return; }
+        if (result.message) {
+          appendMessages(current, [result.message]);
+          current.cursor = Math.max(current.cursor, result.message.id);
+          if (current.current && result.message.id >= (current.current.last_message_id || 0)) {
+            current.current.last_message_id = result.message.id;
+            current.current.last_message_preview = result.message.body.slice(0, 180);
+            current.current.last_message_at = result.message.created_at;
+            refreshConversationList(current);
+          }
+          void markRead(current).catch(() => {});
+        }
+        current.eventCursor = Number(event.lastEventId) || value.id || current.eventCursor;
+        current.error = null; updateChatStatus(current);
+      } catch { void resyncChat(current); }
+    };
+    for (const kind of ['message.created', 'message.started', 'message.delta', 'message.completed', 'message.cancelled']) source.addEventListener(kind, receive);
+    source.addEventListener('cursor', event => {
+      if (!valid()) return;
+      try { const cursor = JSON.parse(event.data).next_cursor; if (Number.isSafeInteger(cursor)) current.eventCursor = cursor; }
+      catch { void resyncChat(current); }
+    });
+    source.addEventListener('resync', () => { if (valid()) void resyncChat(current); });
+    source.addEventListener('error', event => {
+      if (!valid()) return;
+      if (event.data) {
+        try {
+          const failure = JSON.parse(event.data);
+          source.close(); current.stream = null;
+          setChatAccess(current, Object.assign(new Error(failure.error || 'Stream ended'), { status: failure.status }));
+          return;
+        } catch { /* Native reconnect resumes from the last acknowledged ID. */ }
+      }
+      current.error = new Error('Connection interrupted');
+      if (source.readyState === 2) { source.close(); current.stream = null; }
+      updateChatStatus(current);
+    });
+    return true;
+  }
+
   function setChatAccess(current, error) {
     if (chat !== current || current.page !== generation || current.owner !== ownerKey()) return;
     current.loading = false;
     const denied = [401, 403, 404].includes(error.status);
     if (denied) {
       current.denied = true; current.controller?.abort();
+      current.stream?.close(); current.stream = null;
+      disposeChatRenderers(current);
       current.messages = []; current.seen.clear(); current.sentMessages = [];
       chatDrafts.delete(current.id); pendingMessages.delete(current.id);
       if (current.current) current.current.writable = false;
@@ -628,10 +827,31 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       const menu = workspace.querySelector?.('.chat-tools[open]');
       if (menu && !menu.contains(event.target)) menu.open = false;
     };
+    const action = event => {
+      if (chat !== current || current.denied || current.current?.writable === false) return;
+      const draft = chatActionDraft(event.detail);
+      if (draft === null) return;
+      const article = event.target.closest?.('[data-message-id]');
+      const message = current.messages.find(item => item.id === Number(article?.dataset.messageId));
+      if (!message || message.format !== 'openui' || message.status !== 'complete') return;
+      const field = document.querySelector('#chat-body');
+      if (!field || field.disabled) return;
+      const addition = (field.value ? '\n\n' : '') + draft;
+      field.value += addition.slice(0, Math.max(0, 10000 - field.value.length)).replace(/[\uD800-\uDBFF]$/u, '');
+      field.focus({ preventScroll: true }); input({ target: field });
+    };
+    const visibility = () => {
+      if (document.hidden) { current.stream?.close(); current.stream = null; }
+      else if (chat === current && !current.denied) { startChatStream(current); void markRead(current).catch(() => {}); }
+    };
     workspace.addEventListener('input', input); workspace.addEventListener('click', click); workspace.addEventListener('keydown', keydown);
+    workspace.addEventListener('hireferry:chat-action', action);
+    document.addEventListener?.('visibilitychange', visibility);
     document.addEventListener?.('pointerdown', closeMenu);
     chatCleanup = () => {
       workspace.removeEventListener('input', input); workspace.removeEventListener('click', click); workspace.removeEventListener('keydown', keydown);
+      workspace.removeEventListener('hireferry:chat-action', action);
+      document.removeEventListener?.('visibilitychange', visibility);
       document.removeEventListener?.('pointerdown', closeMenu); scroll?.removeEventListener?.('scroll', rememberPosition); observer?.disconnect();
       viewport?.removeEventListener('resize', syncViewport); root?.style?.removeProperty('--chat-viewport-height');
     };
@@ -661,12 +881,13 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
             if (valid() && [401, 403, 404].includes(error.status)) setChatAccess(current, error);
             return error;
           });
-          for (let page = 0; page < 4 && valid() && !document.hidden; page++) {
+          for (let page = 0; page < 4 && valid() && !document.hidden && !current.stream; page++) {
             const initial = !current.historyReady, cursor = current.cursor;
             const messages = await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/messages?${initial ? '' : `after=${cursor}&`}limit=100`, { fresh: true, signal: current.controller.signal, group: `chat:${current.page}` });
             if (!valid()) return;
             if (current.error) { current.error = null; const container = document.querySelector('#chat-messages'); if (container && !current.seen.size) container.innerHTML = chatWelcome(current.current, current.admin); }
             if (initial) {
+              current.eventCursor = messages.event_cursor;
               current.first = messages.first_cursor || messages.items?.[0]?.id || 0;
               current.hasOlder = !!messages.has_older;
               const history = document.querySelector('[data-action="chat-older"]'); if (history) history.hidden = !current.hasOlder;
@@ -688,9 +909,10 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
           updateChatStatus(current);
           document.querySelectorAll('.chat-composer textarea,.chat-composer [type="submit"]').forEach(element => { element.disabled = current.current?.writable === false || element.getAttribute('aria-busy') === 'true'; });
           await markRead(current);
+          startChatStream(current);
         }
       } catch (error) { catchingUp = false; if (valid()) { current.error = error; setChatAccess(current, error); } }
-      finally { if (valid()) polling = setTimeout(poll, catchingUp ? 250 : 5000); }
+      finally { if (valid()) polling = setTimeout(poll, catchingUp ? 250 : current.stream ? 15000 : 5000); }
     };
     const start = async () => {
       if (current.loading) {
@@ -703,7 +925,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
           current.messages = [...new Map([...(result.items || []), ...(current.sentMessages || [])].map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
           current.sentMessages = [];
           current.seen = new Set(current.messages.map(message => message.id));
-          current.cursor = result.next_cursor || 0; current.first = result.first_cursor || current.messages[0]?.id || 0;
+          current.eventCursor = result.event_cursor; current.cursor = result.next_cursor || 0; current.first = result.first_cursor || current.messages[0]?.id || 0;
           current.hasOlder = !!result.has_older; current.hasMore = !!result.has_more; current.lastDate = messageDateKey(current.messages.at(-1)?.created_at);
           const container = document.querySelector('#chat-messages');
           if (container) container.innerHTML = current.messages.length ? messagesHtml(current.messages, current.admin) : chatWelcome(current.current, current.admin);
@@ -716,10 +938,12 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
         }
       }
       if (!valid() || current.denied) return;
+      hydrateChatMessages(current);
+      startChatStream(current);
       const scroll = document.querySelector('#chat-scroll');
       if (scroll?.clientHeight) { resizeChatComposer(current); restorePosition(); current.readingPosition = chatPosition(scroll); }
       else { const saved = chatDrafts.get(current.id); current.readingPosition = { top: saved?.top || 0, atBottom: saved?.atBottom ?? true }; }
-      updateChatStatus(current); markRead(current).catch(() => {}); polling = setTimeout(poll, 5000);
+      updateChatStatus(current); markRead(current).catch(() => {}); polling = setTimeout(poll, current.stream ? 15000 : 5000);
     };
     return start();
   }
@@ -771,6 +995,27 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     if (chat === current) textarea.focus({ preventScroll: true });
   }
 
+  async function chatJobCardDialog() {
+    const current = chat;
+    if (!current?.admin || current.current?.kind !== 'platform') {
+      throw new Error(t('岗位卡片只能从平台私聊发送。', 'Role cards can only be sent from a private platform chat.'));
+    }
+    const page = await api('/api/admin/workbench/jobs?limit=50');
+    const jobs = page.items || [];
+    if (!jobs.length) {
+      throw new Error(t('当前没有可推荐的公开岗位。', 'There are no open roles to recommend right now.'));
+    }
+    openDialog(`<div class="eyebrow">ROLE CARD</div><h2 id="dialog-title">${t('发送岗位卡片', 'Send a role card')}</h2><p class="dialog-intro">${t('卡片会出现在私聊里。已有匹配会直接打开会话，没有匹配时会先填入一条可编辑的发起对话草稿。', 'The card will appear in the private chat. Existing introductions open directly; otherwise the card prepares an editable conversation draft.')}</p><form data-form="chat-job-card"><div class="field"><label for="chat-job-card-select">${t('选择岗位', 'Choose a role')}<select class="input" id="chat-job-card-select" name="job_id" required>${jobs.map(job => `<option value="${esc(job.id)}">${esc(job.title)} · ${esc(job.employer_name || '')} · ${money(job.salary_cents, job)}</option>`).join('')}</select></label></div><div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">${t('取消', 'Cancel')}</button><button type="submit" class="button">${t('发送岗位卡片', 'Send role card')}${icon('send')}</button></div></form>`, { wide: true });
+  }
+
+  async function sendJobCard(form, data) {
+    const current = chat;
+    if (!current?.id) throw new Error(t('请先选择一个平台私聊。', 'Choose a private platform chat first.'));
+    await api(`/api/chat/conversations/${encodeURIComponent(current.id)}/job-card`, { method: 'POST', body: { job_id: String(data.get('job_id') || '').trim() } });
+    closeDialog();
+    notify(t('岗位卡片已发送。', 'Role card sent.'));
+  }
+
   async function olderMessages() {
     const current = chat;
     const valid = () => chat === current && current.page === generation && current.owner === ownerKey() && !current.denied;
@@ -790,6 +1035,7 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
       const firstDate = container.querySelector?.('.chat-date');
       if (fresh.length && firstDate?.dataset.date === messageDateKey(fresh.at(-1).created_at)) firstDate.remove();
       container.insertAdjacentHTML('afterbegin', messagesHtml(fresh, current.admin));
+      hydrateChatMessages(current, fresh);
       current.first = result.first_cursor || current.first; current.hasOlder = !!result.has_older;
       const button = document.querySelector('[data-action="chat-older"]'); if (button) button.hidden = !current.hasOlder;
       if (scroll.clientHeight) {
@@ -823,9 +1069,11 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
 
   async function mandatePage() {
     if (state.user?.role !== 'seeker') return shell(empty(t('委托属于求职者。', 'Search mandates are for job seekers.'), t('招聘需求可以直接在岗位和平台私聊中说明。', 'Share hiring needs through your roles and private platform conversation.'), `<a href="/app?tab=messages" data-nav class="button">${t('与平台聊聊', 'Talk to HireFerry')}${icon('message')}</a>`, 'target'), 'mandate');
-    const [result, progress] = await Promise.all([api('/api/mandate'), api('/api/outreach')]);
+    const [result, progress, connections] = await Promise.all([api('/api/mandate'), api('/api/outreach'), api('/api/tokens')]);
     const m = result.mandate || {};
-    return shell(`${heading(t('你的下一站，我们一起找。', 'Let’s find your next chapter.'), t('告诉我们方向。平台持续寻找，你随时看见进展。', 'Tell us your direction. We keep looking, and you can follow the progress.'), '', 'YOUR SEARCH MANDATE')}<section class="panel"><div class="panel-header"><div><h2>${t('一份明确的委托', 'A clear search brief')}</h2><p>${t('只有平台可以查看这份委托，不会成为公开列表。', 'Only HireFerry can view this brief. It never becomes a public listing.')}</p></div>${m.user_id ? `<span class="status ${m.status === 'active' ? '' : 'closed'}">${mandateStatus(m.status)}</span>` : `<span class="pill">${t('尚未提交', 'Not submitted')}</span>`}</div><form data-form="mandate">${mandateFields(m)}<div class="form-actions"><p class="help">${t('求职服务免费。提交后，你仍可以随时修改期待。', 'The service is free for job seekers. You can update your expectations at any time.')}</p><button class="button" type="submit">${m.user_id ? t('保存委托', 'Save search brief') : t('委托平台帮我找', 'Start my search')}${icon('arrow')}</button></div></form></section><section class="panel"><div class="panel-header"><div><h2>${t('寻找与跟进', 'Search and follow-up')}</h2><p>${t('每一条都是实际记录的进展。', 'Each entry is a recorded step by the team.')}</p></div><a class="text-button" href="/app?tab=messages" data-nav>${t('与平台沟通', 'Talk to the team')} →</a></div>${outreachList(progress.items)}</section>`, 'mandate');
+    const hasConnection = (connections.items || []).length > 0;
+    const connectionPanel = m.user_id ? `<section class="panel mandate-next-step"><div class="panel-header"><div><h2>${hasConnection ? t('AI 已连接，继续让它工作。', 'AI is connected. Keep it working.') : t('下一步：连接你的 AI。', 'Next step: connect your AI.')}</h2><p>${hasConnection ? t('你的目标已经提交。AI 可以持续筛选、记录进展，并在匹配后协助沟通。', 'Your target is saved. AI can keep screening, record progress, and help with conversations after an introduction.') : t('创建一个个人连接，把这份委托交给你常用的 ChatGPT、Grok、Claude 或其他 MCP 助手。', 'Create a personal connection and give this brief to ChatGPT, Grok, Claude, or another MCP assistant you use.')}</p></div><span class="pill">${hasConnection ? t('已连接', 'Connected') : t('免费', 'Free')}</span></div><div class="form-actions"><p class="help">${hasConnection ? t('可以在 AI 连接页查看令牌、接入地址和使用文档。', 'View your token, endpoint, and setup guide on the AI connections page.') : t('连接只允许访问你的资料、委托、匹配和会话；令牌只显示一次。', 'The connection can access only your profile, brief, introductions, and conversations. The token is shown once.')}</p><a class="button ${hasConnection ? 'secondary' : ''}" href="/app?tab=agents" data-nav>${hasConnection ? t('管理 AI 连接', 'Manage AI connections') : t('连接 AI，开始持续寻找', 'Connect AI and start the search')}${icon('arrow')}</a></div></section>` : '';
+    return shell(`${heading(t('填写目标，AI 异步帮你找。', 'Set a target and let AI keep looking asynchronously.'), t('写清岗位、地点和薪资期待。连接 AI 后，异步、主动式服务按周期筛选机会并记录进展。', 'Set your role, location and salary expectations. After you connect AI, asynchronous proactive passes screen opportunities and record progress.'), '', 'YOUR SEARCH MANDATE')}<section class="panel"><div class="panel-header"><div><h2>${t('一份明确的委托', 'A clear search brief')}</h2><p>${t('只有平台可以查看这份委托，不会成为公开列表。', 'Only HireFerry can view this brief. It never becomes a public listing.')}</p></div>${m.user_id ? `<span class="status ${m.status === 'active' ? '' : 'closed'}">${mandateStatus(m.status)}</span>` : `<span class="pill">${t('尚未提交', 'Not submitted')}</span>`}</div><form data-form="mandate">${mandateFields(m)}<div class="form-actions"><p class="help">${t('求职服务免费。提交后，你仍可以随时修改期待。连接 AI 后，平台会按周期异步推进筛选与匹配，有进展时主动回来。', 'The service is free for job seekers. You can update your expectations at any time. Once AI is connected, asynchronous passes keep screening and matching, then return when there is progress.')}</p><button class="button" type="submit">${m.user_id ? t('保存委托', 'Save search brief') : t('委托平台帮我找', 'Start my search')}${icon('arrow')}</button></div></form></section>${connectionPanel}<section class="panel"><div class="panel-header"><div><h2>${t('寻找与跟进', 'Search and follow-up')}</h2><p>${t('每一条都是实际记录的进展。', 'Each entry is a recorded step by the team.')}</p></div><a class="text-button" href="/app?tab=messages" data-nav>${t('与平台沟通', 'Talk to the team')} →</a></div>${outreachList(progress.items)}</section>`, 'mandate');
   }
 
   function mandatePayload(data, admin = false) {
@@ -1369,5 +1617,5 @@ export function createServiceUI({ state, api, t, esc, icon, avatar, money, curre
     return shell(`${heading(t('让平台 AI，协助每次连接。', 'Give your platform AI a clear role.'), t('独立的管理员授权，用于平台业务与跟进。', 'Separate administrator authorization for service operations and follow-ups.'), '', 'PLATFORM AI')}<section class="panel"><div class="panel-header"><div><h2>${t('平台业务访问令牌', 'Platform business access token')}</h2><p>${t('与求职者、招聘方的个人令牌分开管理。', 'Managed separately from job seekers’ and employers’ personal tokens.')}</p></div><span class="pill">${icon('shield')} ADMIN MCP</span></div>${notice(t('此令牌可管理用户资料、岗位、匹配、委托、寻找记录和平台消息，并查看订单统计。它代表平台发言，AI 发送的消息会明确标记。', 'This token can manage profiles, roles, introductions, search briefs, outreach records, and platform messages, and read order statistics. It speaks for HireFerry; AI messages are clearly labeled.'))}<div class="field"><label>${t('MCP 服务地址', 'MCP server URL')}</label><div class="code-box">${esc(location.origin)}/mcp</div></div><p class="help">${t('使用 HTTP 连接，并将令牌作为 Authorization: Bearer 请求头。系统配置与通行密钥管理不对 AI 开放。', 'Connect over HTTP with an Authorization: Bearer header. System configuration and passkey management are not available to AI.')}</p><form data-form="admin-token" class="token-create-form"><div class="field"><label for="admin-token-name">${t('连接名称', 'Connection name')}</label><input class="input" id="admin-token-name" name="name" maxlength="80" required placeholder="${esc(t('例如：平台招聘助手', 'For example: Platform hiring assistant'))}"></div><button class="button secondary" type="submit">${icon('plus')}${t('创建平台令牌', 'Create platform token')}</button></form><div class="token-reauth"><p class="help">${t('创建令牌需要在最近 10 分钟内完成通行密钥验证。', 'Creating a token requires a passkey check within the last 10 minutes.')}</p><button class="text-button" data-action="admin-reauth">${icon('key')}${t('重新验证通行密钥', 'Verify passkey again')}</button></div><div id="new-token"></div></section><section class="panel"><div class="panel-header"><h2>${t('已授权的平台 AI', 'Authorized platform AI')}</h2></div>${d.items?.length ? `<div class="list">${d.items.map(k => `<div class="list-row"><div><h3>${esc(k.name)}</h3><div class="list-meta"><span>${t('创建于', 'Created')} ${date(k.created_at)}</span><span>${t('到期', 'Expires')} ${date(k.expires_at)}</span><span>${t('最近使用', 'Last used')} ${date(k.last_used_at)}</span></div></div><button class="text-button" data-action="revoke-admin-token" data-id="${esc(k.id)}">${t('立即撤销', 'Revoke now')}</button></div>`).join('')}</div>` : empty(t('尚未授权平台 AI。', 'No platform AI is authorized yet.'), t('为可信的助手单独创建令牌，并妥善保管。', 'Create a separate token for a trusted assistant and keep it private.'), '', 'bot')}</section>`, 'agents', true);
   }
 
-  return { messagesPage, mountChat, stopChat, showPendingChat, navigateChat, sendMessage, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
+  return { messagesPage, mountChat, stopChat, showPendingChat, navigateChat, sendMessage, chatJobCardDialog, sendJobCard, olderMessages, scrollLatest, mandatePage, saveMandate, updateSalaryCurrency, adminMandates, adminMandate, outreachDialog, saveOutreach, matchesPage, matchDetail, newMatch, savedFollowup, saveFollowup, searchWorkbench, workbenchPage, introduceCandidate, selectWorkbenchCandidate, selectWorkbenchPage, reviewCandidateBatch, introduceCandidateBatch, adminTokens, webhooksPage, webhookDialog, saveWebhook, copyWebhookSecret, toggleWebhook, deleteWebhook, webhookDeliveries, testWebhook, retryWebhook };
 }

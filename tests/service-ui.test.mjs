@@ -21,7 +21,7 @@ const cliMotionSource = await readFile(new URL('../static/cli-motion.js', import
 const cliMotionHelpers = await import('data:text/javascript;base64,' + Buffer.from(cliMotionSource).toString('base64'));
 const contentRefreshSource = await readFile(new URL('../static/content-refresh.js', import.meta.url), 'utf8');
 const contentRefreshHelpers = await import('data:text/javascript;base64,' + Buffer.from(contentRefreshSource).toString('base64'));
-const workspaceHelpers = Object.assign({}, ...await Promise.all(['controls.js','finance-ui.js','people-jobs-ui.js','staff-ui.js'].map(async name => import('data:text/javascript;base64,' + Buffer.from(await readFile(new URL('../static/' + name, import.meta.url), 'utf8')).toString('base64')))));
+const workspaceHelpers = Object.assign({}, ...await Promise.all(['controls.js','finance-ui.js','people-jobs-ui.js','staff-ui.js','relation-webmcp.js','job-interactions.js'].map(name => import(new URL('../static/' + name, import.meta.url).href))));
 // Page markup tests use a DOM sink; disclosure events have their own real controller tests.
 const createDisclosureUI = () => ({ sync() {}, reset() {}, dispose() {} });
 const defaultConfig = { pricing: { currency:'CNY', currency_decimals:2, allowed_currencies:['CNY','USD','JPY'], currency_options:[{currency:'CNY',currency_decimals:2,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:300000},{currency:'USD',currency_decimals:2,publish_fixed_minor:500,edit_fixed_minor:50,employer_ai_min_salary_minor:100000},{currency:'JPY',currency_decimals:0,publish_fixed_minor:1000,edit_fixed_minor:100,employer_ai_min_salary_minor:200000}], onboarding_cents:10000,publish_mode:'salary_percent',publish_bps:1000,publish_fixed_minor:1000,edit_mode:'salary_percent',edit_bps:100,edit_fixed_minor:100,max_edits:3 }, limits:{max_job_headcount:1000000,list_page_size:50,list_max_page:10000,workbench_page_size:25,recent_list_limit:200}, providers:['stripe'] };
@@ -79,6 +79,26 @@ test('default workspace reads only the private platform thread and escapes messa
   assert.match(html, /via AI/);
   assert.match(html, /Only you and HireFerry/);
   assert.equal(requests.some(([path]) => path.includes('/match_one/messages')), false);
+});
+
+test('seekers with a generated placeholder handle see a profile claim nudge in the inbox', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [], next_cursor: 0, first_cursor: 0 },
+  { state: { user: { id: 'seeker-one', role: 'seeker', handle: 'user_0123456789abcdef' } } });
+  const html = await service.messagesPage();
+  assert.match(html, /profile-claim-nudge/);
+  assert.match(html, /Claim your unique name first/);
+  assert.match(html, /href="\/app\?tab=profile"[^>]*data-nav/);
+});
+
+test('claimed seekers do not see the profile claim nudge in the inbox', async () => {
+  const service = ui(async path => path === '/api/chat/conversations'
+    ? { items: [{ id: 'platform_seeker-one', kind: 'platform', title: 'Private', writable: true, participants: [] }] }
+    : { items: [], next_cursor: 0, first_cursor: 0 },
+  { state: { user: { id: 'seeker-one', role: 'seeker', handle: 'lightdot' } } });
+  const html = await service.messagesPage();
+  assert.doesNotMatch(html, /profile-claim-nudge/);
 });
 
 test('archived administrator rooms display history but cannot be composed into', async () => {
@@ -337,7 +357,17 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const requests = [];
   const listeners = new Map();
   const modelContext = { registerTool: tool => registered.set(tool.name, tool), unregisterTool: name => registered.delete(name) };
-  const node = { innerHTML: '', replaceChildren() { this.innerHTML = ''; } };
+  // These tests inspect business schemas and handlers synchronously. The actual
+  // async registration lifecycle has its own unit suite and real Chrome gate.
+  const createWebMCPOwner = () => {
+    let currentScope = null;
+    return {
+      sync({ scope, tools }) { registered.clear();currentScope = scope;for (const tool of tools) registered.set(tool.name, tool); },
+      clear() { currentScope = null;registered.clear(); },
+      isCurrent: scope => scope === currentScope,
+    };
+  };
+  const node = { innerHTML: '', querySelector() { return null; }, replaceChildren() { this.innerHTML = ''; } };
   const document = { querySelector: () => node, addEventListener(type, handler) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(handler); }, removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }, body: { style: {} }, documentElement: {}, modelContext };
   const fetch = async (path, options) => {
     requests.push({ path, options });
@@ -351,8 +381,8 @@ function webmcp({ eligible = true, role = 'seeker', admin = false, search = '', 
   const localStorage = { getItem: key => localValues.get(key) || null, setItem: (key, value) => localValues.set(key, value), removeItem: key => localValues.delete(key) };
   const publicPageHelpers = { ...browserCacheHelpers, ...cliMotionHelpers, ...contentRefreshHelpers, createPublicConfigCache: load => browserCacheHelpers.createPublicConfigCache(load, { storage: localStorage }) };
   const browserLocation = { pathname: '/app', search, origin: 'https://hireferry.test' };
-  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,safeBillingReturn,rememberBillingReturn,afterSignIn,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,openDialog,closeDialog};')(
-    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
+  const app = new Function('document', 'navigator', 'window', 'localStorage', 'location', 'history', 'fetch', 'createServiceUI', 'createMessageId', 'sessionStorage', 'renderLegal', 'createDisclosureUI', 'createPromoUI', 'createWebMCPOwner', 'syncPageMetadata', ...Object.keys(moneyHelpers), ...Object.keys(requestHelpers), ...Object.keys(billingHelpers), ...Object.keys(teamHelpers), ...Object.keys(cliGuideHelpers), ...Object.keys(publicPageHelpers), ...Object.keys(workspaceHelpers), appSource + '\nreturn {state,shell,registerWebMCP,orderRefundDetails,statusText,requestErrorText,paymentReturn,refundsPage,contactPage,legal,footer,acquisitionSource,marketingHref,isGeneratedHandle,defaultRoleReturn,shouldAutoActivateEmployer,safeBillingReturn,safeJobReturn,rememberBillingReturn,afterSignIn,login,emailCode,profilePage,roleMismatchPage,headcountInput,newJobInput,saveJobHeadcount,headcountControl,jobBadge,myJobs,jobEditor,jobDeletionPrompt,changeJobLifecycle,payOrder,header,home,pricingSection,feeSettings,feeRule,currency,money,centsInput,adminOverview,orderTable,ordersPage,agentsPage,employerActivation,refreshJobPrice,paymentProviders,gatewayInputs,syncCurrencyFields,activationOptions,refreshActivationPayment,jobToolsLandingPage,employerLandingPage,publicJobPage,publicPersonPage,openDialog,closeDialog};')(
+    document, { modelContext }, { addEventListener() {}, getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) }, localStorage, browserLocation, {}, fetch, serviceUIFactory, createMessageId, sessionStorage, legalRenderer, createDisclosureUI, createPromoUI, createWebMCPOwner, () => {}, ...Object.values(moneyHelpers), ...Object.values(requestHelpers), ...Object.values(billingHelpers), ...Object.values(teamHelpers), ...Object.values(cliGuideHelpers), ...Object.values(publicPageHelpers), ...Object.values(workspaceHelpers),
   );
   Object.assign(app.state, { config:structuredClone(defaultConfig), user: admin ? null : { id: 'one', role, employer_paid: true }, admin, csrf: 'synthetic-csrf', eligibility: { eligible } });
   app.registerWebMCP();
@@ -373,6 +403,32 @@ test('registered user tools recheck current eligibility before any business requ
   assert.deepEqual(harness.requests.map(r => r.path), ['/api/ai/eligibility']);
 });
 
+test('WebMCP chat capabilities are shared by eligible identities and recheck eligibility on execution', async () => {
+  const capabilities = {
+    formats: ['plain', 'markdown', 'openui'],
+    openui: { library: 'hireferry@1', spec_url: '/static/chat-openui.json' },
+    welcome: { platform: { en: { body: 'Welcome **aboard**', prompts: ['Ask a question'] } } },
+  };
+  for (const identity of [{ role: 'seeker' }, { role: 'employer' }, { admin: true }]) {
+    const harness = webmcp({ ...identity, responses: { '/api/chat/capabilities': capabilities } });
+    const tool = harness.registered.get('hireferry_get_chat_capabilities');
+    assert.ok(tool);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    assert.deepEqual(tool.inputSchema, { type: 'object', properties: {}, required: [], additionalProperties: false });
+    const result = await tool.execute({});
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(JSON.parse(result.content[0].text), capabilities);
+    assert.deepEqual(harness.requests.map(request => request.path), ['/api/ai/eligibility', '/api/chat/capabilities']);
+    assert.ok(harness.requests.every(request => request.options.method === 'GET'));
+    assert.equal(harness.registered.has('hireferry_admin_get_chat_capabilities'), false);
+
+    harness.setEligible(false);
+    const requestCount = harness.requests.length;
+    assert.equal((await tool.execute({})).isError, true);
+    assert.deepEqual(harness.requests.slice(requestCount).map(request => request.path), ['/api/ai/eligibility']);
+  }
+});
+
 test('WebMCP messages carry the AI attribution header and preserve explicit conversation IDs', async () => {
   const harness = webmcp();
   await harness.registered.get('hireferry_send_message').execute({ conversation_id: 'platform_one', body: 'Hello', client_id: 'synthetic-message-id' });
@@ -383,6 +439,101 @@ test('WebMCP messages carry the AI attribution header and preserve explicit conv
   assert.deepEqual(JSON.parse(sent.options.body), { body: 'Hello', client_id: 'synthetic-message-id' });
   assert.equal(harness.registered.has('hireferry_admin_list_users'), false);
   assert.equal(harness.registered.has('hireferry_list_people'), false);
+});
+
+test('WebMCP send supports each explicit format and retains the legacy omitted format and generated client ID', async () => {
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin });
+    const tool = harness.registered.get(`${admin ? 'hireferry_admin_' : 'hireferry_'}send_message`);
+    assert.deepEqual(tool.inputSchema.properties.format.enum, ['plain', 'markdown', 'openui']);
+    assert.equal(tool.inputSchema.required.includes('format'), false);
+    assert.equal(tool.inputSchema.required.includes('client_id'), false);
+    for (const format of ['plain', 'markdown', 'openui', undefined]) {
+      const input = { conversation_id: 'room/one?after=999#end', body: 'Hello **world**' };
+      if (format !== undefined) Object.assign(input, { format, client_id: `synthetic-${format}` });
+      const result = await tool.execute(input);
+      assert.equal(result.isError, undefined);
+      const sent = harness.requests.at(-1);
+      assert.equal(sent.path, '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end/messages');
+      assert.equal(sent.options.method, 'POST');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.headers['X-CSRF-Token'], 'synthetic-csrf');
+      const body = JSON.parse(sent.options.body);
+      if (format === undefined) {
+        assert.match(body.client_id, /^[0-9a-f]{32}$/);
+        assert.deepEqual(body, { body: input.body, client_id: body.client_id });
+      } else {
+        assert.deepEqual(body, { body: input.body, client_id: input.client_id, format });
+      }
+    }
+  }
+});
+
+test('WebMCP stream tools encode the room route and preserve sequences, receipts and AI attribution', async () => {
+  const conversation_id = 'room/one?after=999#end';
+  const base = '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end/streams';
+  const operations = [
+    { name: 'begin_message', path: base, input: { conversation_id, client_id: 'synthetic-stream', body: '**First', format: 'markdown' }, body: { client_id: 'synthetic-stream', body: '**First', format: 'markdown' }, receipt: { id: 42, conversation_id, sequence: 0, status: 'streaming', body: '**First', event_cursor: 100 } },
+    { name: 'append_message', path: `${base}/42/append`, input: { conversation_id, message_id: 42, sequence: 1, delta: ' chunk**' }, body: { sequence: 1, delta: ' chunk**' }, receipt: { id: 42, conversation_id, sequence: 1, status: 'streaming', event_cursor: 101 } },
+    { name: 'finish_message', path: `${base}/42/finish`, input: { conversation_id, message_id: 42, sequence: 2 }, body: { sequence: 2 }, receipt: { id: 42, conversation_id, sequence: 2, status: 'complete', event_cursor: 102 } },
+    { name: 'cancel_message', path: `${base}/43/cancel`, input: { conversation_id, message_id: 43, sequence: 3 }, body: { sequence: 3 }, receipt: { id: 43, conversation_id, sequence: 3, status: 'cancelled', event_cursor: 103 } },
+  ];
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin, responses: Object.fromEntries(operations.map(operation => [operation.path, operation.receipt])) });
+    for (const operation of operations) {
+      const tool = harness.registered.get(`${admin ? 'hireferry_admin_' : 'hireferry_'}${operation.name}`);
+      assert.ok(tool);
+      assert.equal(tool.annotations.readOnlyHint, false);
+      assert.equal(tool.inputSchema.additionalProperties, false);
+      const before = harness.requests.length;
+      const result = await tool.execute(operation.input);
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(JSON.parse(result.content[0].text), operation.receipt);
+      assert.deepEqual(harness.requests.slice(before).map(request => request.path), ['/api/ai/eligibility', operation.path]);
+      const sent = harness.requests.at(-1);
+      assert.equal(sent.options.method, 'POST');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.headers['X-CSRF-Token'], 'synthetic-csrf');
+      assert.deepEqual(JSON.parse(sent.options.body), operation.body);
+    }
+  }
+});
+
+test('WebMCP conversation and event reads preserve room scoping and distinct zero or saved event cursors', async () => {
+  const conversation_id = 'room/one?after=999#end';
+  for (const admin of [false, true]) {
+    const harness = webmcp({ admin });
+    const prefix = admin ? 'hireferry_admin_' : 'hireferry_';
+    const conversation = harness.registered.get(prefix + 'get_conversation');
+    assert.ok(conversation);
+    assert.equal(conversation.annotations.readOnlyHint, true);
+    assert.equal((await conversation.execute({ conversation_id })).isError, undefined);
+    const read = harness.requests.at(-1);
+    assert.equal(read.path, '/api/chat/conversations/room%2Fone%3Fafter%3D999%23end');
+    assert.equal(read.options.method, 'GET');
+    assert.equal(read.options.headers['X-HireFerry-AI'], 'webmcp');
+
+    const events = harness.registered.get(prefix + 'get_chat_events');
+    assert.ok(events);
+    assert.equal(events.annotations.readOnlyHint, true);
+    assert.deepEqual(events.inputSchema.required, ['after']);
+    assert.equal(events.inputSchema.properties.after.minimum, 0);
+    assert.equal(events.inputSchema.properties.limit.maximum, 100);
+    for (const input of [{ conversation_id, after: 12345, limit: 7 }, { conversation_id, after: 0 }, { after: 0 }]) {
+      const before = harness.requests.length;
+      const result = await events.execute(input);
+      assert.equal(result.isError, undefined);
+      const sent = harness.requests.at(-1);
+      assert.equal(harness.requests[before].path, '/api/ai/eligibility');
+      const url = new URL(sent.path, 'https://hireferry.test');
+      assert.equal(url.pathname, '/api/chat/events');
+      assert.equal(url.hash, '');
+      assert.deepEqual([...url.searchParams], Object.entries(input).map(([key, value]) => [key, String(value)]));
+      assert.equal(sent.options.method, 'GET');
+      assert.equal(sent.options.headers['X-HireFerry-AI'], 'webmcp');
+      assert.equal(sent.options.body, undefined);
+    }
+  }
 });
 
 test('administrator WebMCP exposes business operations without token or passkey management', () => {
@@ -633,6 +784,195 @@ test('Google sign-in can retain only a safe checkout return and consumes it once
   assert.equal(app.safeBillingReturn('/billing/return?order_id=%3Cscript%3E'), '');
 });
 
+test('employer and seeker return targets survive role selection without allowing open redirects', () => {
+  const employer = webmcp({ search: '?role=employer&return_to=%2Fapp%2Fjobs%2Fnew' });
+  assert.equal(employer.app.safeJobReturn('/app/jobs/new'), '/app/jobs/new');
+  assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=ai_uiux'), '/app/jobs/new?template=ai_uiux');
+  assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=opensource'), '/app/jobs/new?template=opensource');
+  assert.equal(employer.app.safeJobReturn('/app/jobs/new?template=evil'), '');
+  assert.equal(employer.app.safeJobReturn('https://evil.example/app/jobs/new'), '');
+  employer.app.rememberBillingReturn();
+  employer.location.search = '';
+  assert.equal(employer.app.afterSignIn(), '/app/jobs/new');
+  assert.equal(employer.app.afterSignIn(), '/app');
+
+  const seeker = webmcp({ search: '?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile' });
+  seeker.app.rememberBillingReturn();
+  seeker.location.search = '';
+  assert.equal(seeker.app.afterSignIn(), '/app?tab=profile');
+  assert.equal(seeker.app.afterSignIn(), '/app');
+});
+
+test('login makes passwordless magic-link and expired-link states explicit', () => {
+  const { app } = webmcp({ search: '?email_link=expired' });
+  app.state.config.google_enabled = true;
+  const html = app.login();
+  assert.match(html, /不用设置密码/);
+  assert.match(html, /发送登录链接/);
+  assert.match(html, /这个登录链接已过期/);
+  assert.match(html, /aria-live="polite"/);
+  assert.doesNotMatch(html, /发送登录验证码/);
+});
+
+test('signup attribution keeps medium and content for growth funnel analysis', () => {
+  const tagged = webmcp({ search: '?utm_source=x&utm_medium=web&utm_campaign=cn_jobseeker_oct24&utm_content=reply_veracat' });
+  assert.equal(tagged.app.acquisitionSource(), 'x:web:cn_jobseeker_oct24:reply_veracat');
+});
+
+test('landing-page CTAs preserve inbound attribution through the login hop', () => {
+  const tagged = webmcp({ search: '?utm_source=x&utm_medium=reply&utm_campaign=cn_job_recruiter_oct24&utm_content=gmwallet&ref=hf_abc123' });
+  const href = new URL(tagged.app.marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew', {
+    utm_source: 'employer_landing', utm_medium: 'cta', utm_campaign: 'employer_cta', utm_content: 'hero',
+  }), 'https://hireferry.test');
+  assert.equal(href.searchParams.get('role'), 'employer');
+  assert.equal(href.searchParams.get('return_to'), '/app/jobs/new');
+  assert.equal(href.searchParams.get('utm_source'), 'x');
+  assert.equal(href.searchParams.get('utm_medium'), 'reply');
+  assert.equal(href.searchParams.get('utm_campaign'), 'cn_job_recruiter_oct24');
+  assert.equal(href.searchParams.get('utm_content'), 'gmwallet');
+  assert.equal(href.searchParams.get('ref'), 'hf_abc123');
+  const direct = new URL(webmcp().app.marketingHref('/login?role=employer', { utm_source: 'employer_landing', utm_medium: 'cta' }), 'https://hireferry.test');
+  assert.equal(direct.searchParams.get('utm_source'), 'employer_landing');
+  assert.equal(direct.searchParams.get('utm_medium'), 'cta');
+});
+
+test('local-first job tools landing keeps private applications local and exposes public discovery', () => {
+  const { app } = webmcp();
+  const html = app.jobToolsLandingPage();
+  assert.match(html, /继续保存草稿、投递记录和私密简历/);
+  assert.match(html, /公共 MCP/);
+  assert.match(html, /for-employers/);
+  assert.match(html, /utm_campaign=local_first_integration/);
+  assert.match(html, /docs\/mcp-public\.md/);
+});
+
+test('employer landing previews the open-source role template before login', () => {
+  const { app } = webmcp();
+  app.state.lang = 'en';
+  const html = app.employerLandingPage();
+  assert.match(html, /What does the open-source template cover\?/);
+  assert.match(html, /public code, issue, documentation, or release evidence/i);
+  assert.match(html, /template%3Dopensource/);
+});
+
+test('public role and résumé details expose native sharing with a copy fallback', async () => {
+  const { app } = webmcp({ responses: {
+    '/api/public/jobs/job-one': { id: 'job-one', title: 'Rust maintainer', employer: { name: 'Open Source Co' }, salary_cents: 600000, currency: 'CNY', headcount: 1, updated_at: 1792886400, jd_html: '<p>Build public APIs.</p>' },
+    '/api/public/people/ada': { handle: 'ada', name: 'Ada', avatar: '', public_email: '', ai_profile_links: { chatgpt: 'https://chatgpt.com/g/ada' }, resume_html: '<p>Rust maintainer.</p>' },
+  } });
+  app.state.lang = 'en';
+  const role = await app.publicJobPage('job-one');
+  assert.match(role, /data-action="share-public-link"/);
+  assert.match(role, /Share role/);
+  assert.match(role, /data-share-text="Open role: Rust maintainer/);
+  assert.match(role, /Updated 25 Oct 2026/);
+  assert.doesNotMatch(role, /确认仍在招聘|Confirmed hiring/);
+  const person = await app.publicPersonPage('ada');
+  assert.match(person, /data-action="share-public-link"/);
+  assert.match(person, /Share homepage/);
+  assert.match(person, /data-copy="https:\/\/hireferry\.test\/discover\/people\/ada"/);
+});
+
+test('generated sign-up handles still show the custom-name onboarding path', () => {
+  const { app } = webmcp();
+  assert.equal(app.isGeneratedHandle('user_' + 'a'.repeat(16)), true);
+  assert.equal(app.isGeneratedHandle('user_' + 'a'.repeat(27)), true);
+  assert.equal(app.isGeneratedHandle('lightdot'), false);
+  assert.equal(app.isGeneratedHandle('user_not-a-hex-handle'), false);
+  assert.match(app.requestErrorText('Claim a custom username before publishing your profile'), /抢注自定义用户名/);
+});
+
+test('new role selection lands on the work surface that completes onboarding', () => {
+  const { app } = webmcp();
+  assert.equal(app.defaultRoleReturn('seeker'), '/app?tab=profile');
+  assert.equal(app.defaultRoleReturn('employer'), '/app?tab=jobs');
+});
+
+test('seekers get a clear account-role prompt when opening the employer editor', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  const html = app.roleMismatchPage('employer');
+  assert.match(html, /当前账号是求职者身份/);
+  assert.match(html, /请退出当前账号，再用招聘方账号登录后重试/);
+  assert.match(html, /data-action="logout-switch-account"/);
+  assert.match(html, /role=employer/);
+});
+
+test('an existing seeker with an unclaimed generated handle returns to profile setup', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  app.state.user.handle = 'user_' + 'a'.repeat(16);
+  assert.equal(app.afterSignIn(), '/app?tab=profile');
+  app.state.user.handle = 'lightdot';
+  assert.equal(app.afterSignIn(), '/app');
+});
+
+test('unclaimed seekers see one workspace profile claim banner outside profile and inbox', () => {
+  const { app } = webmcp({ role: 'seeker' });
+  app.state.user.handle = 'user_' + 'a'.repeat(16);
+  const jobs = app.shell('<p>jobs</p>', 'jobs');
+  assert.match(jobs, /workspace-profile-claim/);
+  assert.match(jobs, /href="\/app\?tab=profile"[^>]*data-nav/);
+  assert.match(jobs, /先抢注你的独一无二名字/);
+  assert.doesNotMatch(app.shell('<p>profile</p>', 'profile'), /workspace-profile-claim/);
+  assert.doesNotMatch(app.shell('<p>messages</p>', 'messages'), /workspace-profile-claim/);
+});
+
+test('unclaimed profile setup offers an immediate save-name action beside the username field', async () => {
+  const profile = { email: 'seeker@example.test', name: 'A seeker', role: 'seeker', handle: 'user_' + 'a'.repeat(16), public_profile: false, public_email: '', resume_md: '', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] }, '/api/auth/sessions': { items: [{ id: 'current', current: true, created_at: 1, expires_at: 2 }, { id: 'other', current: false, created_at: 1, expires_at: 2 }] } } });
+  const html = await app.profilePage();
+  assert.match(html, /<form id="profile-form" data-form="profile">/);
+  assert.match(html, /name="handle" form="profile-form" autofocus/);
+  assert.match(html, /value="a-seeker"/);
+  assert.match(html, /点击保存后才会真正抢注/);
+  assert.match(html, /profile-claim-actions/);
+  assert.match(html, /保存名字并继续/);
+});
+
+test('published profiles offer a copyable README badge', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: true, public_email: '', resume_md: '## Rust', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const html = await app.profilePage();
+  assert.match(html, /README 徽章/);
+  assert.match(html, /badge\.svg\?label=ada/);
+  assert.match(html, /utm_source=readme_badge/);
+  assert.match(html, /utm_campaign=profile_badge/);
+  assert.match(html, /copy-profile-badge/);
+  assert.match(html, /\[!\[ada AI profile\]/);
+});
+
+test('profile settings expose GitHub, X and multiple custom public links', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: true, public_email: '', resume_md: '## Rust', ai_profile_links: { github: 'https://github.com/ada', x: 'https://x.com/ada', '个人网站': 'https://ada.example.com' }, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] } } });
+  const html = await app.profilePage();
+  assert.match(html, /name="ai_github"/);
+  assert.match(html, /name="ai_x"/);
+  assert.match(html, /data-action="add-profile-link"/);
+  assert.match(html, /data-custom-link-label[^>]*value="个人网站"/);
+  assert.match(html, /data-custom-link-url[^>]*value="https:\/\/ada\.example\.com"/);
+});
+
+test('profile exposes email rebinding cancellation and session controls', async () => {
+  const profile = { email: 'ada@example.test', name: 'Ada', role: 'seeker', handle: 'ada', public_profile: false, public_email: '', resume_md: '## Rust', ai_profile_links: {}, email_notifications: { enabled: false, preferences: { messages: false, matches: false, orders: false, platform: false } } };
+  const { app } = webmcp({ responses: { '/api/profile': profile, '/api/auth/passkeys': { passkeys: [] }, '/api/auth/sessions': { items: [{ id: 'current', current: true, created_at: 1, expires_at: 2 }, { id: 'other', current: false, created_at: 1, expires_at: 2 }] } } });
+  const html = await app.profilePage();
+  assert.match(html, /换绑登录邮箱/);
+  assert.match(html, /当前邮箱会收到一个取消链接/);
+  assert.match(html, /data-form="email-change"/);
+  assert.match(html, /data-action="revoke-user-session"/);
+  assert.match(html, /data-action="revoke-other-sessions"/);
+  assert.match(html, /Google Password Manager/);
+  assert.doesNotMatch(html, /user-passkey-kind/);
+});
+
+test('free early access remains available to an existing inactive employer', () => {
+  const { app } = webmcp({ role: 'employer' });
+  app.state.user.employer_paid = false;
+  app.state.config.pricing.onboarding_minor = 0;
+  assert.equal(app.shouldAutoActivateEmployer(app.state.user), true);
+  app.state.config.pricing.onboarding_minor = 10000;
+  assert.equal(app.shouldAutoActivateEmployer(app.state.user), false);
+});
+
 test('contact, refund policy, and related notices are bilingual and use configured support details', () => {
   const { app, requests } = webmcp();
   app.state.config = { ...app.state.config, support_email: 'support@lmm.best', public_origin: 'https://hireferry.lmm.best' };
@@ -663,6 +1003,15 @@ test('new roles default to one planned hire and validate zero and the exact inte
   const html = await app.jobEditor();
   assert.match(html, /name="headcount"[^>]*min="0"[^>]*max="1000000"[^>]*step="1"[^>]*value="1"/);
   assert.match(html, /does not change the publication fee/);
+});
+
+test('open-source employer template reduces the blank-role start', async () => {
+  const { app } = webmcp({ role: 'employer', search: '?template=opensource' });
+  app.state.lang = 'en';
+  const html = await app.jobEditor();
+  assert.match(html, /Open-source maintainer \/ contributor/);
+  assert.match(html, /An open-source role template is loaded/);
+  assert.match(html, /public code, issues, documentation, or release history/i);
 });
 
 test('free headcount changes send only the target, with no order or paid description request', async () => {
@@ -701,6 +1050,13 @@ test('role management shows zero as paused and keeps free controls separate from
   assert.match(html, /data-action="delete-job" data-id="restored-role">Delete permanently/);
   assert.doesNotMatch(html, /data-action="close-job"/);
   assert.match(html, /href="\/app\?tab=jobs&view=trash"/);
+  const row = id => html.match(new RegExp(`<article class="list-row job-row">(?:(?!<article)[\\s\\S])*?data-id="${id}"[\\s\\S]*?</article>`))?.[0] || '';
+  assert.match(row('restored-role'), /data-action="pause-job"/);
+  assert.match(row('restored-role'), /href="\/discover\/jobs\/restored-role"/);
+  assert.match(row('restored-role'), /data-copy="https:\/\/hireferry\.test\/discover\/jobs\/restored-role"/);
+  for (const id of ['job-one', 'closed-role']) assert.doesNotMatch(row(id), /data-action="pause-job"|data-action="copy-public-link"|href="\/discover\/jobs\//);
+  assert.match(row('job-one'), /job-headcount-disclosure[^>]* open/);
+  assert.match(row('job-one'), /Resume hiring · set target/);
   assert.equal(requests.length, 1);
   app.state.lang = 'zh';
   assert.match(app.jobBadge({ ...roleFixture, headcount: 0 }), /暂不招聘/);
@@ -1741,6 +2097,47 @@ test('empty conversations give seekers, employers and administrators relevant st
       assert.match(html, /<details\b[^>]*class="chat-tools"/);
     } finally { service.stopChat(); }
   }
+});
+
+test('platform chats expose résumé and recommended-role shortcuts with async AI expectations', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    search: '?tab=messages&conversation=platform_seeker-one',
+  });
+  try {
+    const html = await service.messagesPage();
+    assert.match(html, /href="\/app\?tab=profile"/);
+    assert.match(html, /href="\/app\?tab=matches"/);
+    assert.match(html, /异步|asynchronous/);
+    assert.match(html, /不是时刻在线|not a 24\/7/);
+  } finally { service.stopChat(); }
+});
+
+test('platform chat notices use the configured localized auto-reply copy safely', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    search: '?tab=messages&conversation=platform_seeker-one',
+    state: { lang: 'zh', config: { ...structuredClone(defaultConfig), chat: { auto_reply: { title: '自定义标题 <script>', body_md: '自定义正文\n第二行', title_en: 'Custom title', body_md_en: 'Custom body' } } } },
+  });
+  try {
+    const html = await service.messagesPage();
+    assert.match(html, /自定义标题 &lt;script&gt;/);
+    assert.match(html, /自定义正文<br>第二行/);
+    assert.doesNotMatch(html, /<script>/);
+  } finally { service.stopChat(); }
+});
+
+test('administrator platform chats expose résumé, recommendation and role-card actions', async () => {
+  const room = { ...chatRoom('platform_seeker-one'), user_id: 'seeker-one' };
+  const service = ui(async path => path === '/api/chat/conversations' ? { items: [room] } : historyPage([]), {
+    admin: true, search: '?tab=messages&conversation=platform_seeker-one',
+  });
+  try {
+    const html = await service.messagesPage(true);
+    assert.match(html, /data-action="admin-edit-user"/);
+    assert.match(html, /data-action="chat-job-card"/);
+    assert.match(html, /推荐岗位|Recommend roles/);
+  } finally { service.stopChat(); }
 });
 
 test('an inactive employer has one optional activation note inside the conversation rather than stacked fixed banners', async () => {

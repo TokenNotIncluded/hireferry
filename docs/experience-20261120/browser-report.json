@@ -1,0 +1,126 @@
+{
+  "base": "http://localhost:17690",
+  "syntheticData": true,
+  "cases": [
+    {
+      "name": "directory renders all fixture roles",
+      "passed": true
+    },
+    {
+      "name": "desktop has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 1440,
+        "scroll": 1425
+      }
+    },
+    {
+      "name": "search button stays on one line",
+      "passed": true,
+      "details": {
+        "height": 42,
+        "whiteSpace": "nowrap",
+        "text": "搜索"
+      }
+    },
+    {
+      "name": "tab retains query and resets page",
+      "passed": true
+    },
+    {
+      "name": "job details retain query",
+      "passed": true
+    },
+    {
+      "name": "detail back restores query",
+      "passed": true
+    },
+    {
+      "name": "empty result reset restores roles",
+      "passed": true
+    },
+    {
+      "name": "390px directory has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 390,
+        "scroll": 375
+      }
+    },
+    {
+      "name": "mobile navigation tap targets are at least 44px",
+      "passed": true,
+      "details": [
+        44,
+        44,
+        44,
+        44,
+        44
+      ]
+    },
+    {
+      "name": "mobile home remains in its first static chapter",
+      "passed": true,
+      "details": {
+        "active": "0",
+        "heroPosition": "relative",
+        "hidden": [
+          "false",
+          "true",
+          "true"
+        ]
+      }
+    },
+    {
+      "name": "390px home has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 390,
+        "scroll": 375
+      }
+    },
+    {
+      "name": "320px directory has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 320,
+        "scroll": 305
+      }
+    },
+    {
+      "name": "320px people directory has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 320,
+        "scroll": 305
+      }
+    },
+    {
+      "name": "light theme applied",
+      "passed": true
+    },
+    {
+      "name": "English light desktop has no horizontal overflow",
+      "passed": true,
+      "details": {
+        "width": 1440,
+        "scroll": 1425
+      }
+    },
+    {
+      "name": "reduced motion removes extra scroll chapter space",
+      "passed": true,
+      "details": {
+        "height": 652.234375,
+        "hero": 652.234375,
+        "position": "relative"
+      }
+    },
+    {
+      "name": "no unhandled browser JavaScript errors",
+      "passed": true,
+      "details": []
+    }
+  ],
+  "errors": []
+}

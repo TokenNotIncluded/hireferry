@@ -43,6 +43,12 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Verify bundled chat renderers
+        run: |
+          npm ci --ignore-scripts
+          npm run check:chat
+          npm run test:chat
+
       - name: Test server and command-line client
         run: cargo test --locked --workspace --no-fail-fast
 
@@ -61,6 +67,7 @@ jobs:
         run: |
           python3 tests/cli-scripts.test.py
           python3 tests/release.test.py
+          python3 tests/desktop-signing.test.py
           python3 tests/aur.test.py
           python3 scripts/release.py docs --check
 
@@ -71,8 +78,12 @@ jobs:
           node "$RUNNER_TEMP/hfy-browser/node_modules/playwright/cli.js" install --with-deps chromium --only-shell
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/cli-polish-browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/downloads.browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/admin-browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/chat-streaming.browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/relations.browser.mjs
           HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/feedback-language.browser.mjs
+          HFY_PLAYWRIGHT_MODULE="$RUNNER_TEMP/hfy-browser/node_modules/playwright/index.mjs" node tests/webmcp-lifecycle.browser.mjs
 
       - name: Build Linux release
         run: cargo build --locked --release --workspace

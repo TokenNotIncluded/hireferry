@@ -1,4 +1,12 @@
-# Android 与 iOS 客户端
+# 移动端与原生客户端
+
+手机浏览器可以直接使用响应式 Web 工作台：<https://hireferry.lmm.best/>。添加到主屏幕属于浏览器快捷方式，不需要 APK 或 IPA；账号和权限仍由服务器控制。
+
+## 原生工程状态
+
+本分支新增 Android 与 iOS 工程支持，尚未通过完整平台验收。固定源 `130d89ef9879308413d63e472256ed6fff63887f` 的 [工程运行 39885106014](https://github.com/TokenNotIncluded/hireferry/actions/runs/39885106014) 中，iOS 模拟器通过；Android 已构建并完成部分安装、隔离与返回检查，但后续尝试出现焦点切换 ANR / native crash，Android job 仍失败。移植到新 main 的便携源码测试不会消除这一平台阻塞，也不产生正式下载。
+
+原生浏览器登录还依赖 [PR #24](https://github.com/TokenNotIncluded/hireferry/pull/24) 的服务端兑换流程；两端需要在同一集成树验证。当前生产服务、Google 账号或真机授权均不由本分支的本地测试推定。
 
 移动客户端复用 `desktop/` 下的 Tauri 2 Rust 核心和静态启动页；手机上使用单个系统 WebView。默认连接 `https://hireferry.lmm.best`，也可手动输入带可信 TLS 证书的自托管 HTTPS 站点。业务数据保留在所选服务器，离线时只能打开本地连接页。
 

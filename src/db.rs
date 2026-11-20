@@ -31,18 +31,20 @@ pub fn open(path: &str) -> AppResult<Connection> {
 }
 pub fn migrate(db: &Connection) -> AppResult<()> {
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if version > 13 {
+    if version > 20 {
         return Err(AppError::conflict(
             "Database schema is newer than this application",
         ));
     }
     db.execute_batch(r#"
+ CREATE TABLE IF NOT EXISTS payment_settings(provider TEXT PRIMARY KEY,mode TEXT NOT NULL CHECK(mode IN ('test','prod')));
+ CREATE TABLE IF NOT EXISTS pricing_settings(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL CHECK(mode IN ('fees','donation')));
  CREATE TABLE IF NOT EXISTS users(
- id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
- employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+ id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,google_sub TEXT UNIQUE,name TEXT NOT NULL DEFAULT '',handle TEXT NOT NULL DEFAULT '',role TEXT NOT NULL DEFAULT 'unassigned' CHECK(role IN ('unassigned','seeker','employer')),
+ employer_paid INTEGER NOT NULL DEFAULT 0,avatar TEXT NOT NULL DEFAULT '',public_email TEXT NOT NULL DEFAULT '',resume_md TEXT NOT NULL DEFAULT '',visible INTEGER NOT NULL DEFAULT 0,public_profile INTEGER NOT NULL DEFAULT 0,ai_profile_links TEXT NOT NULL DEFAULT '{}',banned INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,jd_md TEXT NOT NULL,salary_cents INTEGER NOT NULL CHECK(salary_cents>0),headcount INTEGER NOT NULL DEFAULT 1 CHECK(headcount>=0 AND headcount<=1000000),status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','closed','deleted')),delete_count INTEGER NOT NULL DEFAULT 0 CHECK(delete_count>=0 AND delete_count<=2),deleted_from_status TEXT CHECK(deleted_from_status IN ('draft','published','closed')),deleted_headcount INTEGER CHECK(deleted_headcount>=0 AND deleted_headcount<=1000000),edits_used INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner_id,created_at);
- CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
+ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL CHECK(kind IN ('onboarding','publish','edit','donation')),job_id TEXT REFERENCES jobs(id),amount_cents INTEGER NOT NULL CHECK(amount_cents>=0),currency TEXT NOT NULL DEFAULT 'CNY',provider TEXT NOT NULL,live_mode INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',snapshot_json TEXT NOT NULL DEFAULT '{}',provider_session TEXT,checkout_url TEXT,checkout_started_at INTEGER,created_at INTEGER NOT NULL,paid_at INTEGER);
  CREATE UNIQUE INDEX IF NOT EXISTS one_job_pending ON orders(job_id) WHERE status='pending';
  CREATE UNIQUE INDEX IF NOT EXISTS one_onboarding_pending ON orders(user_id) WHERE kind='onboarding' AND status='pending';
  CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id,created_at);
@@ -111,6 +113,8 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
     crate::auth::migrate(db)?;
     crate::admin_ai::migrate(db)?;
     crate::chat::migrate(db)?;
+    crate::chat_ai::migrate(db)?;
+    crate::announcements::migrate(db)?;
     crate::commerce::migrate(db)?;
     crate::webhooks::migrate(db)?;
     crate::workbench::migrate(db)?;
@@ -166,6 +170,100 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         tx.pragma_update(None, "user_version", 13)?;
         tx.commit()?;
     }
+    // Schema 14: typed messages and a durable stream event journal. Older
+    // binaries must not ignore active streams or their idempotency records.
+    if version < 14 {
+        let tx = db.unchecked_transaction()?;
+        crate::chat_stream::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 14)?;
+        tx.commit()?;
+    }
+    if version < 15 {
+        let tx = db.unchecked_transaction()?;
+        crate::notifications::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 15)?;
+        tx.commit()?;
+    }
+    if version < 16 {
+        let tx = db.unchecked_transaction()?;
+        let columns = {
+            let mut q = tx.prepare("PRAGMA table_info(users)")?;
+            q.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if !columns.iter().any(|c| c == "handle") {
+            tx.execute_batch("ALTER TABLE users ADD COLUMN handle TEXT NOT NULL DEFAULT ''")?;
+        }
+        if !columns.iter().any(|c| c == "public_profile") {
+            tx.execute_batch(
+                "ALTER TABLE users ADD COLUMN public_profile INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        if !columns.iter().any(|c| c == "ai_profile_links") {
+            tx.execute_batch(
+                "ALTER TABLE users ADD COLUMN ai_profile_links TEXT NOT NULL DEFAULT '{}'",
+            )?;
+        }
+        tx.execute(
+            "UPDATE users SET handle='user_'||substr(replace(id,'-',''),1,16) WHERE handle=''",
+            [],
+        )?;
+        tx.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; DROP TRIGGER IF EXISTS users_assign_handle; CREATE TRIGGER users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,27) WHERE id=NEW.id; END;")?;
+        tx.pragma_update(None, "user_version", 16)?;
+        tx.commit()?;
+    }
+    // Schema 17 adds stable member invitation codes and signup attribution.
+    if version < 17 {
+        let tx = db.unchecked_transaction()?;
+        crate::referrals::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 17)?;
+        tx.commit()?;
+    }
+    // Schema 18 adds per-member WebAuthn credentials. The table itself is
+    // created idempotently by the auth migration; this marker prevents older
+    // binaries from silently ignoring member passkeys.
+    if version < 18 {
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS user_passkeys (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                credential_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_used_at INTEGER,
+                counter INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS user_passkeys_user ON user_passkeys(user_id,created_at,id);",
+        )?;
+        tx.pragma_update(None, "user_version", 18)?;
+        tx.commit()?;
+    }
+    // Schema 19 adds persistent member votes and public job discussions.
+    if version < 19 {
+        let tx = db.unchecked_transaction()?;
+        crate::job_interactions::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 19)?;
+        tx.commit()?;
+    }
+    // Schema 20 adds explicit donation orders and the daily email update poll.
+    if version < 20 {
+        let tx = db.unchecked_transaction()?;
+        crate::notifications::migrate(&tx)?;
+        tx.pragma_update(None, "user_version", 20)?;
+        tx.commit()?;
+    }
+    // Keep this idempotent for databases created by tests or older imports that
+    // inserted users after the versioned migration ran.
+    crate::referrals::migrate(db)?;
+    db.execute_batch("DROP INDEX IF EXISTS users_handle_unique; CREATE UNIQUE INDEX IF NOT EXISTS users_handle_unique ON users(handle COLLATE NOCASE) WHERE handle <> ''; DROP TRIGGER IF EXISTS users_assign_handle; CREATE TRIGGER users_assign_handle AFTER INSERT ON users WHEN NEW.handle='' BEGIN UPDATE users SET handle='user_'||substr(replace(NEW.id,'-',''),1,27) WHERE id=NEW.id; END;")?;
+    // Additive graph indexes/revision and presentation state, like the workbench
+    // indexes above, do not change the authoritative business record format.
+    crate::relations::migrate(db)?;
+    crate::relation_views::migrate(db)?;
+    // commerce::migrate may rebuild orders, which drops table triggers. Reapply
+    // notification triggers idempotently after every commerce migration.
+    crate::notifications::migrate(db)?;
     Ok(())
 }
 pub fn audit(

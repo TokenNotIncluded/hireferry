@@ -33,7 +33,7 @@ function updateNode(current, next) {
   return current;
 }
 
-export function reconcileChildren(parent, nextParent) {
+export function reconcileChildren(parent, nextParent, { preserve = null } = {}) {
   const old = [...parent.childNodes];
   const used = new Set();
   const keyed = new Map();
@@ -61,18 +61,20 @@ export function reconcileChildren(parent, nextParent) {
     }
     used.add(current);
     if (current !== position) parent.insertBefore(current, position);
-    current = updateNode(current, next);
+    if (current !== preserve) current = updateNode(current, next);
     position = current.nextSibling;
   }
   for (const node of old) if (!used.has(node) && node.parentNode === parent) node.remove();
 }
 
-export function mountPage(root, html, pageKey, { busy = false } = {}) {
+export function mountPage(root, html, pageKey, { busy = false, preserveMain = false } = {}) {
   const template = document.createElement('template');
   template.innerHTML = html;
   const content = template.content.querySelector('.app-content');
   if (content) content.setAttribute('data-page-key', pageKey);
-  reconcileChildren(root, template.content);
+  // Background public-page identity/config refreshes update shared chrome only.
+  // Keep the live result DOM, including search drafts and discussion controls.
+  reconcileChildren(root, template.content, { preserve: preserveMain ? root.querySelector('main') : null });
   root.dataset.pageKey = pageKey;
   const region = root.querySelector('.app-content') || root.querySelector('main');
   region?.setAttribute('aria-busy', String(busy));
