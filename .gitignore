@@ -26,3 +26,7 @@
 __pycache__/
 *.py[cod]
 /node_modules/
+
+# Generated review media is archived outside Git.
+/docs/experience-*/*.png
+/docs/validation/steady-chat/*.png

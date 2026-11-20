@@ -56,17 +56,17 @@ python3 scripts/release.py docs --check
 
 ### 桌面 · 深色公开目录
 
-![桌面深色公开目录](directory-desktop-dark.png)
+[桌面深色公开目录（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ### 手机 · 首页
 
-![手机首页](home-mobile-dark.png)
+[手机首页（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ### 桌面 · 英文浅色公开目录
 
-![英文浅色公开目录](directory-desktop-light-en.png)
+[英文浅色公开目录（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
-[查看手机公开目录完整长图](directory-mobile-dark.png)
+[查看手机公开目录完整长图（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ## 5. 提交与范围
 

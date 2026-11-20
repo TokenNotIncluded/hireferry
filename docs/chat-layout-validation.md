@@ -63,15 +63,15 @@ node tests/chat-layout.browser.mjs
 
 ### 手机初次会话
 
-![手机初次会话](validation/steady-chat/mobile-empty-light.png)
+[手机初次会话（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ### 手机深色消息
 
-![手机深色消息](validation/steady-chat/mobile-thread-dark.png)
+[手机深色消息（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ### 管理员桌面会话
 
-![管理员桌面会话](validation/steady-chat/desktop-admin.png)
+[管理员桌面会话（截图归档）](https://drive.google.com/file/d/1WkNAHLtZVnIhGzrq3Q_8mTBtD-4XOKTJ/view?usp=drivesdk)
 
 ## 参考思路
 
