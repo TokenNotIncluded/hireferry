@@ -64,6 +64,27 @@ or replace role-publication and description-update orders.
 
 ## Configurable charges and currency
 
+`[pricing].billing_mode` selects whether new service operations use `fees` or
+`donation`. In donation mode activation, publication and description edits are
+permanently free; a donation is voluntary and does not gate access. Each
+self-hosted instance has a permanent `/donate` page, a donation modal, and
+copyable URL/announcement links. The signed-in user creates a one-time donation
+order, then checks out through a payment provider enabled for that instance.
+Funds go to the payment account configured by that instance's operator. This
+feature does not send donations to the upstream HireFerry project and grants no
+service entitlement. Donation amounts use the instance's configured pricing
+currency and are bounded from 1 to 100,000 major currency units per order.
+
+Donations are available only while `billing_mode` is `donation`. The admin
+settings page can switch the mode for future operations without restarting.
+Historical orders retain their recorded provider, amount and terms.
+
+`POST /api/donations` accepts `amount_minor`, `currency`, `provider`, and an
+idempotency `request_key`; it requires a signed-in account and creates a
+pending `donation` order. Use the normal `POST /api/orders/{id}/checkout` flow
+to obtain its hosted checkout URL. A donation never activates an account or
+changes a job's state.
+
 `[pricing]` selects `currency` and `allowed_currencies`. The default template
 keeps CNY for compatibility; the operator can select another supported currency.
 New jobs may choose an enabled currency. Recruiter activation defaults to the configured
@@ -409,3 +430,30 @@ production verification key together, after store approval. Preserve the previou
 credentials outside Git; never change a test order into a live order.
 
 On 2026-10-22 the live **test API** accepted `includePaymentMethods: ["wechat", "alipay"]` for both CNY and USD, although the published payment matrix still listed only WeChat Pay. This verifies session creation, not a real charge or production approval.
+
+
+## Switching Waffo environments
+
+Keep `[payments.waffo]` as the existing test credentials with `mode = "test"`.
+Add `[payments.waffo.production]` with `merchant_id`, `store_id`, `product_id`,
+`private_key_pem`, `webhook_public_key_pem`, and `tax_category` from the approved
+production merchant/product. Both profiles share `base_url`, allowed currencies
+and checkout regions. Restart after editing credentials and run `check-config` first.
+The optional production section must be complete and contain parseable RSA keys.
+
+The owner sees the current Waffo environment and a switch in Admin > Overview
+(and Orders). Switching requires administrator authorization and CSRF protection,
+is audited, and persists in SQLite `payment_settings`. On first deployment the
+TOML `mode` supplies the default; after an administrator saves a choice, that
+choice survives restarts. No secrets can be edited or read through this endpoint.
+A missing production profile disables the production switch.
+
+Switching affects **new orders only**. Each existing order keeps `live_mode`;
+checkout selects its corresponding credentials even after a switch. Both webhook
+environments remain accepted with their own verification keys and store IDs;
+settlement still checks the order environment. Register test and production
+webhooks for `order.completed`, `refund.succeeded`, and `refund.failed` at the
+same `/api/webhooks/waffo` URL. This permits late payments and refunds after a switch.
+Keep both profiles when upgrading or rolling back. A persisted environment without
+its matching credentials prevents startup. Provider approval and a parseable key
+do not by themselves prove that a real payment and refund work end to end.

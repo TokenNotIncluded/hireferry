@@ -6,7 +6,8 @@
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const valid = value => ['system', 'light', 'dark'].includes(value);
   const palettes = ['neutral', 'blue', 'violet', 'rose', 'amber', 'teal'];
-  let preference = 'light', palette = 'neutral';
+  const defaultPreference = valid(root.dataset.defaultTheme) ? root.dataset.defaultTheme : 'light';
+  let preference = defaultPreference, palette = 'neutral';
   try {
     const saved = localStorage.getItem(key), savedPalette = localStorage.getItem(paletteKey);
     if (valid(saved)) preference = saved;
@@ -57,9 +58,9 @@
   media.addEventListener('change', () => { if (preference === 'system') apply(); });
   window.addEventListener('storage', event => {
     if (![key, paletteKey, null].includes(event.key)) return;
-    if (event.key === key) preference = valid(event.newValue) ? event.newValue : 'light';
+    if (event.key === key) preference = valid(event.newValue) ? event.newValue : defaultPreference;
     if (event.key === paletteKey) palette = palettes.includes(event.newValue) ? event.newValue : 'neutral';
-    if (event.key === null) { preference = 'light'; palette = 'neutral'; }
+    if (event.key === null) { preference = defaultPreference; palette = 'neutral'; }
     apply();
   });
   new MutationObserver(syncControls).observe(root, {childList: true, subtree: true});

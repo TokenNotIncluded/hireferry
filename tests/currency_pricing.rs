@@ -105,6 +105,42 @@ fn activation_currency_uses_configured_prices_and_never_reprices_an_existing_ord
 }
 
 #[test]
+fn donation_mode_makes_new_employer_services_free_forever() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.billing_mode = "donation".into();
+    cfg.validate().unwrap();
+    let state = AppState::new(cfg).unwrap();
+    state
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO users(id,email,created_at,updated_at) VALUES('donor','donor@example.invalid',1,1)",
+            [],
+        )
+        .unwrap();
+    let (user, activation) =
+        commerce::choose_role(&state, "donor", "employer", Some("stripe")).unwrap();
+    assert!(activation.is_none());
+    assert!(user.employer_paid);
+    let (job, order) = commerce::new_job(
+        &state,
+        "donor",
+        "Donation mode role",
+        "No payment is required",
+        300_000,
+        "stripe",
+    )
+    .unwrap();
+    assert_eq!(order.provider, "free");
+    assert_eq!(order.amount_cents, 0);
+    assert_eq!(order.status, "paid");
+    assert_eq!(job.status, "published");
+    let public = api::public_config(&state);
+    assert_eq!(public["pricing"]["billing_mode"], "donation");
+}
+
+#[test]
 fn waffo_regions_are_configured_independently_and_accept_new_method_codes() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(&dir);
@@ -154,7 +190,9 @@ fn currency_and_fee_configuration_rejects_ambiguous_or_invalid_values() {
         "JPY".into(),
         CurrencyAmounts {
             publish_fixed_minor: 3000,
+            publish_discount_percent: 0,
             edit_fixed_minor: 300,
+            edit_discount_percent: 0,
             employer_ai_min_salary_minor: 300000,
         },
     );
@@ -445,7 +483,9 @@ async fn selected_currency_uses_explicit_amounts_and_limits_are_configurable() {
         "USD".into(),
         CurrencyAmounts {
             publish_fixed_minor: 888,
+            publish_discount_percent: 0,
             edit_fixed_minor: 88,
+            edit_discount_percent: 0,
             employer_ai_min_salary_minor: 12345,
         },
     );
@@ -456,27 +496,27 @@ async fn selected_currency_uses_explicit_amounts_and_limits_are_configurable() {
     let state = AppState::new(cfg).unwrap();
     let owner = employer(&state);
     assert!(
-        commerce::new_job_with_currency(
+        commerce::create_job(
             &state,
             &owner,
-            "Role",
-            "JD",
-            10000,
-            "stripe",
-            10,
-            Some("USD")
+            commerce::NewJob {
+                provider: "stripe",
+                headcount: 10,
+                currency: Some("USD"),
+                ..commerce::NewJob::new("Role", "JD", 10000)
+            },
         )
         .is_err()
     );
-    let (job, order) = commerce::new_job_with_currency(
+    let (job, order) = commerce::create_job(
         &state,
         &owner,
-        "Role",
-        "JD",
-        10000,
-        "stripe",
-        9,
-        Some("USD"),
+        commerce::NewJob {
+            provider: "stripe",
+            headcount: 9,
+            currency: Some("USD"),
+            ..commerce::NewJob::new("Role", "JD", 10000)
+        },
     )
     .unwrap();
     assert_eq!(
@@ -553,7 +593,7 @@ PRAGMA user_version=3;
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        13
+        19
     );
     assert_eq!(
         db.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
@@ -566,5 +606,75 @@ PRAGMA user_version=3;
         })
         .unwrap(),
         0
+    );
+}
+
+#[test]
+fn configured_discount_preserves_original_quote_and_zero_skips_gateway() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.onboarding_cents = 1000;
+    cfg.pricing.onboarding_discount_percent = 50;
+    cfg.pricing.publish_mode = "fixed".into();
+    cfg.pricing.publish_fixed_minor = 2000;
+    cfg.pricing.publish_discount_percent = 25;
+    cfg.pricing.edit_mode = "fixed".into();
+    cfg.pricing.edit_fixed_minor = 500;
+    cfg.pricing.edit_discount_percent = 100;
+    cfg.validate().unwrap();
+    assert_eq!(cfg.pricing.onboarding_original_amount("CNY").unwrap(), 1000);
+    assert_eq!(cfg.pricing.onboarding_amount("CNY").unwrap(), 500);
+    assert_eq!(
+        hireferry::config::Pricing::discount_amount(2000, 25).unwrap(),
+        1500
+    );
+    assert_eq!(
+        hireferry::config::Pricing::discount_amount(500, 100).unwrap(),
+        0
+    );
+    let public = cfg.pricing.public();
+    assert_eq!(public["onboarding_original_minor"], 1000);
+    assert_eq!(public["onboarding_minor"], 500);
+    assert_eq!(public["onboarding_discount_percent"], 50);
+}
+
+#[tokio::test]
+async fn configured_full_edit_discount_is_recorded_and_skips_gateway() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir);
+    cfg.pricing.publish_mode = "fixed".into();
+    cfg.pricing.publish_fixed_minor = 2_000;
+    cfg.pricing.edit_mode = "fixed".into();
+    cfg.pricing.edit_fixed_minor = 500;
+    cfg.pricing.edit_discount_percent = 100;
+    cfg.validate().unwrap();
+    let state = AppState::new(cfg).unwrap();
+    let owner = employer(&state);
+    let (job, publication) =
+        commerce::new_job(&state, &owner, "Paid role", "Original", 100, "stripe").unwrap();
+    commerce::settle_payment(&state, receipt(&publication))
+        .await
+        .unwrap();
+    let ledger_before: i64 = state
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM ledger", [], |row| row.get(0))
+        .unwrap();
+
+    let (edited, order) =
+        commerce::edit_job(&state, &owner, &job.id, "Applied immediately", "ignored").unwrap();
+    assert_eq!(edited.jd_md, "Applied immediately");
+    assert_eq!(order.amount_cents, 0);
+    assert_eq!(order.provider, "free");
+    assert_eq!(order.status, "paid");
+    assert!(order.checkout_url.is_none());
+    assert_eq!(
+        state
+            .conn()
+            .unwrap()
+            .query_row("SELECT count(*) FROM ledger", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        ledger_before
     );
 }

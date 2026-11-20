@@ -60,7 +60,9 @@ fn policies_render_free_and_fixed_fees_with_each_currencys_exact_precision() {
         "USD".into(),
         CurrencyAmounts {
             publish_fixed_minor: 12345,
+            publish_discount_percent: 0,
             edit_fixed_minor: 150,
+            edit_discount_percent: 0,
             employer_ai_min_salary_minor: 0,
         },
     );

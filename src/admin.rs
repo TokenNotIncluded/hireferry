@@ -18,6 +18,14 @@ use serde_json::{Value, json};
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/admin/overview", get(overview))
+        .route(
+            "/api/admin/pricing",
+            get(pricing_settings).post(change_pricing_mode),
+        )
+        .route(
+            "/api/admin/payments/waffo",
+            get(waffo_settings).post(change_waffo_mode),
+        )
         .route("/api/admin/users", get(users))
         .route("/api/admin/users/{id}", get(user_detail).patch(update_user))
         .route(
@@ -166,6 +174,36 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
         .prepare("SELECT * FROM orders WHERE created_at>=?1 AND created_at<?2 AND live_mode=?3 AND currency=?4 AND (?5='' OR status=?5) ORDER BY created_at DESC,id LIMIT 8")?
         .query_map(params![from, to, live, currency, status], models::order_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let signup_sources = db
+        .prepare("SELECT detail,count(*) FROM audit WHERE action='signup_source' AND created_at>=?1 AND created_at<?2 GROUP BY detail ORDER BY count(*) DESC,detail")?
+        .query_map(params![from, to], |r| {
+            Ok(json!({"source":r.get::<_,String>(0)?,"signups":r.get::<_,i64>(1)?}))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let referral_signups: i64 = db.query_row(
+        "SELECT COUNT(*) FROM user_referrals WHERE created_at>=?1 AND created_at<?2",
+        params![from, to],
+        |r| r.get(0),
+    )?;
+    let referral_total: i64 =
+        db.query_row("SELECT COUNT(*) FROM user_referrals", [], |r| r.get(0))?;
+    let top_referrers = db
+        .prepare(
+            "SELECT u.id,u.name,u.handle,COUNT(*) AS invites
+             FROM user_referrals r JOIN users u ON u.id=r.inviter_id
+             WHERE r.created_at>=?1 AND r.created_at<?2
+             GROUP BY u.id,u.name,u.handle
+             ORDER BY invites DESC,u.id LIMIT 8",
+        )?
+        .query_map(params![from, to], |r| {
+            Ok(json!({
+                "user_id":r.get::<_,String>(0)?,
+                "name":r.get::<_,String>(1)?,
+                "handle":r.get::<_,String>(2)?,
+                "invites":r.get::<_,i64>(3)?
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(json!({
         "stats":{
             "users":count("SELECT count(*) FROM users")?,
@@ -180,6 +218,7 @@ pub fn overview_data(s: &AppState, p: &Principal, q: &QueryInput) -> AppResult<V
             "review_orders":count("SELECT count(*) FROM orders WHERE status='paid_needs_review'")?
         },
         "series":series,"revenue_by_kind":by_kind,"recent_orders":recent,
+        "growth":{"signup_sources":signup_sources,"referral_signups":referral_signups,"referral_total":referral_total,"top_referrers":top_referrers},
         "currency":currency,"currency_decimals":currency_decimals,"currency_totals":currency_totals,
         "bucket":if monthly{"month"}else{"day"},
         "timezone":"UTC","development":s.cfg.development,
@@ -252,11 +291,11 @@ pub struct UserAccessInput {
 }
 
 fn access_record(db: &Connection, id: &str) -> AppResult<Value> {
-    Ok(db.query_row(
+    db.query_row(
         "SELECT u.banned,a.reason,a.changed_at,a.changed_by FROM users u LEFT JOIN account_moderation a ON a.user_id=u.id WHERE u.id=?1",
         [id],
         |row| Ok(json!({"banned":row.get::<_,bool>(0)?,"reason":row.get::<_,Option<String>>(1)?,"changed_at":row.get::<_,Option<i64>>(2)?,"changed_by":row.get::<_,Option<String>>(3)?})),
-    ).optional()?.ok_or_else(|| AppError::not_found("User not found"))?)
+    ).optional()?.ok_or_else(|| AppError::not_found("User not found"))
 }
 
 fn record_access_change(
@@ -1026,4 +1065,110 @@ async fn update_match(
     let p = guard(&s, &h, true)?;
     patch_match(&s, &p, &id, i)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn waffo_settings_data(s: &AppState, db: &Connection) -> AppResult<Value> {
+    let w = &s.cfg.payments.waffo;
+    Ok(
+        json!({"enabled":w.enabled,"mode":crate::payments::waffo_mode(s, db)?,
+        "test_ready":w.enabled && w.for_mode("test").is_ok(),
+        "production_ready":w.enabled && w.for_mode("prod").is_ok()}),
+    )
+}
+
+fn pricing_settings_data(s: &AppState, db: &Connection) -> AppResult<Value> {
+    let mode = commerce::billing_mode(s, db)?;
+    Ok(json!({
+        "mode": mode,
+        "donation": mode == "donation",
+        "configured_mode": s.cfg.pricing.billing_mode.clone(),
+    }))
+}
+async fn pricing_settings(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, false)?;
+    let db = s.conn()?;
+    access::ensure_admin(&db, &p)?;
+    Ok(Json(pricing_settings_data(&s, &db)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PricingModeInput {
+    mode: String,
+    expected_mode: String,
+}
+async fn change_pricing_mode(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<PricingModeInput>,
+) -> AppResult<Json<Value>> {
+    if !matches!(input.mode.as_str(), "fees" | "donation") {
+        return Err(AppError::bad_request("Choose fees or donation mode"));
+    }
+    let p = access::principal(&s, &h, true)?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    access::ensure_admin(&tx, &p)?;
+    let previous = commerce::billing_mode(&s, &tx)?;
+    if previous != input.expected_mode {
+        return Err(AppError::conflict(
+            "Billing mode changed; refresh and retry",
+        ));
+    }
+    tx.execute(
+        "INSERT INTO pricing_settings(id,mode) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET mode=excluded.mode",
+        [&input.mode],
+    )?;
+    audit(
+        &tx,
+        &p.actor,
+        "pricing_mode_change",
+        "pricing",
+        &json!({"from":previous,"to":input.mode}).to_string(),
+    )?;
+    let result = pricing_settings_data(&s, &tx)?;
+    tx.commit()?;
+    Ok(Json(result))
+}
+async fn waffo_settings(State(s): State<AppState>, h: HeaderMap) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, false)?;
+    let db = s.conn()?;
+    access::ensure_admin(&db, &p)?;
+    Ok(Json(waffo_settings_data(&s, &db)?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WaffoModeInput {
+    mode: String,
+    expected_mode: String,
+}
+async fn change_waffo_mode(
+    State(s): State<AppState>,
+    h: HeaderMap,
+    Json(input): Json<WaffoModeInput>,
+) -> AppResult<Json<Value>> {
+    let p = access::principal(&s, &h, true)?;
+    let mut db = s.conn()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    access::ensure_admin(&tx, &p)?;
+    if !s.cfg.payments.waffo.enabled {
+        return Err(AppError::unavailable("Waffo is disabled"));
+    }
+    s.cfg.payments.waffo.for_mode(&input.mode)?;
+    let previous = crate::payments::waffo_mode(&s, &tx)?;
+    if previous != input.expected_mode {
+        return Err(AppError::conflict(
+            "Payment mode changed; refresh and retry",
+        ));
+    }
+    tx.execute("INSERT INTO payment_settings(provider,mode) VALUES('waffo',?1) ON CONFLICT(provider) DO UPDATE SET mode=excluded.mode", [&input.mode])?;
+    audit(
+        &tx,
+        &p.actor,
+        "payment_mode_change",
+        "waffo",
+        &json!({"from":previous,"to":input.mode}).to_string(),
+    )?;
+    let result = waffo_settings_data(&s, &tx)?;
+    tx.commit()?;
+    Ok(Json(result))
 }

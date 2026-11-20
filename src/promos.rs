@@ -591,14 +591,15 @@ pub fn redeem_activation(
     )?;
     let order = commerce::insert_order(
         &tx,
-        uid,
-        "onboarding",
-        None,
-        0,
-        "free",
-        false,
-        currency,
-        json!({"promo":{"code_id":code.id,"code":code.code,"discount_percent":100,"original_amount_cents":original}}),
+        commerce::OrderDraft {
+            user_id: uid,
+            purpose: commerce::OrderPurpose::Onboarding,
+            amount_cents: 0,
+            provider: "free",
+            live_mode: false,
+            currency,
+            snapshot: json!({"promo":{"code_id":code.id,"code":code.code,"discount_percent":100,"original_amount_cents":original}}),
+        },
     )?;
     tx.execute("INSERT INTO promo_redemptions(order_id,code_id,user_id,purpose,status,request_key,request_hash,created_at) VALUES(?1,?2,?3,'activation','consumed',?1,'',?4)", params![order.id,code.id,uid,now()])?;
     audit(
@@ -628,11 +629,20 @@ async fn preview(
 ) -> AppResult<Json<Value>> {
     let uid = user_id(&s, &h, true)?;
     let currency = input.currency.as_deref().unwrap_or(&s.cfg.pricing.currency);
+    let mut db = s.conn()?;
     let (original, percent) = match input.purpose.as_str() {
-        "activation" => (s.cfg.pricing.onboarding_amount(currency)?, 100),
+        "activation" => (
+            if commerce::billing_mode(&s, &db)? == "donation" {
+                0
+            } else {
+                s.cfg.pricing.onboarding_amount(currency)?
+            },
+            100,
+        ),
         "publish" => (
             commerce::publication_amount(
                 &s,
+                &db,
                 input.salary_cents.ok_or_else(|| {
                     AppError::bad_request("Salary is required for a publication quote")
                 })?,
@@ -642,7 +652,6 @@ async fn preview(
         ),
         _ => return Err(AppError::bad_request("Choose activation or publish")),
     };
-    let mut db = s.conn()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let user = active_employer_or_unassigned(&tx, &uid)?;
     if input.purpose == "publish" && !user.employer_paid {

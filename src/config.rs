@@ -25,6 +25,7 @@ pub struct Config {
     pub team: Team,
     pub feedback: Feedback,
     pub maintenance: Maintenance,
+    pub chat: Chat,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -49,7 +50,167 @@ impl Default for Config {
             team: Team::default(),
             feedback: Feedback::default(),
             maintenance: Maintenance::default(),
+            chat: Chat::default(),
         }
+    }
+}
+/// An absent field keeps built-in localized copy; an empty prompt list hides it.
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Chat {
+    pub welcome: BTreeMap<String, ChatWelcome>,
+    pub auto_reply: ChatAutoReply,
+}
+
+/// The early-stage platform assistant is deliberately asynchronous. It keeps
+/// a durable queue so a restart does not turn an unanswered message into a
+/// silent failure. A connected MCP agent can replace the deterministic
+/// acknowledgement later without changing the chat contract.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatAutoReply {
+    pub enabled: bool,
+    pub delay_seconds: u64,
+    pub poll_seconds: u64,
+    pub max_attempts: u32,
+    pub title: String,
+    pub title_en: String,
+    pub body_md: String,
+    pub body_md_en: String,
+}
+
+impl Default for ChatAutoReply {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            delay_seconds: 2,
+            poll_seconds: 5,
+            max_attempts: 3,
+            title: "已收到，平台 AI 会异步处理".into(),
+            title_en: "Received — HireFerry AI will process this asynchronously".into(),
+            body_md: "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：它会在后台读取你主动提供的资料和需求，继续做初步匹配；有新进展时会主动回到这里。先用下面入口查看资料和机会。\n\n当前这条消息由自动接待确认，具体建议和岗位匹配需要等后台处理或平台工作人员跟进。".into(),
+            body_md_en: "HireFerry is still in the early stage. Platform AI works asynchronously and proactively; it is not a 24/7 live support channel. It reads the information and needs you provide, continues an initial match in the background, and comes back here when there is progress. Use the shortcuts below to review your profile and opportunities.\n\nThis message is an automatic acknowledgement. Specific advice and job matching may need background processing or follow-up from the HireFerry team.".into(),
+        }
+    }
+}
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatWelcome {
+    pub title: Option<String>,
+    pub title_en: Option<String>,
+    pub body_md: Option<String>,
+    pub body_md_en: Option<String>,
+    pub prompts: Option<Vec<ChatPrompt>>,
+}
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChatPrompt {
+    pub label: String,
+    pub body: String,
+    pub label_en: Option<String>,
+    pub body_en: Option<String>,
+}
+impl Chat {
+    pub fn validate(&self) -> AppResult<()> {
+        if self.auto_reply.delay_seconds > 3600
+            || !(1..=300).contains(&self.auto_reply.poll_seconds)
+            || !(1..=10).contains(&self.auto_reply.max_attempts)
+        {
+            return Err(AppError::bad_request(
+                "Invalid asynchronous chat auto-reply settings",
+            ));
+        }
+        let check_auto = |value: &str, max: usize, label: &str| -> AppResult<()> {
+            if value.trim().is_empty()
+                || value.chars().count() > max
+                || value
+                    .chars()
+                    .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+            {
+                return Err(AppError::bad_request(format!(
+                    "{label} is empty, too long, or contains invalid characters"
+                )));
+            }
+            Ok(())
+        };
+        check_auto(&self.auto_reply.title, 160, "Chat auto-reply title")?;
+        check_auto(
+            &self.auto_reply.title_en,
+            160,
+            "English chat auto-reply title",
+        )?;
+        check_auto(&self.auto_reply.body_md, 8000, "Chat auto-reply body")?;
+        check_auto(
+            &self.auto_reply.body_md_en,
+            8000,
+            "English chat auto-reply body",
+        )?;
+        for (audience, welcome) in &self.welcome {
+            if !matches!(
+                audience.as_str(),
+                "platform_seeker" | "platform_employer" | "matched" | "staff"
+            ) {
+                return Err(AppError::bad_request("Unknown chat welcome audience"));
+            }
+            let check = |value: &str, max: usize| -> AppResult<()> {
+                if value.chars().count() > max
+                    || value
+                        .chars()
+                        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                {
+                    return Err(AppError::bad_request(
+                        "Chat welcome text is too long or contains invalid characters",
+                    ));
+                }
+                Ok(())
+            };
+            for title in [&welcome.title, &welcome.title_en].into_iter().flatten() {
+                check(title, 160)?;
+            }
+            for body in [&welcome.body_md, &welcome.body_md_en]
+                .into_iter()
+                .flatten()
+            {
+                check(body, 4000)?;
+            }
+            if let Some(prompts) = &welcome.prompts {
+                if prompts.len() > 6 {
+                    return Err(AppError::bad_request(
+                        "At most six chat welcome prompts are allowed",
+                    ));
+                }
+                for prompt in prompts {
+                    if prompt.label.trim().is_empty() || prompt.body.trim().is_empty() {
+                        return Err(AppError::bad_request(
+                            "Chat welcome prompts need a label and message",
+                        ));
+                    }
+                    check(&prompt.label, 80)?;
+                    check(&prompt.body, 2000)?;
+                    if let Some(label) = &prompt.label_en {
+                        check(label, 80)?;
+                    }
+                    if let Some(body) = &prompt.body_en {
+                        check(body, 2000)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn public(&self) -> serde_json::Value {
+        let mut value = serde_json::json!(self);
+        for (audience, welcome) in &self.welcome {
+            if let Some(body) = &welcome.body_md {
+                value["welcome"][audience]["body_html"] =
+                    serde_json::json!(crate::safety::markdown(body));
+            }
+            if let Some(body) = &welcome.body_md_en {
+                value["welcome"][audience]["body_html_en"] =
+                    serde_json::json!(crate::safety::markdown(body));
+            }
+        }
+        value
     }
 }
 #[derive(Clone, Deserialize)]
@@ -249,6 +410,18 @@ pub struct Waffo {
     pub tax_category: String,
     pub mode: String,
     pub checkout_regions: BTreeMap<String, WaffoRegion>,
+    pub production: Option<WaffoProduction>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaffoProduction {
+    pub merchant_id: String,
+    pub store_id: String,
+    pub product_id: String,
+    pub private_key_pem: String,
+    pub webhook_public_key_pem: String,
+    pub tax_category: String,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -270,6 +443,7 @@ impl Default for Waffo {
             webhook_public_key_pem: "".into(),
             tax_category: "".into(),
             mode: "test".into(),
+            production: None,
             checkout_regions: BTreeMap::from([
                 (
                     "global".into(),
@@ -295,6 +469,55 @@ impl Default for Waffo {
 }
 
 impl Waffo {
+    pub fn for_mode(&self, mode: &str) -> AppResult<Self> {
+        if !matches!(mode, "test" | "prod") {
+            return Err(AppError::bad_request("Choose test or prod payment mode"));
+        }
+        let mut selected = self.clone();
+        selected.production = None;
+        if mode == "prod" {
+            if let Some(p) = &self.production {
+                selected.merchant_id = p.merchant_id.clone();
+                selected.store_id = p.store_id.clone();
+                selected.product_id = p.product_id.clone();
+                selected.private_key_pem = p.private_key_pem.clone();
+                selected.webhook_public_key_pem = p.webhook_public_key_pem.clone();
+                selected.tax_category = p.tax_category.clone();
+            } else if self.mode != "prod" {
+                return Err(AppError::unavailable(
+                    "Production Waffo credentials are not configured",
+                ));
+            }
+        } else if self.mode == "prod" {
+            return Err(AppError::unavailable(
+                "Test Waffo credentials are not configured",
+            ));
+        }
+        selected.mode = mode.into();
+        if [
+            &selected.merchant_id,
+            &selected.store_id,
+            &selected.product_id,
+            &selected.private_key_pem,
+            &selected.webhook_public_key_pem,
+            &selected.tax_category,
+        ]
+        .iter()
+        .any(|v| v.trim().is_empty())
+        {
+            return Err(AppError::unavailable("Waffo credentials are incomplete"));
+        }
+        use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey};
+        use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
+        rsa::RsaPrivateKey::from_pkcs8_pem(&selected.private_key_pem)
+            .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_pem(&selected.private_key_pem))
+            .map_err(|_| AppError::bad_request("Invalid Waffo private key"))?;
+        rsa::RsaPublicKey::from_public_key_pem(&selected.webhook_public_key_pem)
+            .or_else(|_| rsa::RsaPublicKey::from_pkcs1_pem(&selected.webhook_public_key_pem))
+            .map_err(|_| AppError::bad_request("Invalid Waffo webhook public key"))?;
+        Ok(selected)
+    }
+
     pub fn checkout_region(
         &self,
         currency: &str,
@@ -314,14 +537,20 @@ impl Waffo {
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Pricing {
+    /// `fees` keeps the configured charge rules; `donation` makes new service
+    /// operations permanently free while the site may invite voluntary support.
+    pub billing_mode: String,
     pub currency: String,
     pub allowed_currencies: Vec<String>,
     pub onboarding_cents: i64,
+    pub onboarding_discount_percent: i64,
     pub onboarding_amounts: BTreeMap<String, i64>,
     pub publish_mode: String,
     pub edit_mode: String,
     pub publish_bps: i64,
+    pub publish_discount_percent: i64,
     pub edit_bps: i64,
+    pub edit_discount_percent: i64,
     pub publish_fixed_minor: i64,
     pub edit_fixed_minor: i64,
     pub employer_ai_min_salary_minor: i64,
@@ -331,14 +560,18 @@ pub struct Pricing {
 impl Default for Pricing {
     fn default() -> Self {
         Self {
+            billing_mode: "fees".into(),
             currency: "CNY".into(),
             allowed_currencies: Vec::new(),
             onboarding_cents: 10000,
+            onboarding_discount_percent: 0,
             onboarding_amounts: BTreeMap::new(),
             publish_mode: "salary_percent".into(),
             edit_mode: "salary_percent".into(),
             publish_bps: 1000,
+            publish_discount_percent: 0,
             edit_bps: 100,
+            edit_discount_percent: 0,
             publish_fixed_minor: 30000,
             edit_fixed_minor: 3000,
             employer_ai_min_salary_minor: 300000,
@@ -352,7 +585,9 @@ impl Default for Pricing {
 #[serde(deny_unknown_fields)]
 pub struct CurrencyAmounts {
     pub publish_fixed_minor: i64,
+    pub publish_discount_percent: i64,
     pub edit_fixed_minor: i64,
+    pub edit_discount_percent: i64,
     pub employer_ai_min_salary_minor: i64,
 }
 
@@ -431,7 +666,7 @@ pub fn currency_decimals(currency: &str) -> Option<u32> {
 }
 
 impl Pricing {
-    pub fn onboarding_amount(&self, currency: &str) -> AppResult<i64> {
+    pub fn onboarding_original_amount(&self, currency: &str) -> AppResult<i64> {
         if currency == self.currency {
             return Ok(self.onboarding_cents);
         }
@@ -439,6 +674,33 @@ impl Pricing {
             .get(currency)
             .copied()
             .ok_or_else(|| AppError::bad_request("Choose a configured activation currency"))
+    }
+    pub fn discount_amount(original: i64, percent: i64) -> AppResult<i64> {
+        if !(0..=100).contains(&percent) || original < 0 {
+            return Err(AppError::bad_request(
+                "Discount percent must be between 0 and 100",
+            ));
+        }
+        if percent == 100 {
+            return Ok(0);
+        }
+        let value = original
+            .checked_mul(100 - percent)
+            .and_then(|v| v.checked_add(50))
+            .map(|v| v / 100)
+            .ok_or_else(|| AppError::bad_request("Discounted amount is too large"))?;
+        if original > 0 && value == 0 {
+            return Err(AppError::bad_request(
+                "Discounted amount must be at least one minor unit unless discount is 100%",
+            ));
+        }
+        Ok(value)
+    }
+    pub fn onboarding_amount(&self, currency: &str) -> AppResult<i64> {
+        Self::discount_amount(
+            self.onboarding_original_amount(currency)?,
+            self.onboarding_discount_percent,
+        )
     }
 
     pub fn currencies(&self) -> Vec<String> {
@@ -456,7 +718,9 @@ impl Pricing {
         if currency == self.currency {
             return Ok(CurrencyAmounts {
                 publish_fixed_minor: self.publish_fixed_minor,
+                publish_discount_percent: self.publish_discount_percent,
                 edit_fixed_minor: self.edit_fixed_minor,
+                edit_discount_percent: self.edit_discount_percent,
                 employer_ai_min_salary_minor: self.employer_ai_min_salary_minor,
             });
         }
@@ -468,15 +732,21 @@ impl Pricing {
         let mut value = serde_json::to_value(self).expect("pricing serialization");
         value["allowed_currencies"] = serde_json::json!(self.currencies());
         value["currency_decimals"] = serde_json::json!(currency_decimals(&self.currency));
+        value["onboarding_original_minor"] = serde_json::json!(self.onboarding_cents);
+        value["onboarding_minor"] = serde_json::json!(
+            self.onboarding_amount(&self.currency)
+                .unwrap_or(self.onboarding_cents)
+        );
+        value["onboarding_discount_percent"] = serde_json::json!(self.onboarding_discount_percent);
         let mut activation = vec![
-            serde_json::json!({"currency": self.currency, "currency_decimals": currency_decimals(&self.currency), "onboarding_minor": self.onboarding_cents}),
+            serde_json::json!({"currency": self.currency, "currency_decimals": currency_decimals(&self.currency), "onboarding_minor": self.onboarding_amount(&self.currency).unwrap_or(self.onboarding_cents), "onboarding_original_minor": self.onboarding_cents, "onboarding_discount_percent": self.onboarding_discount_percent}),
         ];
-        activation.extend(self.onboarding_amounts.iter().map(|(currency, amount)| serde_json::json!({"currency": currency, "currency_decimals": currency_decimals(currency), "onboarding_minor": amount})));
+        activation.extend(self.onboarding_amounts.iter().map(|(currency, amount)| serde_json::json!({"currency": currency, "currency_decimals": currency_decimals(currency), "onboarding_minor": self.onboarding_amount(currency).ok(), "onboarding_original_minor": amount, "onboarding_discount_percent": self.onboarding_discount_percent})));
         value["activation_currency_options"] = serde_json::json!(activation);
         value["currency_options"] = serde_json::json!(self.currencies().iter().filter_map(|currency| {
             let amounts = self.amounts(currency).ok()?;
             Some(serde_json::json!({"currency":currency,"currency_decimals":currency_decimals(currency),
-                "publish_fixed_minor":amounts.publish_fixed_minor,"edit_fixed_minor":amounts.edit_fixed_minor,
+                "publish_fixed_minor":amounts.publish_fixed_minor,"publish_discount_percent":amounts.publish_discount_percent,"edit_fixed_minor":amounts.edit_fixed_minor,"edit_discount_percent":amounts.edit_discount_percent,
                 "employer_ai_min_salary_minor":amounts.employer_ai_min_salary_minor}))
         }).collect::<Vec<_>>());
         value
@@ -595,6 +865,7 @@ impl Config {
     }
     pub fn validate(&self) -> AppResult<()> {
         self.cli_distribution.validate()?;
+        self.chat.validate()?;
         let team = &self.team;
         if !(1..=720).contains(&team.invitation_ttl_hours)
             || !(1..=365).contains(&team.ai_token_ttl_days)
@@ -813,22 +1084,36 @@ impl Config {
                 "Waffo merchant, product, keys, tax_category and test/prod mode are required",
             ));
         }
+        if w.production.is_some() {
+            if w.mode != "test" {
+                return Err(AppError::bad_request(
+                    "Keep base Waffo credentials in test mode when configuring production",
+                ));
+            }
+            w.for_mode("prod")?;
+            w.for_mode("test")?;
+        }
         if !(0..=100000000).contains(&self.pricing.onboarding_cents)
             || !(0..=10000).contains(&self.pricing.publish_bps)
+            || !(0..=100).contains(&self.pricing.onboarding_discount_percent)
+            || !(0..=100).contains(&self.pricing.publish_discount_percent)
             || !(0..=10000).contains(&self.pricing.edit_bps)
+            || !(0..=100).contains(&self.pricing.edit_discount_percent)
             || !(0..=100).contains(&self.pricing.max_edits)
         {
             return Err(AppError::bad_request("Invalid pricing configuration"));
         }
         let p = &self.pricing;
         if !p.permits_currency(&p.currency)
+            || !matches!(p.billing_mode.as_str(), "fees" | "donation")
             || !matches!(p.publish_mode.as_str(), "salary_percent" | "fixed" | "free")
             || !matches!(p.edit_mode.as_str(), "salary_percent" | "fixed" | "free")
             || (p.publish_mode == "salary_percent" && p.publish_bps == 0)
+            || (p.publish_discount_percent > 0 && p.publish_mode == "free")
             || (p.edit_mode == "salary_percent" && p.edit_bps == 0)
         {
             return Err(AppError::bad_request(
-                "Invalid pricing currency or charge mode; use free for a zero charge",
+                "Invalid pricing currency or billing mode; use fees or donation",
             ));
         }
         let currencies = p.currencies();
@@ -847,6 +1132,8 @@ impl Config {
             let amounts = p.amounts(currency)?;
             if !(0..=100_000_000).contains(&amounts.publish_fixed_minor)
                 || !(0..=100_000_000).contains(&amounts.edit_fixed_minor)
+                || !(0..=100).contains(&amounts.publish_discount_percent)
+                || !(0..=100).contains(&amounts.edit_discount_percent)
                 || !(0..=1_000_000_000).contains(&amounts.employer_ai_min_salary_minor)
                 || (p.publish_mode == "fixed" && amounts.publish_fixed_minor == 0)
                 || (p.edit_mode == "fixed" && amounts.edit_fixed_minor == 0)
