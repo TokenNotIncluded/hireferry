@@ -1,0 +1,10 @@
+{
+  "passed": 5,
+  "cases": [
+    "cold signed-in directory restores workspace header and preserves typed search during delayed session",
+    "cold signed-in role detail preserves record title and result context",
+    "cold signed-in profile restores identity and result context",
+    "unavailable jobs detail preserves keyword and page",
+    "unavailable people detail preserves keyword and page"
+  ]
+}
