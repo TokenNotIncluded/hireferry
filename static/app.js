@@ -330,14 +330,14 @@ const publicPages = new Set(['/','/cli','/downloads','/contact','/refunds','/don
 const isPublicDirectoryPage = path => path==='/discover'||/^\/discover\/(?:jobs|people)\/[^/]+$/.test(path);
 const isPublicProfilePage = path => /^\/u\/[A-Za-z0-9_-]+$/.test(path);
 const isPublicPagePath = path => publicPages.has(path)||isPublicDirectoryPage(path)||isPublicProfilePage(path);
-function applyConfig(config) {
+function applyConfig(config,publicRecord) {
   state.config=config;state.configCached=false;
   if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
   document.documentElement.lang=state.lang==='en'?'en':'zh-CN';
-  updatePageMetadata();
+  updatePageMetadata(publicRecord);
 }
-function updatePageMetadata() {
-  syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin});
+function updatePageMetadata(publicRecord) {
+  syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord});
 }
 function publicBody(path) {
   if(path==='/')return home();
@@ -349,9 +349,10 @@ function publicBody(path) {
   if(path==='/contact')return contactPage();
   if(path==='/refunds')return refundsPage();
 }
-async function refreshPublicPage(version,{refreshConfig=true}={}) {
-  if(!publicPages.has(location.pathname)||version!==state.render)return;
+async function refreshPublicPage(version,{refreshConfig=true,publicRecord}={}) {
+  if(!isPublicPagePath(location.pathname)||version!==state.render)return;
   const path=location.pathname,before=identityOf(state),language=state.lang,displayedConfig=state.config;
+  const preserveMain=!publicPages.has(path);
   const isCurrent=()=>version===state.render&&location.pathname===path;
   sessionKnown=false;
   root.dataset.configState='checking';
@@ -362,10 +363,17 @@ async function refreshPublicPage(version,{refreshConfig=true}={}) {
     if(!isCurrent())return;
     if(identity.status==='fulfilled')await session(version);
     if(!isCurrent())return;
-    if(configuration.status==='fulfilled')applyConfig(configuration.value.value);
+    if(configuration.status==='fulfilled')applyConfig(configuration.value.value,publicRecord);
     root.dataset.configState=configuration.status==='fulfilled'?'fresh':'stale';
     if(samePublicConfig(displayedConfig,state.config)&&before===identityOf(state)&&language===state.lang)return;
-    const html=header()+publicBody(path)+footer();
+    const html=header()+(preserveMain?'<main id="main"></main>':publicBody(path))+footer();
+    if(preserveMain){
+      // A session refresh must not replay the initial result over a typed search,
+      // an expanded profile, or a discussion that has already finished loading.
+      mountPage(root,html,pageIdentity(path,qs().get('tab')),{preserveMain:true});
+      disclosureUI.sync({scope:identityOf(state)});mountBrand();
+      return;
+    }
     await animateContentRefresh(root,html,()=>{
       state.cliGuide?.dispose();state.cliGuide=null;
       state.downloads?.dispose();state.downloads=null;
@@ -822,9 +830,9 @@ function refreshActivationPayment(form) {
   form.querySelector('[data-activation-submit]').textContent=free?t('确认开通','Activate account'):t(donationMode()?'确认免费':'前往支付',donationMode()?'Confirm free':'Continue to payment');
 }
 
-async function publicProfilePage(handle) {
+async function publicProfilePage(handle,onRecord) {
   const data = await api(`/api/public-profiles/${encodeURIComponent(handle)}`);
-  const p = data.profile;
+  const p = data.profile;onRecord?.(p);
   const links = Object.entries(p.ai_profile_links || {}).map(([name,url]) => `<a class="button secondary small" href="${esc(url)}" rel="me noopener" target="_blank">${esc(name)}</a>`).join('');
   const claimHref = marketingHref(`/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile&ref=profile_${encodeURIComponent(p.handle)}`, { utm_source: 'profile', utm_medium: 'cta', utm_campaign: 'profile_claim', utm_content: 'public_profile' });
   return `<main id="main" class="page-width public-profile"><section class="panel profile-hero">${avatar(p,'large')}<p class="eyebrow">@${esc(p.handle)}</p><h1>${esc(p.name || p.handle)}</h1>${p.public_email ? `<a class="contact-email" href="mailto:${encodeURIComponent(p.public_email)}">${esc(p.public_email)}</a>` : ''}${links ? `<div class="profile-links">${links}</div>` : ''}<div class="profile-claim"><p>${t('也想拥有自己的独立 AI 身份？注册一个独一无二的名字，创建你的个人主页。','Want your own independent AI identity? Register a unique name and create your personal homepage.')}</p><a class="button" href="${claimHref}" data-nav>${t('注册我的名字','Register my name')}${icon('arrow')}</a></div></section><section class="panel markdown"><h2>${t('个人介绍','About')}</h2>${p.resume_html || `<p class="help">${t('这个人还没有填写公开介绍。','This person has not added a public introduction yet.')}</p>`}</section></main>`;
@@ -888,8 +896,8 @@ async function publicDirectoryPage() {
   const listContent=cards||empty(emptyTitle,emptyDescription,emptyAction,emptyIcon);
   return `<main id="main" class="page-width public-directory"><header class="public-directory-hero"><div><p class="eyebrow">OPEN TALENT GRAPH · MCP READY</p><h1>${t('公开机会，直接被发现。','Public opportunities, ready to be found.')}</h1><p>${t('只展示明确公开的岗位和简历。AI 可以直接读取，人与人也可以直接浏览。','Only explicitly public roles and résumés appear here. AI can read the same structured directory that people browse.')}</p></div><div class="public-directory-actions"><span class="pill">${t('免费公开 MCP','Free public MCP')}</span><code>/mcp/public</code></div></header>${tabs}<section class="public-directory-panel"><div class="public-directory-toolbar">${searchForm}<span class="results-count" role="status" aria-live="polite">${count}</span></div><div class="public-directory-list">${listContent}</div>${pagination(result.total||0,result.limit)}</section>${publicDirectoryCta('directory')} ${publicMcpCard()}</main>`;
 }
-async function publicJobPage(id) {const job=await api(`/api/public/jobs/${encodeURIComponent(id)}`);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:job});const link=`${location.origin}/discover/jobs/${encodeURIComponent(job.id)}`,shareText=t(`公开岗位：${job.title}。在聘渡查看岗位详情。`,`Open role: ${job.title}. View the details on HireFerry.`);return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?tab=jobs" data-nav>${icon('back')}${t('返回公开岗位','Back to public roles')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/JobPosting"><p class="eyebrow">${t('公开岗位 · 正在招聘','PUBLIC ROLE · HIRING')}</p>${job.updated_at?`<p class="help">${jobUpdatedText(job)}</p>`:''}<h1 itemprop="title">${esc(job.title)}</h1><p class="public-directory-meta"><span>${esc(job.employer?.name||t('公开招聘方','Public employer'))}</span><span>${money(job.salary_cents,job)} / ${t('月，底薪','month, base')}</span><span>${t('招聘','Hiring')} ${Number(job.headcount||0).toLocaleString(state.lang==='en'?'en-US':'zh-CN')} ${t('人','people')}</span></p><div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(job.title)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享岗位','Share role')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制岗位链接','Copy role link')}</button></div><article class="markdown" itemprop="description">${job.jd_html||`<p class="help">${t('招聘方尚未补充岗位详情。','The recruiter has not added more role details yet.')}</p>`}</article>${jobInteractions().placeholder(job)}</article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
-async function publicPersonPage(handle) {const person=await api(`/api/public/people/${encodeURIComponent(handle)}`);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:person});const link=`${location.origin}/discover/people/${encodeURIComponent(person.handle)}`,shareTitle=person.name||person.handle,shareText=t(`看看 ${shareTitle} 的公开求职主页。`,`View ${shareTitle}'s public HireFerry profile.`);const links=Object.entries(person.ai_profile_links||{}).map(([name,url])=>`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="me noopener noreferrer" aria-label="${esc(t(`在新标签页打开 ${name} 主页`,`Open ${name} profile in a new tab`))}">${esc(name)}</a>`).join('');return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?tab=people" data-nav>${icon('back')}${t('返回公开简历','Back to public résumés')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/Person">${avatar(person,'large')}<p class="eyebrow">${t('公开简历','PUBLIC RÉSUMÉ')} · @${esc(person.handle)}</p><h1 itemprop="name">${esc(person.name||person.handle)}</h1>${person.public_email?`<p class="contact-email"><strong>${t('公开联系邮箱','Public contact email')}</strong><a href="mailto:${encodeURIComponent(person.public_email)}">${esc(person.public_email)}</a></p>`:''}${links?`<div class="profile-links">${links}</div>`:''}<div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(shareTitle)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享主页','Share homepage')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制公开主页','Copy public homepage')}</button></div><article class="markdown" itemprop="description">${person.resume_html||''}</article></article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
+async function publicJobPage(id,onRecord) {const job=await api(`/api/public/jobs/${encodeURIComponent(id)}`);onRecord?.(job);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:job});const link=`${location.origin}/discover/jobs/${encodeURIComponent(job.id)}`,shareText=t(`公开岗位：${job.title}。在聘渡查看岗位详情。`,`Open role: ${job.title}. View the details on HireFerry.`);return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?tab=jobs" data-nav>${icon('back')}${t('返回公开岗位','Back to public roles')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/JobPosting"><p class="eyebrow">${t('公开岗位 · 正在招聘','PUBLIC ROLE · HIRING')}</p>${job.updated_at?`<p class="help">${jobUpdatedText(job)}</p>`:''}<h1 itemprop="title">${esc(job.title)}</h1><p class="public-directory-meta"><span>${esc(job.employer?.name||t('公开招聘方','Public employer'))}</span><span>${money(job.salary_cents,job)} / ${t('月，底薪','month, base')}</span><span>${t('招聘','Hiring')} ${Number(job.headcount||0).toLocaleString(state.lang==='en'?'en-US':'zh-CN')} ${t('人','people')}</span></p><div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(job.title)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享岗位','Share role')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制岗位链接','Copy role link')}</button></div><article class="markdown" itemprop="description">${job.jd_html||`<p class="help">${t('招聘方尚未补充岗位详情。','The recruiter has not added more role details yet.')}</p>`}</article>${jobInteractions().placeholder(job)}</article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
+async function publicPersonPage(handle,onRecord) {const person=await api(`/api/public/people/${encodeURIComponent(handle)}`);onRecord?.(person);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:person});const link=`${location.origin}/discover/people/${encodeURIComponent(person.handle)}`,shareTitle=person.name||person.handle,shareText=t(`看看 ${shareTitle} 的公开求职主页。`,`View ${shareTitle}'s public HireFerry profile.`);const links=Object.entries(person.ai_profile_links||{}).map(([name,url])=>`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="me noopener noreferrer" aria-label="${esc(t(`在新标签页打开 ${name} 主页`,`Open ${name} profile in a new tab`))}">${esc(name)}</a>`).join('');return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?tab=people" data-nav>${icon('back')}${t('返回公开简历','Back to public résumés')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/Person">${avatar(person,'large')}<p class="eyebrow">${t('公开简历','PUBLIC RÉSUMÉ')} · @${esc(person.handle)}</p><h1 itemprop="name">${esc(person.name||person.handle)}</h1>${person.public_email?`<p class="contact-email"><strong>${t('公开联系邮箱','Public contact email')}</strong><a href="mailto:${encodeURIComponent(person.public_email)}">${esc(person.public_email)}</a></p>`:''}${links?`<div class="profile-links">${links}</div>`:''}<div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(shareTitle)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享主页','Share homepage')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制公开主页','Copy public homepage')}</button></div><article class="markdown" itemprop="description">${person.resume_html||''}</article></article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
 const profileLinkPresets=[['chatgpt','ChatGPT','ChatGPT','https://chatgpt.com/…'],['grok','Grok','Grok','https://grok.com/…'],['claude','Claude','Claude','https://claude.ai/…'],['gemini','Gemini','Gemini','https://gemini.google.com/…'],['perplexity','Perplexity','Perplexity','https://perplexity.ai/…'],['github','GitHub','GitHub','https://github.com/…'],['x','X','X','https://x.com/…']];
 const profileLinkPresetNames=new Set(profileLinkPresets.map(([name])=>name));
 function customProfileLinkRow(label='',url='') {return `<div class="custom-profile-link-row" data-custom-profile-link><div class="custom-profile-link-fields"><label class="field"><span>${t('链接名称','Link name')}</span><input class="input" data-custom-link-label maxlength="32" value="${esc(label)}" placeholder="${esc(t('例如：个人网站','For example: Personal site'))}"></label><label class="field"><span>${t('链接地址','Link URL')}</span><input class="input" data-custom-link-url type="url" maxlength="2048" value="${esc(url)}" placeholder="https://..."></label></div><button type="button" class="icon-button danger-text" data-action="remove-profile-link" aria-label="${esc(t('删除这个链接','Remove this link'))}" title="${esc(t('删除这个链接','Remove this link'))}">${icon('trash')}</button></div>`;}
@@ -1096,12 +1104,13 @@ async function render({navigation=false}={}) {
       applyConfig(result.value);loadedConfig=true;showPending(true);
     }
     if(resumeCliLogin())return;
-    let body;
+    let body,publicRecord;
+    const rememberPublicRecord=record=>{publicRecord=record;};
     if(path==='/')body=home();
     else if(path==='/discover')body=await publicDirectoryPage();
-    else if(/^\/discover\/jobs\/[A-Za-z0-9_-]+$/.test(path))body=await publicJobPage(decodeURIComponent(path.split('/')[3]));
-    else if(/^\/discover\/people\/[A-Za-z0-9_-]+$/.test(path))body=await publicPersonPage(decodeURIComponent(path.split('/')[3]));
-    else if(/^\/u\/[A-Za-z0-9_-]+$/.test(path))body=await publicProfilePage(decodeURIComponent(path.split('/')[2]));
+    else if(/^\/discover\/jobs\/[A-Za-z0-9_-]+$/.test(path))body=await publicJobPage(decodeURIComponent(path.split('/')[3]),rememberPublicRecord);
+    else if(/^\/discover\/people\/[A-Za-z0-9_-]+$/.test(path))body=await publicPersonPage(decodeURIComponent(path.split('/')[3]),rememberPublicRecord);
+    else if(/^\/u\/[A-Za-z0-9_-]+$/.test(path))body=await publicProfilePage(decodeURIComponent(path.split('/')[2]),rememberPublicRecord);
     else if(path==='/for-employers')body=employerLandingPage();
     else if(path==='/for-job-tools')body=jobToolsLandingPage();
     else if(path==='/cli')body=renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
@@ -1139,10 +1148,12 @@ async function render({navigation=false}={}) {
     else if(path==='/billing/return'||path==='/payment/return'||path==='/payment/success'||path==='/checkout/return'){await session(version);if(version!==state.render)return;body=await paymentReturn();}
     else body=`<main id="main" class="page-width page-error"><h1 style="margin-top:20px">${t('页面未找到','Page not found')}</h1><p>${t('请检查地址。','Check the address.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to home')}${icon('arrow')}</a></main>`;
     if(version!==state.render||resumeCliLogin())return;controlsUI.clear(root);mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();controlsUI.sync(root);if(path==='/admin'){financeCleanup=financeModule?.bind(root);peopleJobsModule?.mount(root);}recordPaint('ready');if(path==='/'){performance.mark('home-first-paint');root.dataset.homeFirstPaint='true';}mountBrand();scheduleFeedback();if(path==='/')void mountHome();
-    if(/^\/(?:discover\/)?jobs\/[^/]+$/.test(path))void jobInteractions().mount(root);
     if(path==='/cli')state.cliGuide=mountCliGuide(root);
     if(path==='/downloads')state.downloads=mountDownloads(root,{lang:state.lang,icon});
-    if(publicPage)void refreshPublicPage(version,{refreshConfig:!loadedConfig});
+    const publicRefresh=publicPage?refreshPublicPage(version,{refreshConfig:!loadedConfig,publicRecord}):Promise.resolve();
+    // Discussion's session check must not abort a concurrent configuration read
+    // when applying a newly discovered signed-in identity.
+    if(/^\/(?:discover\/)?jobs\/[^/]+$/.test(path))void publicRefresh.then(()=>{if(version===state.render)return jobInteractions().mount(root);});
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&tab!=='promos'&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}

@@ -18,14 +18,14 @@ export function mountHomeStory(section, { onPosition }) {
   const slides = [...section.querySelectorAll('[data-story-slide]')];
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let start = 0, travel = 1, target = 0, position = 0, velocity = 0;
-  let frame = null, previous = 0, active = -1, disposed = false;
+  let frame = null, previous = 0, active = -1, disposed = false, scrolling = false;
 
   function paint() {
     const current = Math.round(position);
     slides.forEach((slide, index) => {
       const distance = index - position;
       slide.style.opacity = String(Math.max(0, 1 - Math.abs(distance) * 1.35));
-      slide.style.transform = `translate3d(0, ${reduced.matches ? 0 : distance * 56}px, 0)`;
+      slide.style.transform = `translate3d(0, ${scrolling ? distance * 56 : 0}px, 0)`;
     });
     onPosition(position);
     if (current === active) return;
@@ -35,41 +35,56 @@ export function mountHomeStory(section, { onPosition }) {
   }
   function render(now) {
     frame = null;
-    if (disposed) return;
+    if (disposed || !scrolling) return;
     const dt = Math.min((now - (previous || now - 16)) / 1000, .032);
     previous = now;
-    if (reduced.matches) { position = Math.round(target); velocity = 0; }
-    else {
-      // Analytic critically damped spring: retargets from the live position and
-      // velocity even during a rapid scroll reversal, independent of frame rate.
-      const omega = 22, displacement = position - target;
-      const impulse = velocity + omega * displacement, decay = Math.exp(-omega * dt);
-      position = target + (displacement + impulse * dt) * decay;
-      velocity = (velocity - omega * impulse * dt) * decay;
-      if (Math.abs(target - position) < .0005 && Math.abs(velocity) < .005) {
-        position = target; velocity = 0;
-      }
+    // Analytic critically damped spring: retargets from the live position and
+    // velocity even during a rapid scroll reversal, independent of frame rate.
+    const omega = 22, displacement = position - target;
+    const impulse = velocity + omega * displacement, decay = Math.exp(-omega * dt);
+    position = target + (displacement + impulse * dt) * decay;
+    velocity = (velocity - omega * impulse * dt) * decay;
+    if (Math.abs(target - position) < .0005 && Math.abs(velocity) < .005) {
+      position = target; velocity = 0;
     }
     paint();
-    if (position !== target && !reduced.matches) schedule();
+    if (position !== target || velocity !== 0) schedule();
     else previous = 0;
   }
   function schedule() { if (frame === null && !disposed) frame = requestAnimationFrame(render); }
   function update() {
+    if (disposed || !scrolling) return;
     target = storyPosition(scrollY - start, travel, slides.length);
-    schedule();
+    if (active === -1) { position = target; paint(); }
+    else if (position !== target || velocity !== 0) schedule();
   }
   function measure() {
-    start = section.getBoundingClientRect().top + scrollY - Number.parseFloat(getComputedStyle(hero).top);
-    travel = Math.max(1, section.offsetHeight - hero.offsetHeight);
+    if (disposed) return;
+    const style = getComputedStyle(hero), inset = Number.parseFloat(style.top);
+    travel = section.offsetHeight - hero.offsetHeight;
+    // Mobile and reduced-motion layouts use normal document flow. They have
+    // no sticky travel; keep the first chapter readable without a scroll loop.
+    const enabled = !reduced.matches && style.position === 'sticky'
+      && Number.isFinite(inset) && travel > 1 && slides.length > 1;
+    if (enabled !== scrolling) {
+      scrolling = enabled;
+      if (scrolling) window.addEventListener('scroll', update, { passive: true });
+      else window.removeEventListener('scroll', update);
+    }
+    if (!scrolling) {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null; previous = 0; velocity = 0; target = 0; position = 0;
+      paint();
+      return;
+    }
+    start = section.getBoundingClientRect().top + scrollY - inset;
     update();
   }
   const resize = new ResizeObserver(measure);
   resize.observe(section); resize.observe(hero);
-  window.addEventListener('scroll', update, { passive: true });
   window.addEventListener('resize', measure, { passive: true });
-  reduced.addEventListener('change', update);
-  measure(); position = reduced.matches ? Math.round(target) : target; paint();
+  reduced.addEventListener('change', measure);
+  measure();
   return {
     dispose() {
       disposed = true;
@@ -77,7 +92,7 @@ export function mountHomeStory(section, { onPosition }) {
       resize.disconnect();
       window.removeEventListener('scroll', update);
       window.removeEventListener('resize', measure);
-      reduced.removeEventListener('change', update);
+      reduced.removeEventListener('change', measure);
     },
   };
 }

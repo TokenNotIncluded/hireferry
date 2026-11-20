@@ -586,7 +586,8 @@ html,body{overflow-x:clip}
   .feedback-launch{right:16px;bottom:calc(64px + env(safe-area-inset-bottom))}
 }
 @media(prefers-reduced-motion:reduce){
-  .home-story .hero{position:relative}
+  .home-story{height:auto;min-height:0}
+  .home-story .hero{position:relative;top:auto;height:auto;min-height:0;padding-block:48px}
   .sculpture-pause{display:none}
 }
 
