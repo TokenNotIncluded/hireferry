@@ -84,6 +84,46 @@ def run(args, *, cwd=DESKTOP, capture=False, env=None):
     return result.stdout if capture else ""
 
 
+def android_ui_layout(command, output, deadline):
+    """Poll one fresh hierarchy without extending the caller's UI deadline."""
+    remote = "/sdcard/hireferry-smoke.xml"
+
+    def probe(tail):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        args = [str(value) for value in command] + tail
+        print("+ " + " ".join(args), flush=True)
+        try:
+            result = subprocess.run(args, text=True, capture_output=True, timeout=remaining)
+            record = {"command": tail, "exit_code": result.returncode,
+                      "stdout": result.stdout, "stderr": result.stderr}
+        except subprocess.TimeoutExpired:
+            result = None
+            record = {"command": tail, "timed_out": True}
+        with (output / "android-ui-probes.jsonl").open("a") as stream:
+            stream.write(json.dumps(record) + "\n")
+        return result
+
+    # uiautomator can exit 0 while the first accessibility root is unavailable.
+    # Delete the last dump first so that readiness can never use an old screen.
+    for tail in (["shell", "rm", "-f", remote],
+                 ["shell", "uiautomator", "dump", remote]):
+        result = probe(tail)
+        if result is None:
+            return None
+        if result.returncode:
+            raise MobileError(f"Android UI probe failed: {result.stdout}{result.stderr}")
+    result = probe(["shell", "cat", remote])
+    if result is None:
+        return None
+    if result.returncode:
+        if "No such file or directory" in result.stdout + result.stderr:
+            return None
+        raise MobileError(f"Android UI read failed: {result.stdout}{result.stderr}")
+    return result.stdout
+
+
 def cli(*args):
     # Use the checked-in lockfile's CLI; do not let npx silently fetch a version.
     # The npm lifecycle environment also lets Tauri generate a working command
@@ -390,16 +430,18 @@ def _smoke_android(args):
     def wait_ui(predicate, description):
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
-            run(command + ["shell", "uiautomator", "dump", "/sdcard/hireferry-smoke.xml"], capture=True)
-            layout = run(command + ["shell", "cat", "/sdcard/hireferry-smoke.xml"], capture=True)
-            (output / "android-last.xml").write_text(layout)
-            try:
-                root = ET.fromstring(layout)
-                if predicate(root):
-                    return root, layout
-            except ET.ParseError:
-                pass
-            time.sleep(1)
+            layout = android_ui_layout(command, output, deadline)
+            if layout is not None:
+                (output / "android-last.xml").write_text(layout)
+                try:
+                    root = ET.fromstring(layout)
+                    if predicate(root):
+                        return root, layout
+                except ET.ParseError:
+                    pass
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(1, remaining))
         raise MobileError(f"Installed APK did not {description} within 45 seconds")
 
     def node_with(root, *texts):

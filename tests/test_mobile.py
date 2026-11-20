@@ -14,6 +14,55 @@ SPEC.loader.exec_module(mobile)
 
 
 class MobilePackagingTests(unittest.TestCase):
+    def test_android_first_empty_hierarchy_waits_without_accepting_stale_xml(self):
+        responses = [types.SimpleNamespace(returncode=0, stdout="", stderr=""),
+                     types.SimpleNamespace(returncode=0, stdout="ERROR: null root node", stderr=""),
+                     types.SimpleNamespace(returncode=1, stdout="", stderr="cat: No such file or directory")]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(mobile.time, "monotonic", return_value=10), \
+                patch.object(mobile.subprocess, "run", side_effect=responses) as call:
+            output = Path(directory)
+            self.assertIsNone(mobile.android_ui_layout(["adb", "-s", "owned-emulator"], output, 55))
+            self.assertEqual(call.call_args_list[0].args[0][-4:],
+                             ["shell", "rm", "-f", "/sdcard/hireferry-smoke.xml"])
+            self.assertTrue(all(item.kwargs["timeout"] == 45 for item in call.call_args_list))
+            records = [json.loads(line) for line in (output / "android-ui-probes.jsonl").read_text().splitlines()]
+            self.assertEqual(records[1]["stdout"], "ERROR: null root node")
+            self.assertEqual(records[2]["exit_code"], 1)
+
+    def test_android_valid_hierarchy_is_read_from_the_fresh_dump(self):
+        layout = '<hierarchy><node text="Open workspace"/></hierarchy>'
+        responses = [types.SimpleNamespace(returncode=0, stdout="", stderr=""),
+                     types.SimpleNamespace(returncode=0, stdout="UI hierarchy dumped", stderr=""),
+                     types.SimpleNamespace(returncode=0, stdout=layout, stderr="")]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(mobile.time, "monotonic", return_value=10), \
+                patch.object(mobile.subprocess, "run", side_effect=responses):
+            self.assertEqual(mobile.android_ui_layout(["adb"], Path(directory), 55), layout)
+
+    def test_android_probe_transport_failure_still_fails(self):
+        failed = types.SimpleNamespace(returncode=1, stdout="", stderr="device offline")
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(mobile.time, "monotonic", return_value=10), \
+                patch.object(mobile.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(mobile.MobileError, "device offline"):
+                mobile.android_ui_layout(["adb"], Path(directory), 55)
+
+    def test_android_probe_timeout_does_not_start_another_command(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(mobile.time, "monotonic", return_value=54), \
+                patch.object(mobile.subprocess, "run", side_effect=mobile.subprocess.TimeoutExpired("adb", 1)) as call:
+            self.assertIsNone(mobile.android_ui_layout(["adb"], Path(directory), 55))
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(call.call_args.kwargs["timeout"], 1)
+
+    def test_android_expired_deadline_never_starts_a_probe(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(mobile.time, "monotonic", return_value=55), \
+                patch.object(mobile.subprocess, "run") as call:
+            self.assertIsNone(mobile.android_ui_layout(["adb"], Path(directory), 55))
+            call.assert_not_called()
+
     def test_release_rejects_missing_credentials_before_build(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(mobile.MobileError, "maintainer signing"):
