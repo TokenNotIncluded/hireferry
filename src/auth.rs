@@ -1,4 +1,5 @@
-//! Cookie authentication and the administrator's passkey-only sign-in.
+//! Cookie authentication, member passkeys, and the administrator's
+//! passkey-only sign-in.
 //!
 //! Challenges stay on the server, expire, are browser-bound, and can be consumed
 //! once. The command-line bootstrap password cannot grant console access.
@@ -33,6 +34,7 @@ const SESSION_COOKIE: &str = "hf_session";
 const EMAIL_COOKIE: &str = "hf_email_challenge";
 const GOOGLE_COOKIE: &str = "hf_google_challenge";
 const PASSKEY_COOKIE: &str = "hf_passkey_challenge";
+const USER_PASSKEY_COOKIE: &str = "hf_user_passkey_challenge";
 const CHALLENGE_TTL: i64 = 300;
 const EMAIL_TTL: i64 = 600;
 const RECENT_AUTH_SECONDS: i64 = 600;
@@ -111,12 +113,14 @@ impl AuthService {
 pub struct Session {
     #[serde(skip)]
     pub token_hash: String,
+    pub id: String,
     pub user_id: Option<String>,
     pub admin: bool,
     pub bootstrap: bool,
     pub csrf: String,
     pub expires_at: i64,
     pub recent_auth_at: i64,
+    pub created_at: i64,
 }
 
 pub fn routes() -> Router<AppState> {
@@ -125,6 +129,34 @@ pub fn routes() -> Router<AppState> {
         .route("/api/session", get(get_session))
         .route("/api/auth/email/start", post(email_start))
         .route("/api/auth/email/verify", post(email_verify))
+        .route("/auth/email/magic", get(email_magic))
+        .route("/api/auth/email/change/start", post(email_change_start))
+        .route("/auth/email/change", get(email_change_confirm))
+        .route("/auth/email/change/cancel", get(email_change_cancel))
+        .route(
+            "/api/auth/passkeys/login/start",
+            post(user_passkey_login_start),
+        )
+        .route(
+            "/api/auth/passkeys/login/finish",
+            post(user_passkey_login_finish),
+        )
+        .route(
+            "/api/auth/passkeys/register/start",
+            post(user_passkey_register_start),
+        )
+        .route(
+            "/api/auth/passkeys/register/finish",
+            post(user_passkey_register_finish),
+        )
+        .route("/api/auth/passkeys", get(user_passkeys_list))
+        .route("/api/auth/passkeys/{id}", delete(user_passkey_delete))
+        .route("/api/auth/sessions", get(user_sessions_list))
+        .route(
+            "/api/auth/sessions/revoke-others",
+            post(user_sessions_revoke_others),
+        )
+        .route("/api/auth/sessions/{id}", delete(user_session_delete))
         .route("/api/auth/google/start", get(google_start))
         .route("/auth/google/callback", get(google_callback))
         .route("/api/auth/logout", post(logout))
@@ -150,12 +182,13 @@ pub fn routes() -> Router<AppState> {
 pub fn migrate(db: &Connection) -> AppResult<()> {
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT,
             token_hash TEXT PRIMARY KEY,
             user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
             admin INTEGER NOT NULL DEFAULT 0 CHECK(admin IN (0,1)),
             bootstrap INTEGER NOT NULL DEFAULT 0 CHECK(bootstrap IN (0,1)),
             csrf TEXT NOT NULL, expires_at INTEGER NOT NULL,
-            recent_auth_at INTEGER NOT NULL,
+            recent_auth_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT 0,
             CHECK(NOT(admin=1 AND bootstrap=1)),
             CHECK(NOT(user_id IS NOT NULL AND (admin=1 OR bootstrap=1)))
         );
@@ -163,7 +196,8 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
         CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
         CREATE TABLE IF NOT EXISTS auth_challenges (
             id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject TEXT NOT NULL,
-            secret_hash TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}',
+            secret_hash TEXT NOT NULL DEFAULT '', magic_hash TEXT NOT NULL DEFAULT '',
+            payload TEXT NOT NULL DEFAULT '{}',
             expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS auth_challenges_expiry ON auth_challenges(expires_at);
@@ -182,6 +216,16 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             created_at INTEGER NOT NULL, last_used_at INTEGER,
             counter INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS user_passkeys (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            credential_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            last_used_at INTEGER,
+            counter INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS user_passkeys_user ON user_passkeys(user_id,created_at,id);
         CREATE TABLE IF NOT EXISTS account_access_clock (
             id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL DEFAULT 0
         );
@@ -205,6 +249,41 @@ pub fn migrate(db: &Connection) -> AppResult<()> {
             DELETE FROM auth_challenges WHERE NEW.banned=1 AND kind='email' AND subject=NEW.email COLLATE NOCASE;
         END;",
     )?;
+    let session_columns = {
+        let mut query = db.prepare("PRAGMA table_info(sessions)")?;
+        query
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    if !session_columns.iter().any(|column| column == "id") {
+        db.execute_batch("ALTER TABLE sessions ADD COLUMN id TEXT;")?;
+    }
+    if !session_columns.iter().any(|column| column == "created_at") {
+        db.execute_batch("ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;")?;
+    }
+    db.execute(
+        "UPDATE sessions SET id=lower(hex(randomblob(16))) WHERE id IS NULL OR id=''",
+        [],
+    )?;
+    db.execute(
+        "UPDATE sessions SET created_at=recent_auth_at WHERE created_at=0",
+        [],
+    )?;
+    db.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS sessions_id ON sessions(id);")?;
+    let challenge_columns = {
+        let mut query = db.prepare("PRAGMA table_info(auth_challenges)")?;
+        query
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    if !challenge_columns
+        .iter()
+        .any(|column| column == "magic_hash")
+    {
+        db.execute_batch(
+            "ALTER TABLE auth_challenges ADD COLUMN magic_hash TEXT NOT NULL DEFAULT '';",
+        )?;
+    }
     app_login::migrate(db)?;
     Ok(())
 }
@@ -295,7 +374,7 @@ pub fn session(state: &AppState, headers: &HeaderMap) -> AppResult<Option<Sessio
         .map_err(|_| AppError::internal("Database lock failed"))?;
     let found = db
         .query_row(
-            "SELECT s.token_hash,s.user_id,s.admin,s.bootstrap,s.csrf,s.expires_at,s.recent_auth_at
+            "SELECT s.token_hash,COALESCE(s.id,s.token_hash),s.user_id,s.admin,s.bootstrap,s.csrf,s.expires_at,s.recent_auth_at,s.created_at
          FROM sessions s LEFT JOIN users u ON s.user_id=u.id
          WHERE s.token_hash=?1 AND s.expires_at>?2
          AND (s.user_id IS NULL OR (u.id IS NOT NULL AND u.banned=0))",
@@ -303,12 +382,14 @@ pub fn session(state: &AppState, headers: &HeaderMap) -> AppResult<Option<Sessio
             |r| {
                 Ok(Session {
                     token_hash: r.get(0)?,
-                    user_id: r.get(1)?,
-                    admin: r.get(2)?,
-                    bootstrap: r.get(3)?,
-                    csrf: r.get(4)?,
-                    expires_at: r.get(5)?,
-                    recent_auth_at: r.get(6)?,
+                    id: r.get(1)?,
+                    user_id: r.get(2)?,
+                    admin: r.get(3)?,
+                    bootstrap: r.get(4)?,
+                    csrf: r.get(5)?,
+                    expires_at: r.get(6)?,
+                    recent_auth_at: r.get(7)?,
+                    created_at: r.get(8)?,
                 })
             },
         )
@@ -355,6 +436,15 @@ fn require_recent(s: &Session) -> AppResult<()> {
     if now().saturating_sub(s.recent_auth_at) > RECENT_AUTH_SECONDS {
         return Err(AppError::forbidden(
             "Sign in with a passkey again before changing passkeys",
+        ));
+    }
+    Ok(())
+}
+
+fn require_recent_member(s: &Session) -> AppResult<()> {
+    if now().saturating_sub(s.recent_auth_at) > RECENT_AUTH_SECONDS {
+        return Err(AppError::forbidden(
+            "Sign in again before changing passkeys",
         ));
     }
     Ok(())
@@ -439,9 +529,10 @@ fn new_session(
         (config.session_hours as i64).saturating_mul(3600)
     };
     db.execute(
-        "INSERT INTO sessions(token_hash,user_id,admin,bootstrap,csrf,expires_at,recent_auth_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO sessions(id,token_hash,user_id,admin,bootstrap,csrf,expires_at,recent_auth_at,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)",
         params![
+            Uuid::new_v4().to_string(),
             hash_token(&raw),
             user_id,
             admin,
@@ -499,10 +590,123 @@ async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> AppRe
     .into_response())
 }
 
+async fn user_sessions_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<Value>> {
+    let current = require_session(&state, &headers)?;
+    let user_id = current
+        .user_id
+        .as_deref()
+        .filter(|_| !current.admin && !current.bootstrap)
+        .ok_or_else(|| AppError::forbidden("A member account is required"))?;
+    let db = state.conn()?;
+    let current_id = current.id.clone();
+    let items = db
+        .prepare(
+            "SELECT id,created_at,expires_at FROM sessions
+             WHERE user_id=?1 AND admin=0 AND bootstrap=0 AND expires_at>?2
+             ORDER BY created_at DESC,id",
+        )?
+        .query_map(params![user_id, now()], |row| {
+            let id: String = row.get(0)?;
+            Ok(json!({
+                "id": id,
+                "created_at": row.get::<_,i64>(1)?,
+                "expires_at": row.get::<_,i64>(2)?,
+                "current": id == current_id,
+            }))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Json(json!({"items":items})))
+}
+
+async fn user_session_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let current = require_session(&state, &headers)?;
+    let user_id = current
+        .user_id
+        .as_deref()
+        .filter(|_| !current.admin && !current.bootstrap)
+        .ok_or_else(|| AppError::forbidden("A member account is required"))?;
+    if id == current.id {
+        return Err(AppError::conflict(
+            "Use sign out to end the current session",
+        ));
+    }
+    csrf_check(&state, &headers, &current)?;
+    let db = state.conn()?;
+    let deleted = db.execute(
+        "DELETE FROM sessions WHERE id=?1 AND user_id=?2 AND admin=0 AND bootstrap=0",
+        params![id, user_id],
+    )?;
+    if deleted == 0 {
+        return Err(AppError::not_found("Session not found"));
+    }
+    Ok(Json(json!({"ok":true})))
+}
+
+async fn user_sessions_revoke_others(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<Value>> {
+    let current = require_session(&state, &headers)?;
+    let user_id = current
+        .user_id
+        .as_deref()
+        .filter(|_| !current.admin && !current.bootstrap)
+        .ok_or_else(|| AppError::forbidden("A member account is required"))?;
+    csrf_check(&state, &headers, &current)?;
+    let db = state.conn()?;
+    let revoked = db.execute(
+        "DELETE FROM sessions WHERE user_id=?1 AND id<>?2 AND admin=0 AND bootstrap=0",
+        params![user_id, current.id],
+    )?;
+    Ok(Json(json!({"ok":true,"revoked":revoked})))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmailStart {
     email: String,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default, alias = "ref")]
+    referral_code: Option<String>,
+}
+
+fn public_auth_link(config: &Config, path: &str, token: &str) -> String {
+    format!(
+        "{}{path}?token={token}",
+        config.public_url.trim_end_matches('/')
+    )
+}
+
+fn split_magic_token(value: &str) -> AppResult<(&str, &str)> {
+    let (id, secret) = value
+        .split_once('.')
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    if id.len() > 128 || secret.len() > 128 || id.is_empty() || secret.is_empty() {
+        return Err(AppError::unauthorized("This link is invalid or expired"));
+    }
+    Ok((id, secret))
+}
+
+fn signup_source(value: Option<&str>) -> String {
+    let value = value.unwrap_or("direct").trim();
+    if value.is_empty() {
+        return "direct".into();
+    }
+    let mut out = String::with_capacity(value.len().min(120));
+    for ch in value.chars().take(120) {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-' | ':' | '/') {
+            out.push(ch.to_ascii_lowercase());
+        }
+    }
+    if out.is_empty() { "direct".into() } else { out }
 }
 
 pub(crate) fn normalized_email(value: &str) -> AppResult<String> {
@@ -531,6 +735,16 @@ pub(crate) async fn send_mail(
     subject: &str,
     body: String,
 ) -> AppResult<()> {
+    send_notification_mail(state, to, subject, body, "").await
+}
+
+pub(crate) async fn send_notification_mail(
+    state: &AppState,
+    to: &str,
+    subject: &str,
+    body: String,
+    id: &str,
+) -> AppResult<()> {
     let mailer = state
         .auth
         .mailer
@@ -552,6 +766,14 @@ pub(crate) async fn send_mail(
                 .map_err(AppError::internal)?,
         );
     }
+    if !id.is_empty() {
+        let origin = url::Url::parse(&state.cfg.public_url).map_err(AppError::internal)?;
+        message = message.message_id(Some(format!(
+            "<{}@{}>",
+            id,
+            origin.host_str().unwrap_or("localhost")
+        )));
+    }
     let message = message.body(body).map_err(AppError::internal)?;
     mailer
         .send(message)
@@ -567,10 +789,14 @@ async fn email_start(
 ) -> AppResult<Response> {
     origin_check(&state, &headers)?;
     let email = normalized_email(&body.email)?;
+    let source = signup_source(body.source.as_deref());
+    let referral_code = crate::referrals::normalize_code(body.referral_code.as_deref());
     if !state.cfg.development && state.auth.mailer.is_none() {
         return Err(AppError::unavailable("Email sign-in is not configured"));
     }
     let id = random_token();
+    let magic = random_token();
+    let magic_link = public_auth_link(&state.cfg, "/auth/email/magic", &format!("{id}.{magic}"));
     let code = format!("{:08}", OsRng.gen_range(0..100_000_000_u32));
     {
         let db = state
@@ -603,16 +829,16 @@ async fn email_start(
             );
         }
         db.execute(
-            "INSERT INTO auth_challenges(id,kind,subject,secret_hash,expires_at) VALUES(?1,'email',?2,?3,?4)",
-            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),now()+EMAIL_TTL],
+            "INSERT INTO auth_challenges(id,kind,subject,secret_hash,magic_hash,payload,expires_at) VALUES(?1,'email',?2,?3,?4,?5,?6)",
+            params![hash_token(&id),email,hash_token(&format!("{id}:{code}")),hash_token(&magic),json!({"source":source,"referral_code":referral_code}).to_string(),now()+EMAIL_TTL],
         )?;
     }
     if state.auth.mailer.is_some()
         && send_mail(
             &state,
             &email,
-            "聘渡 HireFerry · 登录验证码 / Sign-in code",
-            format!("你的聘渡登录验证码：{code}\n\nYour HireFerry sign-in code: {code}\n\n10分钟内有效。请勿转发。\nValid for 10 minutes. Do not share this code.\n\n如果不是你本人操作，请忽略这封邮件。\nIf you did not request this, ignore this email."),
+            "聘渡 HireFerry · 登录链接 / Magic sign-in link",
+            format!("点击这个链接登录聘渡（10分钟内有效）：\n{magic_link}\n\nClick this link to sign in to HireFerry (valid for 10 minutes):\n{magic_link}\n\n如果链接无法打开，也可以输入备用验证码：{code}\nIf the link does not open, use this fallback code: {code}\n\n请勿转发。若不是你本人操作，请忽略这封邮件。\nDo not forward this message. If you did not request it, ignore it."),
         )
         .await
         .is_err()
@@ -627,7 +853,7 @@ async fn email_start(
         ));
     }
     let payload = if state.cfg.development && state.auth.mailer.is_none() {
-        json!({"sent":true,"dev_code":code})
+        json!({"sent":true,"dev_code":code,"dev_magic_link":magic_link})
     } else {
         json!({"sent":true})
     };
@@ -647,48 +873,107 @@ struct EmailVerify {
     code: String,
 }
 
-async fn email_verify(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<EmailVerify>,
-) -> AppResult<Response> {
-    origin_check(&state, &headers)?;
-    let email = normalized_email(&body.email)?;
-    let id = cookie(&headers, EMAIL_COOKIE)
-        .ok_or_else(|| AppError::unauthorized("Request a new sign-in code"))?;
-    if body.code.len() != 8 || !body.code.bytes().all(|c| c.is_ascii_digit()) {
-        return Err(AppError::unauthorized("The code is invalid or expired"));
-    }
+enum EmailProof {
+    Code(String),
+    Magic(String),
+}
+
+fn complete_email_login(
+    state: &AppState,
+    headers: &HeaderMap,
+    challenge_id: &str,
+    submitted_email: Option<&str>,
+    proof: EmailProof,
+) -> AppResult<(String, String, Value)> {
+    let challenge_hash = hash_token(challenge_id);
     let (raw, csrf, user) = {
         let mut db = state
             .db
             .lock()
             .map_err(|_| AppError::internal("Database lock failed"))?;
+        let row = if let Some(email) = submitted_email {
+            db.query_row(
+                "SELECT subject,secret_hash,magic_hash,attempts,payload
+                 FROM auth_challenges
+                 WHERE id=?1 AND kind='email' AND subject=?2 AND expires_at>?3",
+                params![challenge_hash, email, now()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+        } else {
+            db.query_row(
+                "SELECT subject,secret_hash,magic_hash,attempts,payload
+                 FROM auth_challenges
+                 WHERE id=?1 AND kind='email' AND expires_at>?2",
+                params![challenge_hash, now()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+        };
+        let (email, expected_code, expected_magic, attempts, payload) = row.ok_or_else(|| {
+            AppError::unauthorized("The sign-in link or code is invalid or expired")
+        })?;
         rate_limit(
             &db,
             &format!("email-verify:{}", hash_token(&email)),
             30,
             300,
         )?;
-        let row = db.query_row(
-            "SELECT secret_hash,attempts FROM auth_challenges WHERE id=?1 AND kind='email' AND subject=?2 AND expires_at>?3",
-            params![hash_token(&id),email,now()], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?)),
-        ).optional()?;
-        let (expected, attempts) =
-            row.ok_or_else(|| AppError::unauthorized("The code is invalid or expired"))?;
         if attempts >= 5 {
-            return Err(AppError::unauthorized("Request a new sign-in code"));
+            return Err(AppError::unauthorized("Request a new sign-in link"));
         }
-        // This update is intentionally committed even when verification fails.
+        // Commit the attempt counter even when a proof is wrong. This bounds
+        // brute-force attempts without revealing whether the address exists.
         db.execute(
             "UPDATE auth_challenges SET attempts=attempts+1 WHERE id=?1",
-            [hash_token(&id)],
+            [&challenge_hash],
         )?;
-        if !equal_hash(&expected, &hash_token(&format!("{id}:{}", body.code))) {
-            return Err(AppError::unauthorized("The code is invalid or expired"));
+        let valid = match proof {
+            EmailProof::Code(code) => equal_hash(
+                &expected_code,
+                &hash_token(&format!("{challenge_id}:{code}")),
+            ),
+            EmailProof::Magic(secret) => equal_hash(&expected_magic, &hash_token(&secret)),
+        };
+        if !valid {
+            return Err(AppError::unauthorized(
+                "The sign-in link or code is invalid or expired",
+            ));
         }
+        let source = serde_json::from_str::<Value>(&payload)
+            .ok()
+            .and_then(|v| {
+                v.get("source")
+                    .and_then(Value::as_str)
+                    .map(|s| signup_source(Some(s)))
+            })
+            .unwrap_or_else(|| "direct".into());
+        let referral_code = serde_json::from_str::<Value>(&payload)
+            .ok()
+            .and_then(|v| {
+                v.get("referral_code")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .and_then(|value| crate::referrals::normalize_code(Some(&value)));
         let tx = db.transaction()?;
-        tx.execute("DELETE FROM auth_challenges WHERE id=?1", [hash_token(&id)])?;
+        tx.execute("DELETE FROM auth_challenges WHERE id=?1", [&challenge_hash])?;
         let existing = tx
             .query_row(
                 "SELECT id,banned FROM users WHERE email=?1",
@@ -704,12 +989,23 @@ async fn email_verify(
             Some((id, false)) => id,
             None => {
                 let uid = Uuid::new_v4().to_string();
-                tx.execute("INSERT INTO users(id,email,name,role,created_at,updated_at) VALUES(?1,?2,'','unassigned',?3,?3)",params![uid,email,now()])?;
+                tx.execute(
+                    "INSERT INTO users(id,email,name,handle,role,created_at,updated_at) VALUES(?1,?2,'',?4,'unassigned',?3,?3)",
+                    params![
+                        uid,
+                        email,
+                        now(),
+                        format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>())
+                    ],
+                )?;
+                crate::referrals::ensure_code(&tx, &uid, now())?;
+                crate::referrals::record_signup(&tx, &uid, referral_code.as_deref(), now())?;
+                crate::db::audit(&tx, "system", "signup_source", &uid, &source)?;
                 uid
             }
         };
-        let user = crate::models::load_user(&tx, &user_id)?;
-        if let Some(old) = cookie(&headers, SESSION_COOKIE) {
+        let user = serde_json::to_value(crate::models::load_user(&tx, &user_id)?)?;
+        if let Some(old) = cookie(headers, SESSION_COOKIE) {
             tx.execute(
                 "DELETE FROM sessions WHERE token_hash=?1",
                 [hash_token(&old)],
@@ -719,8 +1015,363 @@ async fn email_verify(
         tx.commit()?;
         (raw, csrf, user)
     };
+    Ok((raw, csrf, user))
+}
+
+async fn email_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<EmailVerify>,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let email = normalized_email(&body.email)?;
+    let id = cookie(&headers, EMAIL_COOKIE)
+        .ok_or_else(|| AppError::unauthorized("Request a new sign-in code"))?;
+    if body.code.len() != 8 || !body.code.bytes().all(|c| c.is_ascii_digit()) {
+        return Err(AppError::unauthorized("The code is invalid or expired"));
+    }
+    let (raw, csrf, user) = complete_email_login(
+        &state,
+        &headers,
+        &id,
+        Some(&email),
+        EmailProof::Code(body.code),
+    )?;
     let response = session_response(&state, &raw, json!({"user":user,"csrf":csrf}), false)?;
     with_cookie(response, &state.cfg, EMAIL_COOKIE, "", 0)
+}
+
+#[derive(Deserialize)]
+struct MagicLinkQuery {
+    token: String,
+}
+
+async fn email_magic(
+    State(state): State<AppState>,
+    Query(query): Query<MagicLinkQuery>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let expired = || Ok(Redirect::to("/login?email_link=expired").into_response());
+    let (id, secret) = match split_magic_token(&query.token) {
+        Ok(value) => value,
+        Err(_) => return expired(),
+    };
+    let (raw, _csrf, _user) = match complete_email_login(
+        &state,
+        &headers,
+        id,
+        None,
+        EmailProof::Magic(secret.to_owned()),
+    ) {
+        Ok(value) => value,
+        Err(error)
+            if matches!(
+                error.status,
+                StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::CONFLICT
+            ) =>
+        {
+            return expired();
+        }
+        Err(error) => return Err(error),
+    };
+    let response = Redirect::to("/app").into_response();
+    let response = with_cookie(
+        response,
+        &state.cfg,
+        SESSION_COOKIE,
+        &raw,
+        (state.cfg.session_hours as i64).saturating_mul(3600),
+    )?;
+    with_cookie(response, &state.cfg, EMAIL_COOKIE, "", 0)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmailChangeStart {
+    email: String,
+}
+
+fn delete_pending_email_changes(db: &Connection, user_id: &str) -> AppResult<()> {
+    let mut ids = Vec::new();
+    {
+        let mut statement = db.prepare(
+            "SELECT id,payload FROM auth_challenges
+             WHERE kind IN ('email-change','email-change-cancel')",
+        )?;
+        for row in statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            let (id, payload) = row?;
+            let matches = serde_json::from_str::<Value>(&payload)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("user_id")
+                        .and_then(Value::as_str)
+                        .map(|v| v == user_id)
+                })
+                .unwrap_or(false);
+            if matches {
+                ids.push(id);
+            }
+        }
+    }
+    for id in ids {
+        db.execute("DELETE FROM auth_challenges WHERE id=?1", [id])?;
+    }
+    Ok(())
+}
+
+async fn email_change_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<EmailChangeStart>,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let current = require_session(&state, &headers)?;
+    if current.admin || current.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&current)?;
+    csrf_check(&state, &headers, &current)?;
+    let user_id = current
+        .user_id
+        .as_deref()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    let new_email = normalized_email(&body.email)?;
+    let old_email = {
+        let db = state.conn()?;
+        let old_email: String = db.query_row(
+            "SELECT email FROM users WHERE id=?1 AND banned=0",
+            [user_id],
+            |row| row.get(0),
+        )?;
+        if old_email == new_email {
+            return Err(AppError::conflict("Use a different email address"));
+        }
+        let occupied: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE email=?1 AND id<>?2)",
+            params![new_email, user_id],
+            |row| row.get(0),
+        )?;
+        if occupied {
+            return Err(AppError::conflict("That email address is already in use"));
+        }
+        old_email
+    };
+    if !state.cfg.development && state.auth.mailer.is_none() {
+        return Err(AppError::unavailable("Email delivery is not configured"));
+    }
+    let change_id = random_token();
+    let change_secret = random_token();
+    let cancel_id = random_token();
+    let cancel_secret = random_token();
+    let change_id_hash = hash_token(&change_id);
+    let change_link = public_auth_link(
+        &state.cfg,
+        "/auth/email/change",
+        &format!("{change_id}.{change_secret}"),
+    );
+    let cancel_link = public_auth_link(
+        &state.cfg,
+        "/auth/email/change/cancel",
+        &format!("{cancel_id}.{cancel_secret}"),
+    );
+    let payload = json!({
+        "user_id": user_id,
+        "old_email": old_email,
+        "new_email": new_email,
+        "change_id": change_id_hash,
+    })
+    .to_string();
+    {
+        let db = state.conn()?;
+        delete_pending_email_changes(&db, user_id)?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,magic_hash,payload,expires_at) VALUES(?1,'email-change',?2,?3,?4,?5)",
+            params![hash_token(&change_id),new_email,hash_token(&change_secret),payload,now()+EMAIL_TTL],
+        )?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,magic_hash,payload,expires_at) VALUES(?1,'email-change-cancel',?2,?3,?4,?5)",
+            params![hash_token(&cancel_id),old_email,hash_token(&cancel_secret),json!({"user_id":user_id,"change_id":hash_token(&change_id),"new_email":new_email}).to_string(),now()+EMAIL_TTL],
+        )?;
+    }
+    if state.auth.mailer.is_some() {
+        let old_body = format!(
+            "有人请求把你的聘渡账户邮箱改为 {new_email}。如果不是你本人操作，请点击此链接在 10 分钟内取消：\n{cancel_link}\n\nSomeone requested changing your HireFerry account email to {new_email}. If this was not you, cancel it within 10 minutes:\n{cancel_link}\n\n如果你没有发起这次操作，也可以直接忽略这封邮件。"
+        );
+        if send_mail(
+            &state,
+            &old_email,
+            "聘渡 HireFerry · 取消邮箱更换 / Cancel email change",
+            old_body,
+        )
+        .await
+        .is_err()
+        {
+            let db = state.conn()?;
+            delete_pending_email_changes(&db, user_id)?;
+            return Err(AppError::unavailable(
+                "We could not send the cancellation email; try again later",
+            ));
+        }
+        let new_body = format!(
+            "请点击此链接确认把聘渡登录邮箱改为 {new_email}（10 分钟内有效）：\n{change_link}\n\nClick this link to confirm changing your HireFerry sign-in email to {new_email} (valid for 10 minutes):\n{change_link}\n\n如果不是你本人操作，请忽略这封邮件。"
+        );
+        if send_mail(
+            &state,
+            &new_email,
+            "聘渡 HireFerry · 确认新邮箱 / Confirm new email",
+            new_body,
+        )
+        .await
+        .is_err()
+        {
+            let db = state.conn()?;
+            delete_pending_email_changes(&db, user_id)?;
+            return Err(AppError::unavailable(
+                "We could not send the confirmation email; try again later",
+            ));
+        }
+    }
+    let payload = if state.cfg.development && state.auth.mailer.is_none() {
+        json!({"sent":true,"dev_confirm_link":change_link,"dev_cancel_link":cancel_link})
+    } else {
+        json!({"sent":true})
+    };
+    Ok(Json(payload).into_response())
+}
+
+fn email_change_payload(value: &str) -> AppResult<(String, String, String, String)> {
+    let payload: Value = serde_json::from_str(value)?;
+    let user_id = payload
+        .get("user_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    let old_email = payload
+        .get("old_email")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    let new_email = payload
+        .get("new_email")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    let change_id = payload
+        .get("change_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    Ok((
+        user_id.to_owned(),
+        old_email.to_owned(),
+        new_email.to_owned(),
+        change_id.to_owned(),
+    ))
+}
+
+async fn email_change_confirm(
+    State(state): State<AppState>,
+    Query(query): Query<MagicLinkQuery>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let (id, secret) = split_magic_token(&query.token)?;
+    let challenge_hash = hash_token(id);
+    {
+        let mut db = state.conn()?;
+        let (expected, attempts, payload): (String, i64, String) = db
+            .query_row(
+                "SELECT magic_hash,attempts,payload FROM auth_challenges WHERE id=?1 AND kind='email-change' AND expires_at>?2",
+                params![challenge_hash, now()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+        if attempts >= 5 {
+            return Err(AppError::unauthorized("Request a new email change"));
+        }
+        db.execute(
+            "UPDATE auth_challenges SET attempts=attempts+1 WHERE id=?1",
+            [&challenge_hash],
+        )?;
+        if !equal_hash(&expected, &hash_token(secret)) {
+            return Err(AppError::unauthorized("This link is invalid or expired"));
+        }
+        let (user_id, old_email, new_email, cancel_id) = email_change_payload(&payload)?;
+        let tx = db.transaction()?;
+        let occupied: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE email=?1 AND id<>?2)",
+            params![new_email, user_id],
+            |row| row.get(0),
+        )?;
+        if occupied {
+            tx.commit()?;
+            return Err(AppError::conflict("That email address is already in use"));
+        }
+        let updated = tx.execute(
+            "UPDATE users SET email=?1,updated_at=?2 WHERE id=?3 AND email=?4 AND banned=0",
+            params![new_email, now(), user_id, old_email],
+        )?;
+        if updated == 0 {
+            tx.commit()?;
+            return Err(AppError::conflict("This email change is no longer current"));
+        }
+        tx.execute(
+            "DELETE FROM auth_challenges WHERE id IN (?1,?2)",
+            params![challenge_hash, cancel_id],
+        )?;
+        let current_hash = cookie(&headers, SESSION_COOKIE).map(|value| hash_token(&value));
+        if let Some(current_hash) = current_hash {
+            tx.execute(
+                "DELETE FROM sessions WHERE user_id=?1 AND token_hash<>?2",
+                params![user_id, current_hash],
+            )?;
+        } else {
+            tx.execute("DELETE FROM sessions WHERE user_id=?1", [&user_id])?;
+        }
+        tx.commit()?;
+    }
+    Ok(Redirect::to("/app?tab=profile&email_change=confirmed").into_response())
+}
+
+async fn email_change_cancel(
+    State(state): State<AppState>,
+    Query(query): Query<MagicLinkQuery>,
+) -> AppResult<Response> {
+    let (id, secret) = split_magic_token(&query.token)?;
+    let challenge_hash = hash_token(id);
+    let db = state.conn()?;
+    let (expected, attempts, payload): (String, i64, String) = db
+        .query_row(
+            "SELECT magic_hash,attempts,payload FROM auth_challenges WHERE id=?1 AND kind='email-change-cancel' AND expires_at>?2",
+            params![challenge_hash, now()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    if attempts >= 5 {
+        return Err(AppError::unauthorized("Request a new email change"));
+    }
+    db.execute(
+        "UPDATE auth_challenges SET attempts=attempts+1 WHERE id=?1",
+        [&challenge_hash],
+    )?;
+    if !equal_hash(&expected, &hash_token(secret)) {
+        return Err(AppError::unauthorized("This link is invalid or expired"));
+    }
+    let payload: Value = serde_json::from_str(&payload)?;
+    let user_id = payload
+        .get("user_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    let change_id = payload
+        .get("change_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::unauthorized("This link is invalid or expired"))?;
+    db.execute(
+        "DELETE FROM auth_challenges WHERE id IN (?1,?2)",
+        params![challenge_hash, change_id],
+    )?;
+    let _ = user_id;
+    Ok(Redirect::to("/app?tab=profile&email_change=cancelled").into_response())
 }
 
 #[derive(Deserialize, Serialize)]
@@ -728,8 +1379,16 @@ struct GooglePending {
     verifier: String,
     #[serde(default)]
     access_generation: i64,
+    #[serde(default = "default_signup_source")]
+    source: String,
+    #[serde(default)]
+    referral_code: String,
     #[serde(default)]
     app_request: Option<String>,
+}
+
+fn default_signup_source() -> String {
+    "direct".into()
 }
 
 fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> AppResult<()> {
@@ -746,20 +1405,26 @@ fn google_access_unchanged(db: &Connection, user_id: &str, generation: i64) -> A
     Ok(())
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Deserialize, Default)]
 struct GoogleStart {
+    source: Option<String>,
+    #[serde(alias = "ref")]
+    referral_code: Option<String>,
     app_request: Option<String>,
 }
 
 async fn google_start(
     State(state): State<AppState>,
-    Query(input): Query<GoogleStart>,
+    Query(query): Query<GoogleStart>,
 ) -> AppResult<Response> {
     if !state.cfg.google.enabled {
         return Err(AppError::unavailable("Google sign-in is not configured"));
     }
     let id = random_token();
     let verifier = random_token();
+    let source = signup_source(query.source.as_deref());
+    let referral_code =
+        crate::referrals::normalize_code(query.referral_code.as_deref()).unwrap_or_default();
     let pkce = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     {
         let db = state
@@ -767,7 +1432,7 @@ async fn google_start(
             .lock()
             .map_err(|_| AppError::internal("Database lock failed"))?;
         cleanup(&db)?;
-        if let Some(request) = &input.app_request {
+        if let Some(request) = &query.app_request {
             app_login::pending_request(&db, request)?;
         }
         rate_limit(&db, "google-start", 300, 300)?;
@@ -777,7 +1442,7 @@ async fn google_start(
             |row| row.get(0),
         )?;
         db.execute("INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'google','',?2,?3)",
-            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,app_request:input.app_request})?,now()+CHALLENGE_TTL])?;
+            params![hash_token(&id),serde_json::to_string(&GooglePending{verifier,access_generation,source,referral_code,app_request:query.app_request})?,now()+CHALLENGE_TTL])?;
     }
     let callback = format!(
         "{}/auth/google/callback",
@@ -943,8 +1608,11 @@ async fn google_callback(
                 }
                 let uid = Uuid::new_v4().to_string();
                 let display = identity.name.chars().take(80).collect::<String>();
-                tx.execute("INSERT INTO users(id,email,google_sub,name,role,created_at,updated_at) VALUES(?1,?2,?3,?4,'unassigned',?5,?5)",
-                    params![uid,email,identity.sub,display,now()])?;
+                tx.execute("INSERT INTO users(id,email,google_sub,name,handle,role,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,'unassigned',?6,?6)",
+                    params![uid,email,identity.sub,display,format!("user_{}", uid.replace('-', "").chars().take(16).collect::<String>()),now()])?;
+                crate::referrals::ensure_code(&tx, &uid, now())?;
+                crate::referrals::record_signup(&tx, &uid, Some(&pending.referral_code), now())?;
+                crate::db::audit(&tx, "system", "signup_source", &uid, &pending.source)?;
                 uid
             }
         };
@@ -1126,6 +1794,8 @@ fn passkey_id(passkey: &Passkey) -> String {
 #[serde(deny_unknown_fields)]
 struct PasskeyName {
     name: String,
+    #[serde(default)]
+    kind: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1396,6 +2066,387 @@ async fn passkey_login_finish(
         false,
     )?;
     with_cookie(response, &state.cfg, PASSKEY_COOKIE, "", 0)
+}
+
+#[derive(Deserialize, Serialize)]
+struct UserRegistrationPending {
+    state: PasskeyRegistration,
+    name: String,
+    user_id: String,
+}
+
+fn load_user_passkeys(db: &Connection, user_id: Option<&str>) -> AppResult<Vec<Passkey>> {
+    let mut statement = if user_id.is_some() {
+        db.prepare(
+            "SELECT credential_json FROM user_passkeys WHERE user_id=?1 ORDER BY created_at,id",
+        )?
+    } else {
+        db.prepare("SELECT credential_json FROM user_passkeys ORDER BY created_at,id")?
+    };
+    let rows = match user_id {
+        Some(user_id) => statement
+            .query_map([user_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+        None => statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    rows.into_iter()
+        .map(|value| serde_json::from_str(&value).map_err(AppError::from))
+        .collect()
+}
+
+fn webauthn_user_uuid(user_id: &str) -> Uuid {
+    if let Ok(id) = Uuid::parse_str(user_id) {
+        return id;
+    }
+    // Imported databases may contain non-UUID user identifiers. Keep the
+    // WebAuthn user handle stable without putting the raw identifier in the
+    // authenticator payload.
+    let digest = Sha256::digest(user_id.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+async fn user_passkey_register_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<PasskeyName>,
+) -> AppResult<Response> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    let name = input.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(AppError::bad_request(
+            "Name this passkey using 1 to 80 characters",
+        ));
+    }
+    let id = random_token();
+    let options = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let (email, display_name): (String, String) = db.query_row(
+            "SELECT email,name FROM users WHERE id=?1 AND banned=0 AND role IN ('unassigned','seeker','employer')",
+            [&user_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let keys = load_user_passkeys(&db, Some(&user_id))?;
+        if keys.len() >= 20 {
+            return Err(AppError::conflict("Up to 20 passkeys can be registered"));
+        }
+        let exclude = keys.iter().map(|key| key.cred_id().clone()).collect();
+        let display_name = if display_name.trim().is_empty() {
+            &email
+        } else {
+            display_name.trim()
+        };
+        let result = if input.kind == "google_password_manager" {
+            state
+                .auth
+                .webauthn
+                .start_google_passkey_in_google_password_manager_only_registration(
+                    webauthn_user_uuid(&user_id),
+                    &email,
+                    display_name,
+                    Some(exclude),
+                )
+        } else {
+            state.auth.webauthn.start_passkey_registration(
+                webauthn_user_uuid(&user_id),
+                &email,
+                display_name,
+                Some(exclude),
+            )
+        };
+        let (options, pending) =
+            result.map_err(|_| AppError::bad_request("Could not start passkey registration"))?;
+        let payload = serde_json::to_string(&UserRegistrationPending {
+            state: pending,
+            name: name.to_owned(),
+            user_id: user_id.clone(),
+        })?;
+        db.execute(
+            "DELETE FROM auth_challenges WHERE kind='user-passkey-register' AND subject=?1",
+            [&s.token_hash],
+        )?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'user-passkey-register',?2,?3,?4)",
+            params![hash_token(&id), s.token_hash, payload, now() + CHALLENGE_TTL],
+        )?;
+        options
+    };
+    with_cookie(
+        Json(json!({"options":options})).into_response(),
+        &state.cfg,
+        USER_PASSKEY_COOKIE,
+        &id,
+        CHALLENGE_TTL,
+    )
+}
+
+async fn user_passkey_register_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<RegisterFinish>,
+) -> AppResult<Response> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    let id = cookie(&headers, USER_PASSKEY_COOKIE)
+        .ok_or_else(|| AppError::unauthorized("Start passkey registration again"))?;
+    let credential_id = {
+        let mut db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let data = consume_challenge(&db, &id, "user-passkey-register", Some(&s.token_hash))?;
+        let pending: UserRegistrationPending = serde_json::from_str(&data)?;
+        if pending.user_id != user_id {
+            return Err(AppError::unauthorized("Passkey session changed"));
+        }
+        let key = state
+            .auth
+            .webauthn
+            .finish_passkey_registration(&input.credential, &pending.state)
+            .map_err(|_| AppError::unauthorized("Passkey registration could not be verified"))?;
+        let credential_id = passkey_id(&key);
+        let tx = db.transaction()?;
+        require_active_session(&tx, &s)?;
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM user_passkeys WHERE user_id=?1",
+            [&user_id],
+            |row| row.get(0),
+        )?;
+        if count >= 20 {
+            return Err(AppError::conflict("Passkey list changed; try again"));
+        }
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM user_passkeys WHERE id=?1) OR EXISTS(SELECT 1 FROM admin_passkeys WHERE id=?1)",
+            [&credential_id],
+            |row| row.get(0),
+        )?;
+        if duplicate {
+            return Err(AppError::conflict("This passkey is already registered"));
+        }
+        tx.execute(
+            "INSERT INTO user_passkeys(id,user_id,name,credential_json,created_at) VALUES(?1,?2,?3,?4,?5)",
+            params![
+                credential_id,
+                user_id,
+                pending.name,
+                serde_json::to_string(&key)?,
+                now()
+            ],
+        )?;
+        crate::db::audit(&tx, &user_id, "user_passkey_added", &credential_id, "")?;
+        tx.commit()?;
+        credential_id
+    };
+    let response = Json(json!({"ok":true,"passkey":{"id":credential_id}})).into_response();
+    with_cookie(response, &state.cfg, USER_PASSKEY_COOKIE, "", 0)
+}
+
+async fn user_passkey_login_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let id = random_token();
+    let options = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        cleanup(&db)?;
+        rate_limit(&db, "user-passkey-login", 100, 300)?;
+        let keys = load_user_passkeys(&db, None)?;
+        if keys.is_empty() {
+            return Err(AppError::conflict(
+                "No member passkey is registered; use email or Google sign-in",
+            ));
+        }
+        let (options, pending) = state
+            .auth
+            .webauthn
+            .start_passkey_authentication(&keys)
+            .map_err(|_| AppError::bad_request("Could not start passkey sign-in"))?;
+        db.execute(
+            "INSERT INTO auth_challenges(id,kind,subject,payload,expires_at) VALUES(?1,'user-passkey-login','',?2,?3)",
+            params![hash_token(&id), serde_json::to_string(&pending)?, now() + CHALLENGE_TTL],
+        )?;
+        options
+    };
+    with_cookie(
+        Json(json!({"options":options})).into_response(),
+        &state.cfg,
+        USER_PASSKEY_COOKIE,
+        &id,
+        CHALLENGE_TTL,
+    )
+}
+
+async fn user_passkey_login_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<LoginFinish>,
+) -> AppResult<Response> {
+    origin_check(&state, &headers)?;
+    let id = cookie(&headers, USER_PASSKEY_COOKIE)
+        .ok_or_else(|| AppError::unauthorized("Start passkey sign-in again"))?;
+    let (raw, csrf, user) = {
+        let mut db = state
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("Database lock failed"))?;
+        let data = consume_challenge(&db, &id, "user-passkey-login", None)?;
+        let pending: PasskeyAuthentication = serde_json::from_str(&data)?;
+        let result = state
+            .auth
+            .webauthn
+            .finish_passkey_authentication(&input.credential, &pending)
+            .map_err(|_| AppError::unauthorized("Passkey sign-in could not be verified"))?;
+        if !result.user_verified() {
+            return Err(AppError::unauthorized(
+                "Passkey user verification is required",
+            ));
+        }
+        let credential_id = URL_SAFE_NO_PAD.encode(result.cred_id().as_ref());
+        let tx = db.transaction()?;
+        let stored = tx
+            .query_row(
+                "SELECT credential_json,counter,user_id FROM user_passkeys WHERE id=?1",
+                [&credential_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::unauthorized("This passkey is no longer registered"))?;
+        if (stored.1 != 0 || result.counter() != 0) && result.counter() <= stored.1 {
+            return Err(AppError::unauthorized(
+                "Passkey counter did not advance; use another passkey",
+            ));
+        }
+        let mut key: Passkey = serde_json::from_str(&stored.0)?;
+        key.update_credential(&result)
+            .ok_or_else(|| AppError::unauthorized("Passkey credential mismatch"))?;
+        tx.execute(
+            "UPDATE user_passkeys SET credential_json=?1,counter=?2,last_used_at=?3 WHERE id=?4",
+            params![
+                serde_json::to_string(&key)?,
+                result.counter(),
+                now(),
+                credential_id
+            ],
+        )?;
+        let user = crate::models::load_user(&tx, &stored.2)?;
+        crate::db::audit(&tx, &stored.2, "user_passkey_sign_in", &credential_id, "")?;
+        if let Some(old) = cookie(&headers, SESSION_COOKIE) {
+            tx.execute(
+                "DELETE FROM sessions WHERE token_hash=?1",
+                [hash_token(&old)],
+            )?;
+        }
+        let values = new_session(&tx, &state.cfg, Some(&stored.2), false, false)?;
+        tx.commit()?;
+        (values.0, values.1, user)
+    };
+    let response = session_response(
+        &state,
+        &raw,
+        json!({"ok":true,"user":user,"csrf":csrf}),
+        false,
+    )?;
+    with_cookie(response, &state.cfg, USER_PASSKEY_COOKIE, "", 0)
+}
+
+async fn user_passkeys_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<Value>> {
+    let user_id = require_user(&state, &headers)?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::internal("Database lock failed"))?;
+    let mut statement = db.prepare(
+        "SELECT id,name,created_at,last_used_at FROM user_passkeys WHERE user_id=?1 ORDER BY created_at,id",
+    )?;
+    let keys = statement
+        .query_map([&user_id], |row| {
+            Ok(json!({
+                "id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "created_at": row.get::<_, i64>(2)?,
+                "last_used_at": row.get::<_, Option<i64>>(3)?
+            }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(json!({"passkeys":keys})))
+}
+
+async fn user_passkey_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let s = require_session(&state, &headers)?;
+    csrf_check(&state, &headers, &s)?;
+    if s.admin || s.bootstrap {
+        return Err(AppError::forbidden("A member account is required"));
+    }
+    require_recent_member(&s)?;
+    let user_id = s
+        .user_id
+        .clone()
+        .ok_or_else(|| AppError::unauthorized("Please sign in"))?;
+    if id.is_empty() || id.len() > 200 {
+        return Err(AppError::bad_request("Invalid passkey"));
+    }
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| AppError::internal("Database lock failed"))?;
+    let tx = db.unchecked_transaction()?;
+    require_active_session(&tx, &s)?;
+    let removed = tx.execute(
+        "DELETE FROM user_passkeys WHERE id=?1 AND user_id=?2",
+        params![id, user_id],
+    )?;
+    if removed == 0 {
+        return Err(AppError::not_found("Passkey not found"));
+    }
+    tx.execute(
+        "DELETE FROM auth_challenges WHERE kind='user-passkey-login'",
+        [],
+    )?;
+    crate::db::audit(&tx, &user_id, "user_passkey_removed", &id, "")?;
+    tx.commit()?;
+    Ok(Json(json!({"ok":true})))
 }
 
 async fn passkeys_list(

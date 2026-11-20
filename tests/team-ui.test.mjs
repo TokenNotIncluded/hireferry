@@ -195,11 +195,17 @@ test('manager and employee sessions retain different business access without bec
       assert.equal(harness.app.state.admin, true);
       assert.equal(harness.app.state.owner, false);
       assert.equal(harness.app.state.super_admin, false);
-      for (const path of ['/api/admin/users', '/api/admin/users?']) harness.overrides.set(path, { items: [{ id: 'customer', name: 'QA customer', role: 'seeker' }], total: 1 });
-      for (const path of ['/api/admin/jobs', '/api/admin/jobs?']) harness.overrides.set(path, { items: [{ id: 'job', title: 'QA role', status: 'published', salary_cents: 10000, headcount: 1 }], total: 1 });
-      await harness.route('/admin?tab=users', 'QA customer');
+      harness.overrides.set('/api/admin/relations/query', options => {
+        const query = JSON.parse(options.body);
+        const base = { data_rev: 1, query_key: 'fixture', limit: 100, remaining: 0, next_cursor: null };
+        if (query.mode === 'overview') return { ...base, summary: { users: 1, seekers: 1, jobs: 1, edges: 0, state_counts: {} }, groups: { left: [{ id: 'seekers', label: 'Seekers', count: 1, edges: 0 }], right: [{ id: 'published', label: 'Published', count: 1, edges: 0 }] }, bundles: [] };
+        const person = { id: 'customer', kind: 'user', name: 'QA customer', label: 'QA customer', role: 'seeker', group_id: 'seekers', relation_count: 0 };
+        const job = { id: 'job', kind: 'job', title: 'QA role', label: 'QA role', status: 'published', salary_cents: 10000, headcount: 1, group_id: 'published', relation_count: 0 };
+        return { ...base, items: query.side === 'left' ? [person] : [job], total: 1 };
+      });
+      await harness.route('/admin?tab=users&graph_mode=list', 'QA customer');
       assert.equal(harness.root.innerHTML.includes('data-action="admin-user-access"'), employee);
-      await harness.route('/admin?tab=jobs', 'QA role');
+      await harness.route('/admin?tab=jobs&graph_mode=list', 'QA role');
       assert.match(harness.root.innerHTML, new RegExp(`data-action="admin-edit-job"[^>]*>${employee ? 'Manage' : 'Details'}`));
       const forbidden = ['team', 'staff', 'keys', 'agents', 'promos', ...(!employee ? ['overview', 'orders'] : [])];
       for (const tab of forbidden) {

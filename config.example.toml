@@ -81,6 +81,17 @@ mode = "test" # Exactly "test" or "prod".
 # See docs/payments.md for provider setup, signatures and environment checks.
 
 # These select payment methods, not separate API servers or billing countries.
+# Optional separate production credentials. Keep the base credentials above in test mode.
+# Once complete, the owner can switch new orders in Admin > Overview without restarting.
+# The selected mode is persisted in SQLite; credentials always remain in this file.
+# [payments.waffo.production]
+# merchant_id = ""
+# store_id = ""
+# product_id = ""
+# private_key_pem = ""
+# webhook_public_key_pem = ""
+# tax_category = "saas"
+
 [payments.waffo.checkout_regions.global]
 currencies = ["USD", "EUR", "GBP", "HKD", "JPY"]
 payment_methods = ["card", "applepay", "googlepay"]
@@ -92,18 +103,22 @@ payment_methods = ["wechat", "alipay"]
 # Currency codes are explicit. Existing jobs/orders keep their original currency.
 # Empty allowed_currencies means only currency; add per-currency amounts below
 # before enabling additional currencies. No automatic exchange conversion.
+billing_mode = "donation" # fees or donation; donation makes new service operations permanently free.
 currency = "CNY"
 allowed_currencies = ["CNY"]
-onboarding_cents = 10000 # Integer minor units of currency; 0 activates for free.
+onboarding_cents = 10000 # Original integer minor units.
+onboarding_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
 # Additional activation prices are independent of job/salary currencies.
 # Example fixed prices; the server never infers exchange rates.
 # onboarding_amounts = { USD = 1498, EUR = 1333, GBP = 1118, HKD = 11752, JPY = 2368 }
 publish_mode = "salary_percent" # salary_percent, fixed, or free
-publish_bps = 1000 # 10000 basis points = 100%; used by salary_percent.
-publish_fixed_minor = 30000 # Used only by fixed mode, in this currency's minor unit.
+publish_bps = 1000 # Original rate; 10000 basis points = 100%.
+publish_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+publish_fixed_minor = 30000 # Original amount in this currency's minor unit; discount applies after calculation.
 edit_mode = "salary_percent" # Snapshot is retained for the lifetime of each job.
-edit_bps = 100 # Percentage of the original base salary, not the publication fee.
-edit_fixed_minor = 3000
+edit_bps = 100 # Original percentage of base salary, not the publication fee.
+edit_discount_percent = 100 # 0..100; 100 means free and skips payment gateway.
+edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 max_edits = 3 # Applies to JD edits; headcount changes and deletion stay free.
 employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new jobs.
 
@@ -111,7 +126,7 @@ employer_ai_min_salary_minor = 300000 # 0 removes the salary threshold for new j
 # Values are business settings, not exchange rates; review before enabling.
 # [pricing.currency_amounts.USD]
 # publish_fixed_minor = 30000
-# edit_fixed_minor = 3000
+# edit_fixed_minor = 3000 # Original amount; discount applies after calculation.
 # employer_ai_min_salary_minor = 300000
 # For JPY/KRW, one minor unit is one yen/won (no multiplication by 100).
 
@@ -208,3 +223,39 @@ max_pending_grants = 1000
 [cli_distribution]
 release_repository = "TokenNotIncluded/hireferry"
 release_tag_prefix = "cli-v"
+
+# Optional empty-chat welcome overrides. Omit fields to keep built-in copy.
+# Audiences: platform_seeker, platform_employer, matched, staff.
+# English fields fall back to the base field; prompts=[] hides suggestion buttons.
+# Markdown is sanitized before display; clicking a suggestion only fills a draft.
+# Restart after changes. See docs/chat-agents.md for limits and complete behavior.
+# The early-stage assistant replies asynchronously and proactively; it is not a
+# 24/7 real-time support channel. A durable queue keeps acknowledgements alive
+# across restarts. Set enabled=false only if another service owns replies.
+[chat.auto_reply]
+enabled = true
+delay_seconds = 2
+poll_seconds = 5
+max_attempts = 3
+title = "已收到，平台 AI 会异步处理"
+title_en = "Received — HireFerry AI will process this asynchronously"
+body_md = "聘渡目前仍在早期阶段。平台 AI 是异步、主动式服务，不是时刻在线的实时客服：消息会进入后台队列，有进展时我们会主动回到这里。"
+body_md_en = "HireFerry is still in the early stage. Platform AI works asynchronously and proactively; it is not a 24/7 live support channel. Messages enter a background queue and we return when there is progress."
+
+# [chat.welcome.platform_seeker]
+# title = "先聊聊你的下一份工作"
+# title_en = "Tell us about your next role"
+# body_md = "可以先介绍你的**经历、方向和期待**。"
+# body_md_en = "Start with your **experience, direction, and expectations**."
+# prompts = [
+#   { label = "介绍我的方向", body = "我想寻找的新机会是：", label_en = "Describe my search", body_en = "For my next role, I am looking for: " }
+# ]
+# [chat.welcome.platform_employer]
+# title = "一起梳理招聘需求"
+# body_md = "可以先说明岗位职责、团队情况和招聘安排。"
+# [chat.welcome.matched]
+# body_md = "在这里确认岗位内容、双方期待和下一步安排。"
+# prompts = []
+# [chat.welcome.staff]
+# title = "核对需求，确认下一步"
+# body_md = "先确认当前沟通对象和需要跟进的事项。"

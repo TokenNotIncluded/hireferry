@@ -1,6 +1,15 @@
 name: Publish AUR packages
 
 on:
+  pull_request:
+    paths:
+      - 'packaging/arch/**'
+      - 'packaging/aur/**'
+      - 'scripts/aur.py'
+      - 'scripts/release.py'
+      - 'scripts/publish-aur.sh'
+      - 'tests/aur.test.py'
+      - '.github/workflows/aur.yml'
   push:
     branches: [main]
     paths:
@@ -12,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Stable server-v or cli-v tag for -bin; leave empty for both -git packages
+        description: Stable server-v, cli-v or desktop-v tag for -bin; leave empty for all -git packages
         type: string
         default: ''
   workflow_call:
@@ -34,8 +43,24 @@ concurrency:
   queue: max
 
 jobs:
+  verify:
+    name: Verify recipes with Arch makepkg
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 10
+    steps:
+      - name: Install recipe validation tools
+        run: pacman -Syu --noconfirm --needed git python
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Verify metadata and component file boundaries without root
+        run: |
+          useradd -m builder
+          runuser -u builder -- python tests/aur.test.py
+          bash -n scripts/publish-aur.sh
+
   publish:
-    if: vars.AUR_PUBLISH_ENABLED == 'true'
+    needs: verify
+    if: github.event_name != 'pull_request' && vars.AUR_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-24.04
     container: archlinux:base-devel
     timeout-minutes: 15
@@ -66,14 +91,14 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           if [[ -n "$RELEASE_TAG" ]]; then
-            [[ "$RELEASE_TAG" =~ ^(server|cli)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+            [[ "$RELEASE_TAG" =~ ^(server|cli|desktop)-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
             product=${RELEASE_TAG%%-v*}
             python scripts/fetch-release-manifest.py "$RELEASE_TAG" "$RUNNER_TEMP/aur-manifest"
             chmod -R a+rX "$RUNNER_TEMP/aur-manifest"
             runuser -u builder -- python scripts/aur.py --product "$product" --variant bin \
               --manifest "$RUNNER_TEMP/aur-manifest/downloads.json" --out dist/aur
           else
-            for product in server cli; do
+            for product in server cli desktop; do
               runuser -u builder -- python scripts/aur.py --product "$product" --variant git --out dist/aur
             done
           fi

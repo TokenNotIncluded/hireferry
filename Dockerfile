@@ -8,6 +8,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY static ./static
 COPY legal ./legal
+COPY docs/mcp-developer.md docs/mcp-public.md ./docs/
 COPY crates ./crates
 RUN cargo build --locked --release -p hireferry
 

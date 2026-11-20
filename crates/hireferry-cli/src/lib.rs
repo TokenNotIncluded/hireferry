@@ -1,9 +1,11 @@
 //! Network-only client: no dependency on the HireFerry service or database.
 pub mod callback;
+pub mod chat;
 pub mod defaults;
 pub mod error;
 pub mod keyring;
 pub mod login;
+pub mod mcp;
 pub mod server;
 pub mod settings;
 pub mod storage;
@@ -17,13 +19,13 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use storage::{AccountSubject, Credential, Store};
+use storage::{AccountRegistry, AccountSubject, Credential, Store};
 
 #[derive(Parser)]
 #[command(
     name = "hfy",
     version,
-    about = "Sign in to HireFerry from your terminal."
+    about = "Connect to HireFerry and work with conversations from your terminal."
 )]
 pub struct Cli {
     /// Print one JSON result on stdout. Prompts stay on stderr.
@@ -35,6 +37,9 @@ pub struct Cli {
     /// Public OAuth client ID; never a client secret.
     #[arg(long, global = true)]
     pub client_id: Option<String>,
+    /// Select a saved account instead of the configured default.
+    #[arg(long, global = true)]
+    pub account: Option<String>,
     /// Request identity only, member MCP access, or administrator access.
     #[arg(long, global = true, value_parser = ["identity", "mcp", "admin"])]
     pub scope: Option<String>,
@@ -70,6 +75,39 @@ pub enum Command {
         #[command(subcommand)]
         command: FeedbackCommand,
     },
+    /// Read, send and stream messages with your authorized account.
+    Chat {
+        #[command(subcommand)]
+        command: chat::ChatCommand,
+    },
+    /// Connect Agent software using the Model Context Protocol.
+    Mcp {
+        #[command(subcommand)]
+        command: mcp::McpCommand,
+    },
+}
+
+impl Cli {
+    /// Streaming protocols own stdout; no final human-readable wrapper follows.
+    pub fn streams_stdout(&self) -> bool {
+        matches!(
+            self.command,
+            Command::Chat {
+                command: chat::ChatCommand::Watch { .. } | chat::ChatCommand::Stream { .. }
+            } | Command::Mcp {
+                command: mcp::McpCommand::Serve
+            }
+        )
+    }
+
+    pub fn mcp_stdio(&self) -> bool {
+        matches!(
+            self.command,
+            Command::Mcp {
+                command: mcp::McpCommand::Serve
+            }
+        )
+    }
 }
 
 #[derive(Subcommand)]
@@ -113,6 +151,10 @@ pub enum AuthCommand {
     Login(login::LoginArgs),
     /// Check the saved connection with the server.
     Status,
+    /// List saved accounts and the current default.
+    Accounts,
+    /// Set the default account used by commands without --account.
+    Use { name: String },
     /// Rotate saved tokens now; normally done automatically before expiry.
     Refresh,
     /// Revoke this connection and remove credentials from this device.
@@ -129,25 +171,62 @@ pub fn now() -> i64 {
 pub async fn run(cli: Cli) -> Result<Value> {
     let (settings, directory) = Settings::load(&cli)?;
     let server = Server::with_settings(&settings)?;
-    let store = Store::new(
-        directory,
+    let registry = AccountRegistry::new(&directory, &server.origin, &server.client_id);
+    let account_management = matches!(
+        &cli.command,
+        Command::Auth {
+            command: AuthCommand::Accounts | AuthCommand::Use { .. }
+        }
+    );
+    let account_name = if account_management {
+        "default".to_owned()
+    } else if let Some(name) = cli.account.clone() {
+        name
+    } else {
+        registry
+            .default_account()?
+            .unwrap_or_else(|| "default".to_owned())
+    };
+    let store = Store::for_account(
+        directory.clone(),
+        &server.origin,
+        &server.client_id,
+        &account_name,
+        settings.storage,
+    )?;
+    let legacy_store = Store::new(
+        directory.clone(),
         &server.origin,
         &server.client_id,
         settings.storage,
     );
+    let capabilities_only = matches!(&cli.command, Command::Capabilities);
+    let force_refresh = matches!(
+        &cli.command,
+        Command::Auth {
+            command: AuthCommand::Refresh
+        }
+    );
     match cli.command {
+        Command::Chat { command } => chat::run(command, &server, &store).await,
+        Command::Mcp { command } => mcp::run(command, &server, &store).await,
         Command::Auth {
             command: AuthCommand::Login(args),
         } => {
             {
                 let _guard = store.lock().await?;
-                if let Some(mut credential) = store.load()? {
-                    if scope_covers(&credential.scope, &server.scope)
+                sync_saved_account(&registry, &legacy_store)?;
+                if !args.oauth {
+                    if let Some(mut credential) = store.load()?
+                        && scope_covers(&credential.scope, &server.scope)
                         && !credential.refresh_pending
                         && credential.refresh_expires_at > now()
                     {
                         match verified_identity(&server, &store, &mut credential, false).await {
-                            Ok((identity, _)) => return signed_in(&server, &store, identity, true),
+                            Ok((identity, _)) => {
+                                registry.record(store.account_name(), &credential.scope)?;
+                                return signed_in(&server, &store, identity, true);
+                            }
                             Err(error)
                                 if matches!(
                                     error.code,
@@ -184,16 +263,46 @@ pub async fn run(cli: Cli) -> Result<Value> {
                 let _ = server.revoke(&credential.refresh_token).await;
                 return Err(error);
             }
-            if let Some(previous) = previous {
-                if previous.refresh_token != credential.refresh_token
-                    && server.revoke(&previous.refresh_token).await.is_err()
-                {
-                    eprintln!(
-                        "Signed in. The previous connection could not be revoked; remove it from the website's connections page."
-                    );
-                }
+            registry.record(store.account_name(), &credential.scope)?;
+            if let Some(previous) = previous
+                && previous.refresh_token != credential.refresh_token
+                && server.revoke(&previous.refresh_token).await.is_err()
+            {
+                eprintln!(
+                    "Signed in. The previous connection could not be revoked; remove it from the website's connections page."
+                );
             }
             signed_in(&server, &store, identity, false)
+        }
+        Command::Auth {
+            command: AuthCommand::Accounts,
+        } => {
+            let _guard = store.lock().await?;
+            sync_saved_account(&registry, &legacy_store)?;
+            Ok(json!({"server":server.origin,"client_id":server.client_id,
+                "accounts":registry.list()?}))
+        }
+        Command::Auth {
+            command: AuthCommand::Use { name },
+        } => {
+            let _guard = store.lock().await?;
+            sync_saved_account(&registry, &legacy_store)?;
+            let selected = Store::for_account(
+                directory,
+                &server.origin,
+                &server.client_id,
+                &name,
+                settings.storage,
+            )?;
+            if selected.load()?.is_none() || !registry.contains(&name)? {
+                return Err(Error::new(
+                    "account_not_found",
+                    "No saved HireFerry account has that name. Run hfy auth accounts to list saved accounts.",
+                ));
+            }
+            registry.set_default(&name)?;
+            Ok(json!({"server":server.origin,"client_id":server.client_id,
+                "default_account":name}))
         }
         Command::Auth {
             command: AuthCommand::Status,
@@ -201,11 +310,14 @@ pub async fn run(cli: Cli) -> Result<Value> {
             let _guard = store.lock().await?;
             let Some(mut credential) = store.load()? else {
                 return Ok(
-                    json!({"authenticated":false,"server":server.origin,"client_id":server.client_id,"reason":"no_saved_credentials"}),
+                    json!({"authenticated":false,"server":server.origin,"client_id":server.client_id,"account":store.account_name(),"reason":"no_saved_credentials"}),
                 );
             };
             match verified_identity(&server, &store, &mut credential, false).await {
-                Ok((identity, _)) => signed_in(&server, &store, identity, true),
+                Ok((identity, _)) => {
+                    registry.record(store.account_name(), &credential.scope)?;
+                    signed_in(&server, &store, identity, true)
+                }
                 Err(error)
                     if matches!(
                         error.code,
@@ -216,7 +328,7 @@ pub async fn run(cli: Cli) -> Result<Value> {
                     ) =>
                 {
                     Ok(
-                        json!({"authenticated":false,"server":server.origin,"client_id":server.client_id,"reason":error.code}),
+                        json!({"authenticated":false,"server":server.origin,"client_id":server.client_id,"account":store.account_name(),"reason":error.code}),
                     )
                 }
                 Err(error) => Err(error),
@@ -227,25 +339,18 @@ pub async fn run(cli: Cli) -> Result<Value> {
         | Command::Auth {
             command: AuthCommand::Refresh,
         } => {
-            let capabilities_only = matches!(cli.command, Command::Capabilities);
-            let force = matches!(
-                cli.command,
-                Command::Auth {
-                    command: AuthCommand::Refresh
-                }
-            );
             let _guard = store.lock().await?;
             let mut credential = store.load()?.ok_or_else(Error::signed_out)?;
             let (identity, refreshed) =
-                verified_identity(&server, &store, &mut credential, force).await?;
+                verified_identity(&server, &store, &mut credential, force_refresh).await?;
             if capabilities_only {
                 Ok(
-                    json!({"server":server.origin,"client_id":server.client_id,"scope":identity.scope,
+                    json!({"server":server.origin,"client_id":server.client_id,"account":store.account_name(),"scope":identity.scope,
                     "ai_eligibility":identity.ai_eligibility,"capabilities":identity.capabilities}),
                 )
             } else {
                 Ok(
-                    json!({"server":server.origin,"client_id":server.client_id,"identity":identity,"storage":store.info()?,"refreshed":refreshed}),
+                    json!({"server":server.origin,"client_id":server.client_id,"account":store.account_name(),"identity":identity,"storage":store.info()?,"refreshed":refreshed}),
                 )
             }
         }
@@ -316,8 +421,9 @@ pub async fn run(cli: Cli) -> Result<Value> {
         } => {
             let _guard = store.lock().await?;
             let Some(credential) = store.load()? else {
+                let default = registry.remove(store.account_name())?;
                 return Ok(
-                    json!({"logged_out":true,"server":server.origin,"local_removed":true,"remote_revoked":false,"already_logged_out":true}),
+                    json!({"logged_out":true,"server":server.origin,"account":store.account_name(),"default_account":default,"local_removed":true,"remote_revoked":false,"already_logged_out":true}),
                 );
             };
             let revoked = server.revoke(&credential.refresh_token).await.is_ok();
@@ -325,15 +431,38 @@ pub async fn run(cli: Cli) -> Result<Value> {
                 return Err(Error::new("logout_local_failed", "Could not remove local credentials. Check access to the selected credential store.")
                     .with_details(json!({"local_removed":false,"remote_revoked":revoked})));
             }
+            let default = registry.remove(store.account_name())?;
             if !revoked {
                 return Err(Error::new("logout_incomplete", "Local credentials were removed, but remote revocation could not be confirmed. Revoke this connection on the website.")
                     .with_details(json!({"local_removed":true,"remote_revoked":false})));
             }
             Ok(
-                json!({"logged_out":true,"server":server.origin,"local_removed":true,"remote_revoked":true,"already_logged_out":false}),
+                json!({"logged_out":true,"server":server.origin,"account":store.account_name(),"default_account":default,"local_removed":true,"remote_revoked":true,"already_logged_out":false}),
             )
         }
     }
+}
+
+/// Read and refresh credentials under the existing process lock, then release
+/// it before a long-lived chat stream or a stdio reader waits for input.
+pub(crate) async fn business_token(server: &Server, store: &Store) -> Result<String> {
+    let _guard = store.lock().await?;
+    let mut credential = store.load()?.ok_or_else(Error::signed_out)?;
+    let (identity, _) = verified_identity(server, store, &mut credential, false).await?;
+    if !identity.capabilities.mcp && !identity.capabilities.admin {
+        return Err(Error::new(
+            "mcp_scope_required",
+            "Run hfy --scope mcp auth login (or --scope admin for platform staff) before using chat or MCP.",
+        ));
+    }
+    Ok(credential.access_token)
+}
+
+fn sync_saved_account(registry: &AccountRegistry, legacy_store: &Store) -> Result<()> {
+    if let Some(credential) = legacy_store.load()? {
+        registry.record("default", &credential.scope)?;
+    }
+    Ok(())
 }
 
 async fn verified_identity(
@@ -392,7 +521,7 @@ fn scope_covers(granted: &str, requested: &str) -> bool {
 
 fn signed_in(server: &Server, store: &Store, identity: UserInfo, reused: bool) -> Result<Value> {
     Ok(
-        json!({"authenticated":true,"server":server.origin,"client_id":server.client_id,
+        json!({"authenticated":true,"server":server.origin,"client_id":server.client_id,"account":store.account_name(),
         "identity":identity,"storage":store.info()?,"reused":reused}),
     )
 }

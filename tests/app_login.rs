@@ -443,7 +443,9 @@ async fn google_return_is_bound_to_a_live_request_and_cancel_clears_cookie() {
     let start = f
         .request(
             "GET",
-            &format!("/api/auth/google/start?app_request={id}"),
+            &format!(
+                "/api/auth/google/start?app_request={id}&source=Native-Preview&ref=HF_NATIVE_TEST"
+            ),
             Value::Null,
             "",
             None,
@@ -468,6 +470,9 @@ async fn google_return_is_bound_to_a_live_request_and_cancel_clears_cookie() {
         serde_json::from_str::<Value>(&payload).unwrap()["app_request"],
         id
     );
+    let pending: Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(pending["source"], "native-preview");
+    assert_eq!(pending["referral_code"], "hf_native_test");
     let cancelled = f
         .request(
             "GET",
@@ -693,7 +698,7 @@ async fn concurrent_cancel_and_redeem_leave_no_app_session() {
 }
 
 #[test]
-fn additive_login_schema_is_atomic_and_keeps_version_thirteen_on_retry() {
+fn additive_login_schema_is_atomic_and_keeps_current_version_on_retry() {
     let f = Fixture::new();
     let db = f.state.conn().unwrap();
     db.execute_batch(
@@ -715,7 +720,7 @@ fn additive_login_schema_is_atomic_and_keeps_version_thirteen_on_retry() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        20
     );
     db.execute_batch("DROP TABLE app_login_expiry;").unwrap();
     hireferry::db::migrate(&db).unwrap();
@@ -729,6 +734,6 @@ fn additive_login_schema_is_atomic_and_keeps_version_thirteen_on_retry() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        20
     );
 }

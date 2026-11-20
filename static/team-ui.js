@@ -62,7 +62,7 @@ export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice,
         <h3>${esc(member.name || member.email || member.id)}</h3><p>${esc(member.email || t('独立 AI 身份', 'Independent AI identity'))}</p>
         <div class="list-meta">${roleTag(member.kind === 'ai' ? t('AI 员工', 'AI staff') : t('人类员工', 'Human staff'))}<span>${t('加入', 'Added')} ${esc(fullDate(member.created_at))}</span><span>${t('最近使用', 'Last active')} ${esc(fullDate(member.last_used_at))}</span>${member.kind === 'ai' && member.token_expires_at ? `<span>${t('凭据到期', 'Credential expires')} ${esc(fullDate(member.token_expires_at))}</span>` : ''}</div>
       </div></div>
-      <div class="team-row-actions"><span class="status ${member.active ? 'active' : 'banned'}">${member.active ? t('已启用', 'Enabled') : t('已停用', 'Disabled')}</span>${member.kind === 'ai' && member.active ? `<button type="button" class="button secondary small" data-action="team-rotate-ai" data-id="${esc(member.id)}">${t('更换凭据', 'Replace credential')}</button>` : ''}<button type="button" class="button secondary small" data-action="team-toggle-member" data-id="${esc(member.id)}">${member.active ? t('停用', 'Disable') : t('重新启用', 'Enable')}</button></div>
+      <div class="team-row-actions"><span class="status ${member.active ? 'active' : 'banned'}">${member.active ? t('已启用', 'Enabled') : t('已停用', 'Disabled')}</span>${member.kind === 'ai' && member.active ? `<button type="button" class="button secondary small" data-action="team-rotate-ai" data-id="${esc(member.id)}">${t('更换凭据', 'Replace credential')}</button>` : ''}<button type="button" class="button secondary small" data-action="team-toggle-member" data-id="${esc(member.id)}">${member.active ? t('停用', 'Disable') : t('重新启用', 'Enable')}</button>${member.kind === 'ai' ? `<button type="button" class="text-button danger-text" data-action="team-delete-ai" data-id="${esc(member.id)}">${t('删除', 'Delete')}</button>` : ''}</div>
     </article>`).join('');
   }
 
@@ -259,6 +259,10 @@ export function createTeamUI({ state, api, t, esc, icon, heading, shell, notice,
       confirmDialog(enabled ? t('重新启用成员？', 'Enable this member?') : t('停用成员？', 'Disable this member?'), enabled
         ? t('该成员将重新获得员工业务权限。AI 需要重新生成凭据。', 'The member will regain staff access. An AI will need a new credential.')
         : t('该员工身份的业务访问将立即停用，历史记录保留；其他角色权限不受影响。', 'This staff identity loses business access immediately. History and any other roles are retained.'), async () => { await api(`/api/admin/team/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: { active: enabled } }); await render(); notify(enabled ? t('成员已启用。', 'Member enabled.') : t('成员已停用。', 'Member disabled.')); }, { danger: !enabled });
+    } else if (actionName === 'team-delete-ai') {
+      const member = members.get(id);
+      if (!member || member.kind !== 'ai') return;
+      confirmDialog(t('永久删除这个 AI 员工身份？', 'Delete this AI employee identity permanently?'), t('它的访问凭据会被删除，历史业务记录保留但该身份不再出现在列表中。', 'Its credentials will be deleted. Historical business records remain, but this identity will be removed from the roster.'), async () => { await api(`/api/admin/team/members/${encodeURIComponent(id)}`, { method: 'DELETE' }); await render(); notify(t('AI 员工身份已删除。', 'AI employee identity deleted.')); }, { danger: true });
     } else if (actionName === 'team-revoke-invite') {
       const invite = invitations.get(id);
       if (!invite || invite.status !== 'pending') return;

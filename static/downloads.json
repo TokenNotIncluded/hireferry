@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "repository": "TokenNotIncluded/hireferry",
+  "catalog": {
+    "schema_version": 1,
+    "repository": "TokenNotIncluded/hireferry",
+    "desktop": [],
+    "flatpak": [],
+    "cli": [
+      {
+        "platform": "Linux",
+        "architecture": "x86_64",
+        "target": "x86_64-unknown-linux-musl",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-24.04"
+      },
+      {
+        "platform": "Linux",
+        "architecture": "aarch64",
+        "target": "aarch64-unknown-linux-musl",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-24.04-arm"
+      },
+      {
+        "platform": "macOS",
+        "architecture": "x86_64",
+        "target": "x86_64-apple-darwin",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "macos-15-intel"
+      },
+      {
+        "platform": "macOS",
+        "architecture": "aarch64",
+        "target": "aarch64-apple-darwin",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "macos-14"
+      },
+      {
+        "platform": "Windows",
+        "architecture": "x86_64",
+        "target": "x86_64-pc-windows-msvc",
+        "formats": [
+          "zip"
+        ],
+        "runner": "windows-2022"
+      },
+      {
+        "platform": "Windows",
+        "architecture": "aarch64",
+        "target": "aarch64-pc-windows-msvc",
+        "formats": [
+          "zip"
+        ],
+        "runner": "windows-11-arm"
+      }
+    ],
+    "server": [
+      {
+        "platform": "Linux",
+        "architecture": "x86_64",
+        "target": "x86_64-unknown-linux-gnu",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-22.04"
+      },
+      {
+        "platform": "Linux",
+        "architecture": "aarch64",
+        "target": "aarch64-unknown-linux-gnu",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-22.04-arm"
+      }
+    ],
+    "channels": {
+      "mobile": {
+        "kind": "responsive-web",
+        "platforms": [
+          "Android",
+          "iOS"
+        ],
+        "url": "https://hireferry.lmm.best/",
+        "docs": "docs/mobile.md"
+      },
+      "nix": {
+        "kind": "flake",
+        "systems": [
+          "x86_64-linux",
+          "aarch64-linux"
+        ],
+        "packages": [
+          "server",
+          "cli"
+        ],
+        "flake": "github:TokenNotIncluded/hireferry",
+        "docs": "docs/nix.md"
+      }
+    }
+  },
+  "source_commit": "",
+  "source_commits": {
+    "cli": "3e437d1d5eb6f3314e40e13ec87e2434e744e46c",
+    "server": "d3c12144ffe6041057557cd5df11448e2c804407"
+  },
+  "versions": {
+    "cli": "0.1.4",
+    "server": "0.1.0"
+  },
+  "releases": {
+    "cli": "cli-v0.1.4",
+    "server": "server-v0.1.0"
+  },
+  "assets": [
+    {
+      "platform": "macOS",
+      "architecture": "aarch64",
+      "target": "aarch64-apple-darwin",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "tar.gz",
+      "name": "hireferry-cli-0.1.4-aarch64-apple-darwin.tar.gz",
+      "size": 2014294,
+      "sha256": "a3492935d92c5b0948d7905589373296c1aac8ca33f0405b1b95302fbd88b882",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-apple-darwin.tar.gz"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "aarch64",
+      "target": "aarch64-pc-windows-msvc",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "zip",
+      "name": "hireferry-cli-0.1.4-aarch64-pc-windows-msvc.zip",
+      "size": 2095924,
+      "sha256": "11723d141d6fd431ea7145db6b6ad8a14b5faace9416bd6a6bc712196d17697f",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-pc-windows-msvc.zip"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-musl",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "tar.gz",
+      "name": "hireferry-cli-0.1.4-aarch64-unknown-linux-musl.tar.gz",
+      "size": 2135586,
+      "sha256": "07c19740735fc8f6bb02ce3b9e6aa5fe407bf34c44b14023ec31ca3619042d5a",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-aarch64-unknown-linux-musl.tar.gz"
+    },
+    {
+      "platform": "macOS",
+      "architecture": "x86_64",
+      "target": "x86_64-apple-darwin",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "tar.gz",
+      "name": "hireferry-cli-0.1.4-x86_64-apple-darwin.tar.gz",
+      "size": 2137530,
+      "sha256": "53d5a503694a6bc0763ac10e3764287c6b5667b2a28a55757505ae4169ba752d",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-apple-darwin.tar.gz"
+    },
+    {
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "target": "x86_64-pc-windows-msvc",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "zip",
+      "name": "hireferry-cli-0.1.4-x86_64-pc-windows-msvc.zip",
+      "size": 2216830,
+      "sha256": "daaadcfadf10bfed591fc81477a25b1633019b3a0ea0e8b6eeab9e67566093ce",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-pc-windows-msvc.zip"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-musl",
+      "product": "cli",
+      "version": "0.1.4",
+      "format": "tar.gz",
+      "name": "hireferry-cli-0.1.4-x86_64-unknown-linux-musl.tar.gz",
+      "size": 2284078,
+      "sha256": "9141b1a137d256b18e8f99bb7fc0039e968ef60144140d95f0d454cca445cf9c",
+      "tag": "cli-v0.1.4",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/cli-v0.1.4/hireferry-cli-0.1.4-x86_64-unknown-linux-musl.tar.gz"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "aarch64",
+      "target": "aarch64-unknown-linux-gnu",
+      "product": "server",
+      "version": "0.1.0",
+      "format": "tar.gz",
+      "name": "hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz",
+      "size": 6765947,
+      "sha256": "78768b3ba19c335caeb43f01fdb064395d20bf624b660e597ffbeaa213337038",
+      "tag": "server-v0.1.0",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-aarch64-unknown-linux-gnu.tar.gz"
+    },
+    {
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "target": "x86_64-unknown-linux-gnu",
+      "product": "server",
+      "version": "0.1.0",
+      "format": "tar.gz",
+      "name": "hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 7119499,
+      "sha256": "562012f7801f26637289e27913870486893cf5b46f0c73495d9ec2f31a94774c",
+      "tag": "server-v0.1.0",
+      "url": "https://github.com/TokenNotIncluded/hireferry/releases/download/server-v0.1.0/hireferry-server-0.1.0-x86_64-unknown-linux-gnu.tar.gz"
+    }
+  ]
+}

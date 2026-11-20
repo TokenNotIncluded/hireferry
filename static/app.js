@@ -1,4 +1,5 @@
 import { renderCliGuide } from './cli-guide.js';
+import { renderDownloads, mountDownloads } from './downloads.js';
 import { mountCliGuide, copyCliCommand } from './cli-motion.js';
 import { createPublicConfigCache, samePublicConfig } from './browser-cache.js';
 import { animateContentRefresh } from './content-refresh.js';
@@ -17,6 +18,10 @@ import { createTeamUI } from './team-ui.js';
 import { createControlsUI } from './controls.js';
 import { createFinanceUI } from './finance-ui.js';
 import { createPeopleJobsUI } from './people-jobs-ui.js';
+import { createJobInteractionsUI } from './job-interactions.js';
+import { syncPageMetadata } from './seo.js';
+import { createRelationTools } from './relation-webmcp.js';
+import { createWebMCPOwner } from './webmcp-lifecycle.js';
 
 let humanGrantModule;
 function humanGrant() { return humanGrantModule ||= createHumanGrantUI({state,api,t,esc,icon,notice,empty,notify,go,render,session,confirmDialog}); }
@@ -31,12 +36,13 @@ const root = document.querySelector('#root');
 const dialogs = document.querySelector('#dialog-root');
 const disclosureUI = createDisclosureUI({root, doc:document, win:window});
 const controlsUI = createControlsUI({doc:document,win:window});
-let financeModule, peopleJobsModule, financeCleanup;
+let financeModule, peopleJobsModule, financeCleanup, jobInteractionsModule;
+function jobInteractions() { return jobInteractionsModule ||= createJobInteractionsUI({state,api,t,esc,date,ensureSession:()=>session(state.render)}); }
 function finance() { return financeModule ||= createFinanceUI({state,api,t,esc,money,currency,currencies,qs,shell,icon,orderTable,pagination,notice,go,kindText,statusText}); }
 function peopleJobs() { return peopleJobsModule ||= createPeopleJobsUI({state,api,t,esc,icon,avatar,money,date,shell,badge,matchText,go}); }
 function resetAdminViews() { financeCleanup?.();financeCleanup=null;financeModule?.destroy();peopleJobsModule?.destroy();controlsUI.close(); }
 function savedLanguage() {try{return localStorage.getItem('hireferry-language');}catch{return null;}}
-const state = { lang: savedLanguage() || 'zh', config:null, configCached:false, cliGuide:null, user:null, admin:false, owner:false, super_admin:false, staffRole:null, staff:null, bootstrap:false, csrf:null, sculpture:null, homeStory:null, particleTitles:null, brandMotion:null, motionPaused:false, render:0, eligibility:null, chat:null, chatTimer:null };
+const state = { lang: savedLanguage() || 'zh', config:null, configCached:false, cliGuide:null, user:null, admin:false, owner:false, super_admin:false, staffRole:null, staff:null, bootstrap:false, csrf:null, announcement:null, sculpture:null, homeStory:null, particleTitles:null, brandMotion:null, motionPaused:false, render:0, eligibility:null, chat:null, chatTimer:null };
 const t = (zh,en) => state.lang === 'en' ? en : zh;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const currency = record => currencyMeta(state.config,record);
@@ -47,7 +53,7 @@ const amountStep = record => minorStep(currency(record).currency_decimals);
 const date = value => value ? new Date(typeof value==='number' && value<1e12?value*1000:value).toLocaleDateString(state.lang==='en'?'en-GB':'zh-CN',{year:'numeric',month:'short',day:'numeric'}) : '—';
 const icons = {
   github:'<path fill="currentColor" stroke="none" d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.53v-2.07c-3.09.67-3.74-1.31-3.74-1.31-.51-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.06-1.24-5.06-5.49 0-1.21.43-2.2 1.14-2.97-.11-.28-.49-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.62 10.62 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.6 1.53.22 2.66.11 2.94.71.77 1.14 1.76 1.14 2.97 0 4.26-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06V22c0 .29.2.64.76.53A11.1 11.1 0 0 0 12 .9Z"/>',
-  star:'<path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/>',
+  star:'<path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.08 6.27L12 17.34l-5.63 2.96 1.08-6.27L2.9 9.6l6.3-.9Z"/>',heart:'<path d="M20.8 8.8c0 5.2-8.8 11-8.8 11S3.2 14 3.2 8.8a4.3 4.3 0 0 1 8.8-1 4.3 4.3 0 0 1 8.8 1Z"/>',
   more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   palette:'<path d="M12 3a9 9 0 1 0 0 18h1.4a2.6 2.6 0 0 0 2.2-4c-.6-.9 0-2 1.1-2H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="10" r=".75"/><circle cx="10" cy="6.5" r=".75"/><circle cx="14.5" cy="6.5" r=".75"/><circle cx="17" cy="10" r=".75"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
@@ -63,7 +69,7 @@ const icons = {
   bot:'<rect x="4" y="6" width="16" height="14" rx="4"/><path d="M12 3v3M8 11v2m8-2v2M9 16h6M1 11v4m22-4v4"/>',logout:'<path d="M9 4H4v16h5m6-4 4-4-4-4m-6 4h10"/>',
   eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12"/><circle cx="12" cy="12" r="3"/>',upload:'<path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>',
   pause:'<path d="M8 5v14M16 5v14"/>',play:'<path d="m8 5 11 7-11 7z"/>',copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',leaf:'<path d="M20 3C6 2 1 11 7 17s15 1 13-14ZM4 21 16 9"/>',
-  globe:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 3"/>',link:'<path d="m9 15 6-6M7 17l-1 1a4 4 0 0 1-5-5l5-5a4 4 0 0 1 5 0m2 8a4 4 0 0 0 5 0l5-5a4 4 0 0 0-5-5l-1 1"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',terminal:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 3"/>',link:'<path d="m9 15 6-6M7 17l-1 1a4 4 0 0 1-5-5l5-5a4 4 0 0 1 5 0m2 8a4 4 0 0 0 5 0l5-5a4 4 0 0 0-5-5l-1 1"/>',
   trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',edit:'<path d="m14 5 5 5M4 20l5-1L21 7l-5-5L4 14z"/>',wallet:'<path d="M21 8H4a2 2 0 0 1 0-4h15v4M3 6v13a2 2 0 0 0 2 2h16V8M21 12h-6v5h6"/>',
 };
 const icon = (name,cls='') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.info}</svg>`;
@@ -75,6 +81,17 @@ const badge = value => `<span class="status ${esc(value)}">${esc(statusText(valu
 const jobCache = new Map();
 const jobHeadcount = job => Number(job.headcount ?? 1);
 const headcountText = job => t(`计划招聘 ${jobHeadcount(job).toLocaleString('zh-CN')} 人`,`Hiring target: ${jobHeadcount(job).toLocaleString('en-US')}`);
+function jobUpdatedText(job) {
+  return job.updated_at?`${t('更新于','Updated')} ${date(job.updated_at)}`:'';
+}
+function publicJobLinks(job) {
+  if(job.status!=='published'||jobHeadcount(job)<=0)return '';
+  const path=`/discover/jobs/${encodeURIComponent(job.id)}`,url=location.origin+path;
+  return `<a class="text-button" href="${esc(path)}" data-nav>${t('查看公开岗位','View public role')}</a><button type="button" class="text-button" data-action="copy-public-link" data-copy="${esc(url)}">${icon('copy')}${t('复制公开链接','Copy public link')}</button>`;
+}
+function pauseJobControl(job) {
+  return job.status==='published'&&jobHeadcount(job)>0&&state.user?.employer_paid?`<button type="button" class="text-button" data-action="pause-job" data-id="${esc(job.id)}">${t('暂停招聘','Pause hiring')}</button>`:'';
+}
 function jobBadge(job) {
   if(job.status==='published'&&jobHeadcount(job)===0)return `<span class="status closed">${t('暂不招聘','Hiring paused')}</span>`;
   if(job.status==='deleted')return `<span class="status closed">${Number(job.delete_count)===1?t('回收站','In trash'):t('已永久删除','Permanently deleted')}</span>`;
@@ -94,7 +111,8 @@ function newJobInput(data) {
 function headcountControl(job,admin=false) {
   if(!(admin?['published']:['draft','published']).includes(job.status)||(!admin&&!state.user?.employer_paid))return '';
   const fieldId=`headcount-${admin?'admin-':''}${job.id}`;
-  return `<details class="section-disclosure job-headcount-disclosure" data-disclosure="headcount-${esc(job.id)}"><summary>${t('调整招聘人数','Change hiring target')}</summary><div class="disclosure-content"><form class="job-headcount-form" data-form="job-headcount" data-id="${esc(job.id)}"${admin?' data-admin="true"':''}><label for="${esc(fieldId)}">${t('招聘人数','Hiring target')} <span>${t('免费调整','Free to change')}</span></label><div class="headcount-input-row"><input id="${esc(fieldId)}" class="input" name="headcount" type="number" min="0" max="${state.config?.limits?.max_job_headcount??1000000}" step="1" inputmode="numeric" value="${jobHeadcount(job)}" required aria-describedby="${esc(fieldId)}-help"><button class="button secondary small" type="submit">${t('保存人数','Save target')}</button></div><p class="help" id="${esc(fieldId)}-help">${job.status==='draft'?t('人数大于 0 且发布付款确认后开始匹配。','A positive target and confirmed publication payment are required to start matching.'):t('填 0 暂停；改回正数恢复。','Set 0 to pause; a positive number resumes hiring.')}</p></form></div></details>`;
+  const paused=job.status==='published'&&jobHeadcount(job)===0;
+  return `<details class="section-disclosure job-headcount-disclosure" data-disclosure="headcount-${esc(job.id)}${paused?'-resume':''}"${paused?' open':''}><summary>${paused?t('恢复招聘 · 设置人数','Resume hiring · set target'):t('调整招聘人数','Change hiring target')}</summary><div class="disclosure-content"><form class="job-headcount-form" data-form="job-headcount" data-id="${esc(job.id)}"${admin?' data-admin="true"':''}><label for="${esc(fieldId)}">${t('招聘人数','Hiring target')} <span>${t('免费调整','Free to change')}</span></label><div class="headcount-input-row"><input id="${esc(fieldId)}" class="input" name="headcount" type="number" min="0" max="${state.config?.limits?.max_job_headcount??1000000}" step="1" inputmode="numeric" value="${jobHeadcount(job)}" required aria-describedby="${esc(fieldId)}-help"><button class="button secondary small" type="submit">${t('保存人数','Save target')}</button></div><p class="help" id="${esc(fieldId)}-help">${job.status==='draft'?t('人数大于 0 且发布付款确认后开始匹配。','A positive target and confirmed publication payment are required to start matching.'):t('填 0 暂停并移出公开目录；改回正数恢复。已有匹配和会话保留。','Set 0 to pause and leave the public directory; a positive number resumes hiring. Existing introductions and chats remain.')}</p></form></div></details>`;
 }
 async function saveJobHeadcount(id,value,admin=false) {
   return api(admin?`/api/admin/jobs/${encodeURIComponent(id)}`:`/api/jobs/${encodeURIComponent(id)}/headcount`,{method:'PATCH',body:{headcount:headcountInput(value)}});
@@ -117,49 +135,100 @@ async function jobLifecycleDialog(id,operation='delete',admin=false) {
   const prompt=restoring?{title:t('恢复这个岗位？','Restore this role?'),description:t('免费恢复一次。仍符合权限条件的原有匹配可恢复访问。恢复后再次删除将永久清除岗位；开通或发布付款权益失效的岗位只会恢复为已关闭，不会重新招聘。平台私聊始终保持独立。','Restore this role once, free of charge. Existing introductions regain access if they still meet the access rules. Deleting again will be permanent. A role without valid activation or publication payment rights returns only as closed, without resuming hiring. Private platform chats always remain separate.')}:jobDeletionPrompt(job,operation==='permanent',admin);
   confirmDialog(prompt.title,prompt.description,async()=>{await changeJobLifecycle(job,operation,admin);await render();notify(restoring?t('岗位已恢复。再次删除将永久清除。','Role restored. Its next deletion will be permanent.'):prompt.permanent?t('岗位已永久删除。','Role permanently deleted.'):t('岗位已移入回收站，可恢复一次。','Role moved to the trash. It can be restored once.'));},{danger:!restoring&&prompt.permanent});
 }
-const kindText = kind => ({onboarding:t('招聘方开通','Employer activation'),publish:t('发布招聘','Job publication'),edit:t('修改岗位描述','Job description update')})[kind]||kind;
+const kindText = kind => ({onboarding:t('招聘方开通','Employer activation'),publish:t('发布招聘','Job publication'),edit:t('修改岗位描述','Job description update'),donation:t('自愿捐款','Voluntary donation')})[kind]||kind;
 const roleText = role => ({seeker:t('求职者','Job seeker'),employer:t('招聘方','Employer'),unassigned:t('待选择身份','Choose your role')})[role]||role;
 const qs = () => new URLSearchParams(location.search);
+const marketingKeys = ['utm_source','utm_medium','utm_campaign','utm_content','ref'];
+function marketingHref(path, defaults = {}) {
+  const url = new URL(path, location.origin);
+  const current = qs();
+  for (const key of marketingKeys) {
+    const value = current.get(key)?.trim();
+    if (value) url.searchParams.set(key, value);
+  }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (value && !url.searchParams.has(key)) url.searchParams.set(key, String(value));
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 const contactEmail = () => state.config?.support_email?.trim() || state.config?.contact_email?.trim() || 'support@lmm.best';
 const contactMailto = subject => `mailto:${encodeURIComponent(contactEmail())}${subject?'?subject='+encodeURIComponent(subject):''}`;
 const billingReturnKey = 'hireferry-billing-return';
 const staffReturnKey = 'hireferry-staff-return';
+const jobReturnKey = 'hireferry-job-return';
+const profileReturnKey = 'hireferry-profile-return';
+const roleIntentKey = 'hireferry-role-intent';
+const roleReturnKey = 'hireferry-role-return';
+const referralCodeKey = 'hireferry:referral_code';
+// Authentication creates a deterministic placeholder so URLs and WebAuthn
+// records stay stable before a member chooses a public name. It is not the
+// name the member claimed, so onboarding must still offer the claim step.
+const isGeneratedHandle = value => /^user_[0-9a-f]{16,27}$/.test(String(value || ''));
+function suggestedHandle(user) {
+  const name=String(user?.name||'').trim();
+  const emailLocal=String(user?.email||'').split('@')[0].trim();
+  const seed=/^[\x00-\x7F]+$/.test(name)&&name.length>=3?name:emailLocal;
+  const normalized=seed.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,32);
+  if(normalized.length>=3)return normalized;
+  const suffix=String(user?.handle||'').replace(/^user_/,'').slice(-8).toLowerCase();
+  return `ai-${suffix||'profile'}`.slice(0,32);
+}
 function billingReturnPath(orderId='') {return '/billing/return'+(orderId?'?'+new URLSearchParams({order_id:orderId}):'');}
 function safeBillingReturn(value) {
   if(!value)return '';
   try {const url=new URL(value,location.origin);if(url.origin!==location.origin||url.pathname!=='/billing/return')return '';const id=url.searchParams.get('order_id')||'';if(id&&!/^[A-Za-z0-9_-]{1,128}$/.test(id))return '';return billingReturnPath(id);}catch{return '';}
 }
-function rememberBillingReturn() {const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}}
+function safeJobReturn(value) {try{const url=new URL(value,location.origin);const template=url.searchParams.get('template')||'';if(url.origin!==location.origin||url.pathname!=='/app/jobs/new'||(template&&!['ai_uiux','opensource'].includes(template)))return '';return template?`/app/jobs/new?template=${template}`:'/app/jobs/new';}catch{return '';}}
+function safeProfileReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&url.pathname==='/app'&&url.searchParams.get('tab')==='profile'?'/app?tab=profile':'';}catch{return '';}}
+function validRole(value) {return value==='employer'||value==='seeker'?value:'';}
+function currentRoleIntent() {try{return validRole(qs().get('role')||sessionStorage.getItem(roleIntentKey)||'');}catch{return validRole(qs().get('role')||'');}}
+function rememberRoleIntent() {const role=validRole(qs().get('role'));if(role)try{sessionStorage.setItem(roleIntentKey,role);}catch{}return role;}
+function clearRoleIntent() {try{sessionStorage.removeItem(roleIntentKey);}catch{}}
+function rememberRoleReturn(value) {if(!value)return;try{sessionStorage.setItem(roleReturnKey,value);}catch{}}
+function peekRoleReturn() {try{return safeJobReturn(sessionStorage.getItem(roleReturnKey))||safeProfileReturn(sessionStorage.getItem(roleReturnKey));}catch{return '';}}
+function consumeRoleReturn() {const value=peekRoleReturn();try{sessionStorage.removeItem(roleReturnKey);}catch{}return value;}
+const defaultRoleReturn = role => role==='seeker'?'/app?tab=profile':'/app?tab=jobs';
+const shouldAutoActivateEmployer = user => user?.role==='unassigned'||(user?.role==='employer'&&!user?.employer_paid&&(donationMode()||Number(pricing().onboarding_minor??pricing().onboarding_cents)===0));
+function rememberBillingReturn() {rememberRoleIntent();const target=safeBillingReturn(qs().get('return_to'));if(target)try{sessionStorage.setItem(billingReturnKey,target);}catch{}const invite=safeStaffReturn(qs().get('return_to'));if(invite)try{sessionStorage.setItem(staffReturnKey,invite);}catch{}const job=safeJobReturn(qs().get('return_to'));if(job)try{sessionStorage.setItem(jobReturnKey,job);}catch{}const profile=safeProfileReturn(qs().get('return_to'));if(profile)try{sessionStorage.setItem(profileReturnKey,profile);}catch{}}
 function safeStaffReturn(value) {try{const url=new URL(value,location.origin);return url.origin===location.origin&&/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname)?url.pathname:'';}catch{return '';}}
 function afterSignIn() {
-  let saved='',staffSaved='';
-  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);}catch{}
+  let saved='',staffSaved='',jobSaved='',profileSaved='';
+  rememberRoleIntent();
+  try{saved=sessionStorage.getItem(billingReturnKey)||'';sessionStorage.removeItem(billingReturnKey);staffSaved=sessionStorage.getItem(staffReturnKey)||'';sessionStorage.removeItem(staffReturnKey);jobSaved=sessionStorage.getItem(jobReturnKey)||'';sessionStorage.removeItem(jobReturnKey);profileSaved=sessionStorage.getItem(profileReturnKey)||'';sessionStorage.removeItem(profileReturnKey);}catch{}
   const review=state.config?.humangrant_enabled?humanGrant().returnAfterLogin():'/app';
-  return safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
+  const direct=safeJobReturn(qs().get('return_to'))||safeProfileReturn(qs().get('return_to'))||safeJobReturn(jobSaved)||safeProfileReturn(profileSaved);
+  if(direct&&currentRoleIntent())rememberRoleReturn(direct);
+  const profileOnboarding=state.user?.role==='seeker'&&isGeneratedHandle(state.user.handle)?defaultRoleReturn('seeker'):'';
+  return direct||safeStaffReturn(qs().get('return_to'))||team().returnAfterLogin()||safeStaffReturn(staffSaved)||safeBillingReturn(qs().get('return_to'))||safeBillingReturn(saved)||profileOnboarding||(review!=='/app'?review:state.staffRole&&!state.staff&&!state.owner?'/admin?tab=matches':state.admin?'/admin?tab=messages':'/app');
 }
 const pricing = () => state.config?.pricing || {};
+const donationMode = terms => (terms?.billing_mode ?? pricing().billing_mode) === 'donation';
 function feeSettings(kind,record,terms=null) {
   const rules=terms||pricing(),option=currencies().find(item=>item.currency===currency(record).currency);
-  return {mode:rules[`${kind}_mode`]||'salary_percent',bps:rules[`${kind}_bps`]||0,fixed_minor:terms?rules[`${kind}_fixed_minor`]||0:option?.[`${kind}_fixed_minor`]??rules[`${kind}_fixed_minor`]??0};
+  if (donationMode(terms)) return {mode:'free',bps:0,discount_percent:100,fixed_minor:0};
+  return {mode:rules[`${kind}_mode`]||'salary_percent',bps:rules[`${kind}_bps`]||0,discount_percent:terms?rules[`${kind}_discount_percent`]||0:option?.[`${kind}_discount_percent`]??rules[`${kind}_discount_percent`]??0,fixed_minor:terms?rules[`${kind}_fixed_minor`]||0:option?.[`${kind}_fixed_minor`]??rules[`${kind}_fixed_minor`]??0};
 }
 function feeRule(kind,record,terms=null) {
   const settings=feeSettings(kind,record,terms);
-  return settings.mode==='free'?t('免费','Free'):settings.mode==='fixed'?t(`每次 ${money(settings.fixed_minor,record)}`,`${money(settings.fixed_minor,record)} per operation`):t(`${percent(settings.bps)} × 月薪底薪`,`${percent(settings.bps)} × base monthly salary`);
+  { const original = settings.mode==='free'?0:settings.mode==='fixed'?settings.fixed_minor:settings.bps; const effective = settings.mode==='free'||settings.discount_percent===100?0:settings.mode==='fixed'?Math.round(settings.fixed_minor*(100-settings.discount_percent)/100):settings.bps*(100-settings.discount_percent)/100; const label = settings.mode==='free'?t('免费','Free'):settings.mode==='fixed'?t(`每次 ${money(settings.fixed_minor,record)}`,`${money(settings.fixed_minor,record)} per operation`):t(`${percent(settings.bps)} × 月薪底薪`,`${percent(settings.bps)} × base monthly salary`); const discounted = settings.mode==='free'||settings.discount_percent===100?t('免费','Free'):settings.mode==='fixed'?t(`每次 ${money(effective,record)}`,`${money(effective,record)} per operation`):t(`${percent(effective)} × 月薪底薪`,`${percent(effective)} × base monthly salary`); return discountLabel(label,discounted); }
 }
 function currencySelect(selected=currency().currency,name='currency',id='currency',locked=false) {
   const options=currencies();
   if(!options.some(option=>option.currency===selected))options.push(currency(selected));
   return locked?`<input type="hidden" name="${esc(name)}" value="${esc(selected)}"><input class="input" id="${esc(id)}" value="${esc(selected)}" readonly aria-readonly="true">`:`<select class="input" id="${esc(id)}" name="${esc(name)}">${options.map(option=>`<option value="${esc(option.currency)}" ${option.currency===selected?'selected':''}>${esc(option.currency)}</option>`).join('')}</select>`;
 }
-const providerText = provider => provider==='free'?t('免费完成','Completed free'):provider==='stripe'?'Stripe':provider==='waffo'?'Waffo Pancake':String(provider||'—');
-const orderBadge = order => order.provider==='free'?`<span class="status paid">${t('免费完成','Completed free')}</span>`:badge(order.status);
+const providerText = provider => provider==='free'?(donationMode()?t('捐赠模式','Donation mode'):t('免费完成','Completed free')):provider==='stripe'?'Stripe':provider==='waffo'?'Waffo Pancake':String(provider||'—');
+const orderBadge = order => order.provider==='free'?`<span class="status paid">${donationMode()?t('捐赠模式完成','Completed in donation mode'):t('免费完成','Completed free')}</span>`:badge(order.status);
 const percent = bps => (Number(bps)/100).toLocaleString(state.lang==='en'?'en-US':'zh-CN')+'%';
+const discountLabel = (original, discounted) => String(original) === String(discounted) ? discounted : `<s>${original}</s> <strong>${discounted}</strong>`;
+const discountText = (original, discounted) => String(original) === String(discounted) ? discounted : `${original} → ${discounted}`;
 function pagination(total,limit=state.config?.limits?.list_page_size||50) {const page=Math.max(1,Number(qs().get('page'))||1),pages=Math.max(1,Math.min(state.config?.limits?.list_max_page||10000,Math.ceil(Number(total||0)/limit)));if(pages<2)return '';const url=n=>{const p=qs();p.set('page',n);return location.pathname+'?'+p;};return `<nav class="pagination" aria-label="${t('分页','Pagination')}"><a class="button secondary small" ${page>1?`href="${esc(url(page-1))}" data-nav`:'aria-disabled="true"'}>${icon('back')}${t('上一页','Previous')}</a><span>${page} / ${pages}</span><a class="button secondary small" ${page<pages?`href="${esc(url(page+1))}" data-nav`:'aria-disabled="true"'}>${t('下一页','Next')}${icon('arrow')}</a></nav>`;}
 function listParams() {const p=new URLSearchParams();for(const k of ['q','page'])if(qs().get(k))p.set(k,qs().get(k));return p.size?'?'+p:'';}
 let toastTimer, lastFocus, trapListener, logoClicks=0, logoTimeout;
 
 function requestErrorText(message) {
   return ({
+    'Claim a custom username before publishing your profile': t('请先抢注自定义用户名，再公开个人主页。', 'Claim a custom username before publishing your profile.'),
     'Sign in with a passkey again before granting team access': t('请先点击“重新验证通行密钥”，完成验证后再继续团队操作。', 'Choose “Verify passkey again” before continuing this team action.'),
     'Employee access has been disabled': t('员工访问权限已停用，请联系超级管理员。', 'Your staff access is disabled. Contact the super administrator.'),
     'The team has reached its active member limit': t('已达到团队成员数量上限，请先停用不再需要的成员。', 'The team member limit has been reached. Disable a member who no longer needs access.'),
@@ -257,22 +326,33 @@ let sessionKnown=false;
 const configCache = createPublicConfigCache(() => api('/api/config',{fresh:true}));
 const cachedConfig = configCache.peek();
 if(cachedConfig){applyConfig(cachedConfig);state.configCached=true;}
-const publicPages = new Set(['/','/cli','/contact','/refunds']);
-function applyConfig(config) {
+const publicPages = new Set(['/','/cli','/downloads','/contact','/refunds','/donate','/for-employers','/for-job-tools']);
+const isPublicDirectoryPage = path => path==='/discover'||/^\/discover\/(?:jobs|people)\/[^/]+$/.test(path);
+const isPublicProfilePage = path => /^\/u\/[A-Za-z0-9_-]+$/.test(path);
+const isPublicPagePath = path => publicPages.has(path)||isPublicDirectoryPage(path)||isPublicProfilePage(path);
+function applyConfig(config,publicRecord) {
   state.config=config;state.configCached=false;
   if(!savedLanguage())state.lang=config.default_language==='en'?'en':'zh';
   document.documentElement.lang=state.lang==='en'?'en':'zh-CN';
-  document.title=(config.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+  updatePageMetadata(publicRecord);
+}
+function updatePageMetadata(publicRecord) {
+  syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord});
 }
 function publicBody(path) {
   if(path==='/')return home();
+  if(path==='/donate')return donationPage();
+  if(path==='/for-employers')return employerLandingPage();
+  if(path==='/for-job-tools')return jobToolsLandingPage();
   if(path==='/cli')return renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
+  if(path==='/downloads')return renderDownloads({lang:state.lang,icon});
   if(path==='/contact')return contactPage();
   if(path==='/refunds')return refundsPage();
 }
-async function refreshPublicPage(version,{refreshConfig=true}={}) {
-  if(!publicPages.has(location.pathname)||version!==state.render)return;
+async function refreshPublicPage(version,{refreshConfig=true,publicRecord}={}) {
+  if(!isPublicPagePath(location.pathname)||version!==state.render)return;
   const path=location.pathname,before=identityOf(state),language=state.lang,displayedConfig=state.config;
+  const preserveMain=!publicPages.has(path);
   const isCurrent=()=>version===state.render&&location.pathname===path;
   sessionKnown=false;
   root.dataset.configState='checking';
@@ -283,16 +363,25 @@ async function refreshPublicPage(version,{refreshConfig=true}={}) {
     if(!isCurrent())return;
     if(identity.status==='fulfilled')await session(version);
     if(!isCurrent())return;
-    if(configuration.status==='fulfilled')applyConfig(configuration.value.value);
+    if(configuration.status==='fulfilled')applyConfig(configuration.value.value,publicRecord);
     root.dataset.configState=configuration.status==='fulfilled'?'fresh':'stale';
     if(samePublicConfig(displayedConfig,state.config)&&before===identityOf(state)&&language===state.lang)return;
-    const html=header()+publicBody(path)+footer();
+    const html=header()+(preserveMain?'<main id="main"></main>':publicBody(path))+footer();
+    if(preserveMain){
+      // A session refresh must not replay the initial result over a typed search,
+      // an expanded profile, or a discussion that has already finished loading.
+      mountPage(root,html,pageIdentity(path,qs().get('tab')),{preserveMain:true});
+      disclosureUI.sync({scope:identityOf(state)});mountBrand();
+      return;
+    }
     await animateContentRefresh(root,html,()=>{
       state.cliGuide?.dispose();state.cliGuide=null;
+      state.downloads?.dispose();state.downloads=null;
       if(path==='/'){state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;state.sculpture?.dispose();state.sculpture=null;}
       mountPage(root,html,pageIdentity(path,qs().get('tab')));
       disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();mountBrand();
       if(path==='/cli')state.cliGuide=mountCliGuide(root);
+      if(path==='/downloads')state.downloads=mountDownloads(root,{lang:state.lang,icon});
       if(path==='/')void mountHome();
     },{isCurrent});
   }catch{if(isCurrent())root.dataset.configState='stale';}
@@ -300,7 +389,7 @@ async function refreshPublicPage(version,{refreshConfig=true}={}) {
 const identityOf = value => `${value.super_admin?'owner':value.staff?`staff:${value.staff.id}`:(value.staffRole||value.staff_role)==='manager'?`manager:${value.user?.id||''}`:value.user?.id||'guest'}:${value.csrf||''}`;
 const authMutation = path => /^\/api\/(?:auth\/|role$|team\/invitations\/accept$|staff\/invitations\/[^/]+\/accept$|admin\/(?:auth\/bootstrap|passkeys\/.*\/finish))/.test(path);
 function invalidateIdentity() {
-  resetAdminViews();sessionKnown=false;sessionReader.invalidate();requests.invalidate({abort:true});configCache.invalidate();jobCache.clear();state.eligibility=null;
+  invalidateWebMCP();resetAdminViews();sessionKnown=false;sessionReader.invalidate();requests.invalidate({abort:true});configCache.invalidate();jobCache.clear();state.eligibility=null;
 }
 function announceIdentityChange() {try{localStorage.setItem('hireferry-session-change',`${Date.now()}:${Math.random()}`);}catch{}}
 async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
@@ -308,8 +397,9 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
   const requestIdentity=identityOf(state);
   const write=method!=='GET',identityChange=write&&authMutation(path);
   const changesProfile=write&&(path==='/api/profile'||path.startsWith('/api/profile/'));
-  // Read receipts and idempotent room creation do not invalidate unrelated navigation reads.
-  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&path!=='/api/markdown';
+  // Graph queries and presentation state never mutate people, jobs or introductions.
+  // Like read receipts, they must not invalidate unrelated navigation reads on every interaction.
+  const changesData=write&&!/^\/api\/chat\/(?:platform$|conversations\/[^/]+\/read$)/.test(path)&&!path.startsWith('/api/admin/relations/')&&path!=='/api/markdown';
   if(identityChange)invalidateIdentity();else if(changesData){requests.invalidate();state.eligibility=null;}
   if(changesProfile)sessionReader.invalidate();
   try {
@@ -325,10 +415,10 @@ async function api(path,{method='GET',body,fresh=false,cache,...options}={}) {
         const administrator=state.admin;
         resetPrivateView();
         // A background poll can discover expiry too. Remove private DOM in this same task.
-        if(location.pathname.startsWith('/app'))void go('/login');
+        if(location.pathname.startsWith('/app'))await go('/login');
         else if(location.pathname==='/admin'&&administrator)void go('/admin');
         else void render();
-      }else{requests.invalidate();sessionReader.invalidate();state.eligibility=null;}
+      }else{requests.invalidate();sessionReader.invalidate();state.eligibility=null;invalidateWebMCP();}
     }
     if(error instanceof RequestTimeoutError)error.message=error.uncertain?t('请求超时，操作结果尚未确认。请刷新查看，再决定是否重试。','The request timed out and its result is unknown. Refresh to check before retrying.'):t('服务器响应超时。请检查网络后重试。','The server took too long to respond. Check your connection and try again.');
     throw error;
@@ -338,14 +428,21 @@ async function session(renderVersion) {
   const s=await sessionReader.read({force:renderVersion===undefined});
   if(renderVersion===undefined||renderVersion===state.render){
     const elevated={...s,admin:!!s.admin||s.staff_role==='manager',owner:s.super_admin===true,super_admin:s.super_admin===true,staffRole:s.staff_role||null,staff:s.staff||null};
-    if(identityOf(state)!==identityOf(elevated)){requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
+    if(webMCPIdentity(state)!==webMCPIdentity(elevated)){invalidateWebMCP();requests.invalidate({abort:true});jobCache.clear();state.eligibility=null;}
     Object.assign(state,{user:s.user,admin:elevated.admin,owner:elevated.owner,super_admin:elevated.super_admin,staffRole:elevated.staffRole,staff:elevated.staff,bootstrap:s.bootstrap,csrf:s.csrf});
-    sessionKnown=true;
+    sessionKnown=true;registerWebMCP({refreshEligibility:true});
   }
   return s;
 }
 function resumeCliLogin(authenticated=false) {try{const path=takeCliReturn(sessionStorage,location.origin,state,authenticated);if(path){location.assign(path);return true;}}catch{/* Browser storage is optional. */}return false;}
 function notify(message,error=false) {clearTimeout(toastTimer);document.querySelector('#toast-root').innerHTML=`<div class="toast ${error?'error':''}" role="status">${icon(error?'info':'check')}<span>${esc(message)}</span></div>`;toastTimer=setTimeout(()=>document.querySelector('#toast-root').replaceChildren(),5500);}
+async function copyText(value) {
+  try { await navigator.clipboard.writeText(value); return true; }
+  catch {
+    const focused=document.activeElement;
+    const area=document.createElement('textarea');area.value=value;area.setAttribute('readonly','');area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();let copied=false;try{copied=document.execCommand('copy');}catch{/* Clipboard fallback is optional. */}area.remove();if(focused?.isConnected)focused.focus?.();if(!copied)throw new Error(t('设备不支持复制，请手动选择文本。','Copy is unavailable on this device. Select the text manually.'));return true;
+  }
+}
 function setBusy(el,busy) {if(!el)return;el.disabled=busy;el.setAttribute('aria-busy',String(busy));}
 function go(path) {const next=new URL(path,location.href);if(next.origin!==location.origin)return;const changedPage=pageIdentity(location.pathname,qs().get('tab'))!==pageIdentity(next.pathname,next.searchParams.get('tab'));closeDialog();history.pushState({},'',next.pathname+next.search+next.hash);if(changedPage)window.scrollTo({top:0,behavior:'instant'});return render({navigation:true});}
 function themeMenu() {return `<details class="theme-menu"><summary aria-label="${t('切换主题','Change theme')}" title="${t('主题','Theme')}">${icon('palette')}</summary><div class="theme-panel"><div class="palette-options" role="group" aria-label="${t('配色','Color palette')}">${[['neutral','纸墨','Paper & ink'],['blue','海蓝','Ocean blue'],['violet','紫罗兰','Violet'],['rose','玫瑰','Rose'],['amber','琥珀','Amber'],['teal','青碧','Teal']].map(([value,zh,en])=>`<button type="button" class="palette-swatch" data-palette-choice="${value}" aria-label="${t(zh,en)}" title="${t(zh,en)}" aria-pressed="false"><span class="swatch-color" aria-hidden="true">${icon('check')}</span></button>`).join('')}</div><div class="mode-options" role="group" aria-label="${t('外观','Appearance')}">${[['light','sun','浅色','Light'],['dark','moon','深色','Dark'],['system','monitor','跟随系统','System']].map(([value,glyph,zh,en])=>`<button type="button" data-theme-choice="${value}" aria-label="${t(zh,en)}" title="${t(zh,en)}" aria-pressed="false">${icon(glyph)}</button>`).join('')}</div></div></details>`;}
@@ -393,11 +490,11 @@ async function mountGithubStars() {
 }
 function header() {
   const workspace=(location.pathname==='/admin'&&state.admin)||(location.pathname.startsWith('/app')&&state.user);
-  const navigation = `<a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a><a href="/cli" data-nav>CLI</a>`;
-  if(workspace)return `<header class="site-header workspace-header" data-dom-key="site-header">${brand()}<div class="workspace-location"><span class="workspace-location-divider" aria-hidden="true">/</span>${state.admin?t('管理工作台','Administration'):t('我的工作台','Workspace')}</div><div class="nav-right"><a href="/contact" data-nav class="workspace-help">${icon('info')}<span>${t('帮助','Help')}</span></a>${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button></div></header>${state.config?.development?`<div class="environment-banner workspace-environment" data-dom-key="environment">${t('测试环境 · 以下为测试资料','Test environment · Test data only')}</div>`:''}`;
-  return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right">${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
+  const navigation = `<a href="/discover" data-nav ${location.pathname.startsWith('/discover')?'class="active" aria-current="page"':''}>${t('发现机会','Discover')}</a><a href="/#how" data-scroll="how">${t('服务流程','How it works')}</a><a href="/#pricing" data-scroll="pricing">${t('服务与定价','Pricing')}</a><a href="/donate" data-nav ${location.pathname==='/donate'?'class="active" aria-current="page"':''}>${t('捐赠支持','Donate')}</a><a href="/downloads" data-nav ${location.pathname==='/downloads'?'class="active" aria-current="page"':''}>${t('下载','Downloads')}</a>`;
+  if(workspace)return `<header class="site-header workspace-header" data-dom-key="site-header">${brand()}<div class="workspace-location"><span class="workspace-location-divider" aria-hidden="true">/</span>${state.admin?t('管理工作台','Administration'):t('我的工作台','Workspace')}</div><div class="nav-right"><a href="/donate" data-nav class="workspace-help">${icon('heart')}<span>${t('支持本站','Support')}</span></a><a href="/contact" data-nav class="workspace-help">${icon('info')}<span>${t('帮助','Help')}</span></a>${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button></div></header>${state.config?.development?`<div class="environment-banner workspace-environment" data-dom-key="environment">${t('测试环境 · 以下为测试资料','Test environment · Test data only')}</div>`:''}`;
+  return `<header class="site-header page-width" data-dom-key="site-header">${brand()}<nav class="nav" aria-label="${t('主导航','Primary navigation')}">${navigation}</nav><div class="nav-right">${themeMenu()}<button class="language" type="button" data-action="language" aria-label="${t('Switch to English','切换为中文')}">${t('EN','中文')}</button><button class="button secondary small donation-header-button" type="button" data-action="donation-dialog">${icon('heart')}${t('捐赠','Donate')}</button><a class="button small" href="${state.admin?'/admin':state.user?'/app':'/login'}" data-nav>${state.admin?t('总控台','Control room'):state.user?t('我的工作台','My workspace'):t('登录 / 注册','Get started')} ${icon('arrow')}</a></div></header><nav class="mobile-site-nav page-width" data-dom-key="mobile-nav" aria-label="${t('了解聘渡','Explore HireFerry')}">${navigation}</nav>${state.config?.development?`<div class="environment-banner" data-dom-key="environment">${t('演示 / 开发环境 · 请勿提交真实个人资料','Demo / development environment · Please use test data')}</div>`:''}`;
 }
-function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-left">${brand(true)}<span>© ${new Date().getFullYear()} HireFerry</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}<a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('自由开源 · AGPL-3.0','Free & open source · AGPL-3.0')}</a></nav></footer>`;}
+function footer() {return `<footer class="footer page-width" data-dom-key="footer"><div class="footer-main"><div class="footer-brand">${brand(true)}<span>${donationMode()?t('求职与招聘永久免费','Job seeking and hiring are free'):t('连接求职者与招聘团队','Connecting job seekers and employers')}</span></div><nav class="footer-links" aria-label="${t('服务说明与联系','Service information and contact')}"><div class="footer-link-group"><h2>${t('使用聘渡','Use HireFerry')}</h2><a href="/downloads" data-nav>${t('下载','Downloads')}</a><a href="/cli" data-nav>${t('CLI 与技能','CLI & skills')}</a><a href="/donate" data-nav>${t('捐赠支持本站运营','Support this site')}</a></div><div class="footer-link-group"><h2>${t('服务与联系','Service and contact')}</h2><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('服务条款','Terms')}</a><a href="/refunds" data-nav>${t('退款政策','Refunds')}</a><a href="/contact" data-nav>${t('联系','Contact')}</a>${state.config?.support_email?`<a href="${esc(contactMailto())}" aria-label="${t('客服邮箱','Support email')}">${esc(contactEmail())}</a>`:''}</div></nav></div><div class="footer-meta"><span>© ${new Date().getFullYear()} HireFerry</span><a href="${esc(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry')}" target="_blank" rel="noopener noreferrer">${t('自由开源 · AGPL-3.0','Free & open source · AGPL-3.0')}</a></div></footer>`;}
 function heading(title,subtitle='',action='') {return `<div class="page-heading"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div>${action}</div>`;}
 function empty(title,description,action='',ico='file') {return `<div class="empty-state"><span class="empty-icon">${icon(ico)}</span><h3>${title}</h3><p>${description}</p>${action}</div>`;}
 function notice(text,style='') {return `<div class="notice ${style}">${icon('info')}<div>${text}</div></div>`;}
@@ -426,37 +523,57 @@ function confirmDialog(title,description,action,{danger=false}={}) {openDialog(`
 
 function pricingSection() {
   const meta=currency(),publish=feeSettings('publish'),example=parseMinor('6000',meta.currency_decimals);
-  const price=publish.mode==='free'?t('免费','Free'):publish.mode==='fixed'?money(publish.fixed_minor,meta):percent(publish.bps);
+  const seekerHref=marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile',{utm_source:'home',utm_medium:'cta',utm_campaign:'home_pricing',utm_content:'seeker'});
+  const price=feeRule('publish',meta);
+  const publishFree=publish.mode==='free'||publish.discount_percent===100;
+  const donations=donationMode();
+  const activationFree=Number(pricing().onboarding_minor??pricing().onboarding_cents)===0;
+  const activationLabel=donations||activationFree?t('永久免费','Always free'):discountLabel(money(pricing().onboarding_original_minor??pricing().onboarding_cents),money(pricing().onboarding_minor??pricing().onboarding_cents));
+  const activationText=donations?t('招聘方永久免费开通，可发布多个岗位。','Employer activation is free forever, with unlimited roles.'):activationFree?t('早期阶段免费开通，可发布多个岗位。','Free early access includes multiple roles.'):t('开通后可发布多个岗位。','Publish multiple roles with one account.');
+  const publishText=donations?t('永久免费发布，确认后立即开始匹配。','Job publication is free forever and starts matching immediately.'):publishFree?t('早期阶段免费发布，确认后立即开始匹配。','Free early access publication starts matching immediately.'):t('支付后开始匹配。','Matching starts after payment.');
   const suffix=publish.mode==='salary_percent'?t('岗位月薪底薪','base monthly salary'):t('每次发布','per publication');
   let quote='—';try{quote=money(calculateFee(example,publish),meta);}catch{}
-  return `<section class="section pricing-section" id="pricing"><div class="section-heading"><div><h2>${t('服务费用','Pricing')}</h2></div><p>${t('求职免费。招聘按次付费。','Free for job seekers. Pay per posting.')}</p></div><div class="pricing-grid"><article class="pricing-card seeker"><h3>${t('给求职者','For job seekers')}</h3><div class="price">${t('免费','Free')}</div><p>${t('提交简历。让 AI 初筛与匹配。','Share your résumé. Let AI screen and match.')}</p><a href="/login?role=seeker" data-nav class="button secondary">${t('开始求职','Find work')}${icon('arrow')}</a></article><article class="pricing-card"><div class="pricing-details"><div><h3>${t('招聘方开通','Employer activation')}</h3><div class="price"><span data-refresh-key="pricing-activation">${money(pricing().onboarding_cents)}</span><small>/ ${t('一次','once')}</small></div><p>${t('开通后可发布多个岗位。','Publish multiple roles with one account.')}</p></div><div><h3>${t('每个招聘广告','Each job advertisement')}</h3><div class="price"><span data-refresh-key="pricing-publication">${price}</span><small>/ ${suffix}</small></div><p>${publish.mode==='free'?t('发布后开始匹配。','Matching starts after publication.'):t('支付后开始匹配。','Matching starts after payment.')}</p></div></div><div class="price-calculator"><label for="salary-example">${t('例如底薪','Example salary')} · ${esc(meta.currency)}<input id="salary-example" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" value="6000" inputmode="decimal" aria-label="${esc(t('岗位月薪底薪','Base monthly salary')+' · '+meta.currency)}"></label><span>${t('发布费','Posting fee')} <strong class="price-result" id="salary-example-result">${quote}</strong></span></div><div class="pricing-note" data-refresh-key="pricing-note">${t(`按固定底薪计费。发布后锁定标题、币种和底薪。<br>描述修改每次 ${feeRule('edit')}。最多 ${pricing().max_edits} 次。<br>招聘人数可免费调整。填 0 暂停新匹配。`,`Fees use fixed base pay. Publication locks the title, currency and salary.<br>Description updates: ${feeRule('edit')}. Up to ${pricing().max_edits} updates.<br>Change hiring targets for free. Set 0 to pause new introductions.`)}</div>${currencies().length>1?`<details class="currency-fees"><summary>${t('查看各币种费用','Fees by currency')}</summary>${currencyFeeTable()}<p class="help">${t('开通时选择付款币种。岗位费用按创建时选择的币种结算。','Choose a currency at checkout. Role fees use the currency selected for that role.')}</p></details>`:''}</article></div></section>`;
+  const details=donations?`<div class="pricing-note" data-refresh-key="pricing-note">${t('求职与招聘服务不收费。如愿支持本站运营者承担服务器和维护成本，可自愿捐赠给当前部署实例。','Job seeking and hiring are free. Voluntary donations support the operator of this deployment with hosting and maintenance costs.')}</div>`:`<div class="price-calculator"><label for="salary-example">${t('例如底薪','Example salary')} · ${esc(meta.currency)}<input id="salary-example" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" value="6000" inputmode="decimal" aria-label="${esc(t('岗位月薪底薪','Base monthly salary')+' · '+meta.currency)}"></label><span>${t('发布费','Posting fee')} <strong class="price-result" id="salary-example-result">${quote}</strong></span></div><div class="pricing-note" data-refresh-key="pricing-note">${t(`按固定底薪计费。发布后锁定标题、币种和底薪。<br>描述修改每次 ${feeRule('edit')}。最多 ${pricing().max_edits} 次。<br>招聘人数可免费调整。填 0 暂停新匹配。`,`Fees use fixed base pay. Publication locks the title, currency, and salary.<br>Description updates: ${feeRule('edit')}. Up to ${pricing().max_edits} updates.<br>Change hiring targets for free. Set 0 to pause new introductions.`)}</div>${currencies().length>1?`<details class="currency-fees"><summary>${t('查看各币种费用','Fees by currency')}</summary>${currencyFeeTable()}<p class="help">${t('开通时选择付款币种。岗位费用按创建时选择的币种结算。','Choose a currency at checkout. Role fees use the currency selected for that role.')}</p></details>`:''}`;
+  return `<section class="section pricing-section" id="pricing"><div class="section-heading"><div><h2>${t('服务费用','Pricing')}</h2></div><p>${donations?t('求职和招聘永久免费；捐款用于支持当前部署实例的运营者。','Job seeking and hiring are free forever. Donations support the operator of this deployment.'):t('起步阶段求职和招聘都完全免费。','Early access is completely free for job seekers and employers.')}</p></div><div class="pricing-grid"><article class="pricing-card seeker"><div class="pricing-kicker">${donations?t('永久免费 · 欢迎捐赠','Free forever · Donations welcome'):t('零门槛入口 · 早期阶段','Zero-cost entry · Early access')}</div><h3>${t('给求职者','For job seekers')}</h3><div class="price">${t('永久免费','Always free')}</div><p>${t('提交简历。让 AI 初筛与匹配。','Share your résumé. Let AI screen and match.')}</p><ul class="pricing-points"><li>${t('写清目标，减少盲目投递','Set a clear target and stop applying blindly')}</li><li>${t('连接 AI，持续筛选机会','Connect AI and keep screening opportunities')}</li></ul><a href="${esc(seekerHref)}" data-nav class="button secondary">${t('注册独一无二的名字','Register a unique name')}${icon('arrow')}</a></article><article class="pricing-card"><div class="pricing-details"><div><h3>${t('招聘方开通','Employer activation')}</h3><div class="price"><span data-refresh-key="pricing-activation">${activationLabel}</span><small>/ ${t('永久','forever')}</small></div><p>${activationText}</p></div><div><h3>${t('每个招聘广告','Each job advertisement')}</h3><div class="price"><span data-refresh-key="pricing-publication">${price}</span><small>/ ${donations?t('永久免费','free forever'):suffix}</small></div><p>${publishText}</p></div></div>${details}${donations?`<a href="/donate" data-nav class="button donation-pricing-link">${icon('heart')}${t('自愿捐赠支持本站运营','Donate to support this site’s operator')}${icon('arrow')}</a>`:''}</article></div></section>`;
 }
 function currencyFeeTable() {
   return `<div class="table-wrap"><table class="data-table"><thead><tr><th>${t('币种','Currency')}</th><th>${t('发布费','Publication')}</th><th>${t('每次描述修改','Each description update')}</th></tr></thead><tbody>${currencies().map(meta=>`<tr><th scope="row">${esc(meta.currency)}</th><td data-refresh-key="fee-publish-${esc(meta.currency)}">${feeRule('publish',meta)}</td><td data-refresh-key="fee-edit-${esc(meta.currency)}">${feeRule('edit',meta)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
+function publicDiscoveryPromo() {
+  const seekerHref = marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile', { utm_source: 'home', utm_medium: 'cta', utm_campaign: 'home_discovery', utm_content: 'profile' });
+  const employerHref = marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew', { utm_source: 'home', utm_medium: 'cta', utm_campaign: 'home_discovery', utm_content: 'role' });
+  return `<section class="public-discovery-promo home-start" aria-labelledby="public-discovery-promo-title"><div class="home-start-copy"><div class="pricing-kicker">${t('公开目录 · 无需登录','OPEN DIRECTORY · NO SIGN-IN')}</div><h2 id="public-discovery-promo-title">${t('先看公开机会，再决定下一步。','Explore public opportunities, then choose your next step.')}</h2><p>${t('岗位和公开主页无需登录即可查看。创建个人主页，或发布岗位，让你选择的 AI 助手按授权范围持续筛选和匹配。','Browse public roles and profiles without an account. Create a profile or post a role, then let an AI assistant you choose screen and match within your authorized scope.')}</p></div><div class="public-discovery-promo-actions home-start-actions"><a href="${esc(seekerHref)}" data-nav class="button">${t('创建个人主页','Create a profile')}${icon('arrow')}</a><a href="${esc(employerHref)}" data-nav class="button secondary">${t('创建岗位','Post a role')}${icon('arrow')}</a><a href="/discover" data-nav class="home-start-directory">${t('浏览公开目录','Browse public directory')} ${icon('arrow')}</a></div></section>`;
+}
+
 function home() {
+  const activationFree=Number(pricing().onboarding_minor??pricing().onboarding_cents)===0;
+  const publishFree=feeSettings('publish').mode==='free'||feeSettings('publish').discount_percent===100;
+  const seekerHref=marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile',{utm_source:'home',utm_medium:'cta',utm_campaign:'home_hero',utm_content:'seeker'});
+  const employerHref=marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew',{utm_source:'home',utm_medium:'cta',utm_campaign:'home_hero',utm_content:'employer'});
   const stories = [
     {
-      title:t('好工作<br>对的人<br><em>AI 自动匹配</em>','Good work<br>Great people<br><em>AI matches</em>'),
-      description:t('AI 原生的简历初筛与人才匹配平台。<br>AI 自动理解需求、筛选简历，匹配合适的人与岗位。','AI-native résumé screening and talent matching.<br>AI understands your needs, screens résumés and matches people with roles.')
+      title:t('投了几百份简历<br>却石沉大海？<br><em>让 AI 持续帮你找</em>','Hundreds of résumés<br>and no reply?<br><em>Let AI keep looking</em>'),
+      description:t('只需填写目标、地点和薪资期待。<br>连接你选择的 AI 助手，让它按计划筛选授权范围内的岗位并匹配机会，有进展时再回来查看。','Set your target role, location and salary expectations.<br>Connect an AI assistant you choose to screen authorized roles and match opportunities on its schedule.')
     },
     {
       title:t('先聊需求<br>再做匹配<br><em>合适再认识</em>','Share your needs<br>Find the fit<br><em>Meet your match</em>'),
-      description:t('先与平台私聊。<br>匹配后共享资料并开始交流。','Start with a private conversation.<br>A match opens profiles and a shared room.')
+      description:t('先把目标说清楚。<br>AI 按岗位要求和项目经历做匹配，合适后再共享资料。','Start with a clear brief.<br>AI matches role requirements with project experience before profiles are shared.')
     },
     {
-      title:t('求职免费<br>招聘按次<br><em>费用清晰</em>','Free to seek<br>Pay per post<br><em>Clear pricing</em>'),
-      description:t(`招聘账户 ${money(pricing().onboarding_cents)} 一次开通。<br>岗位发布按当前规则计费。`,`Activate an employer account for ${money(pricing().onboarding_cents)}.<br>Pay per job at the published rate.`)
+      title:t('永久免费<br>求职与招聘<br><em>先找到合适的人</em>','Free forever<br>Find work and hire<br><em>Meet the right people</em>'),
+      description:(donationMode()||activationFree&&publishFree)?t('招聘账户和岗位发布永久免费。<br>先注册独一无二的名字，再开始找人或找工作。','Employer activation and job publication are free forever.<br>Claim a unique username, then find work or hire.') : t(`招聘账户 ${discountLabel(money(pricing().onboarding_original_minor??pricing().onboarding_cents),money(pricing().onboarding_minor??pricing().onboarding_cents))} 一次开通。<br>岗位发布按当前规则计费。`,`Activate an employer account for ${money(pricing().onboarding_cents)}.<br>Pay per job at the published rate.`)
     }
   ];
-  return `<main id="main" class="home-main">
+  return `<main id="main" class="home-main" itemscope itemtype="https://schema.org/WebSite">
+    <meta itemprop="name" content="HireFerry"><meta itemprop="alternateName" content="聘渡"><link itemprop="url" href="${esc(state.config?.public_origin||location.origin)}/">
     <section class="home-story" aria-label="${t('认识聘渡','Discover HireFerry')}">
       <div class="hero page-width">
         <div class="hero-copy">
+          <p class="hero-eyebrow">${t('聘渡 · 让相遇更合适','HIREFERRY · FIND YOUR FIT')}</p>
           <div class="hero-slides">${stories.map((story,i)=>`<article class="hero-slide" data-story-slide="${i}" aria-hidden="${i!==0}"><h1>${story.title}</h1><p class="hero-description" data-refresh-key="home-story-${i}">${story.description}</p></article>`).join('')}</div>
-          <div class="hero-actions"><a href="/login?role=seeker" data-nav class="button">${t('找工作','Find work')}${icon('arrow')}</a><a href="/login?role=employer" data-nav class="button secondary">${t('找人才','Find people')}${icon('arrow')}</a></div>
-          ${openSourceBadge()}
+          <div class="hero-actions"><a href="${esc(seekerHref)}" data-nav class="button">${t('免费开始找工作','Start finding work free')}${icon('arrow')}</a><a href="${esc(employerHref)}" data-nav class="button secondary">${t('免费创建岗位','Create a free role')}${icon('arrow')}</a></div>
+          <div class="hero-meta"><a class="hero-browse" href="/discover" data-nav>${t('先看看公开机会','Explore opportunities first')}${icon('arrow')}<span>${t('无需登录','No sign-in')}</span></a>${openSourceBadge()}</div>
         </div>
         <div class="sculpture-panel">
           <canvas id="sculpture" aria-label="${t('渡船、桥与罗盘粒子雕塑','Particle sculptures of a ferry, bridge and compass')}"></canvas>
@@ -467,15 +584,16 @@ function home() {
     </section>
     <div class="home-flow page-width">
       <section class="section" id="how">
-        <div class="section-heading"><h2>${t('让 AI 找到合适的连接','Let AI find the fit')}</h2></div>
+        <div class="section-heading"><h2>${t('不用再盲目海投','Stop applying blindly')}</h2><p>${t('填写目标，连接 AI 助手，让它持续筛选。','Set a target and connect an AI assistant to keep screening.')}</p></div>
         <div class="steps">
-          <article class="step"><h3>${t('说说你的期待','Share your plans')}</h3><p>${t('提交简历或岗位需求。<br>和平台聊清你的期待。','Share a résumé or a role.<br>Tell us what matters to you.')}</p></article>
-          <article class="step"><h3>${t('寻找合适的人选','Find the right people')}</h3><p>${t('AI 自动初筛简历并匹配岗位。<br>在工作台查看匹配与沟通进展。','AI agents automatically screen résumés and match roles.<br>Track matches and conversations in your workspace.')}</p></article>
+          <article class="step"><h3>${t('填写你的目标','Set your target')}</h3><p>${t('写清岗位方向、地点、薪资和工作方式。<br>简历与项目经历一起提交。','Set your role, location, salary and work style.<br>Share your résumé and project experience.')}</p></article>
+          <article class="step"><h3>${t('AI 异步筛选','AI screens asynchronously')}</h3><p>${t('连接后，由你选择的 AI 助手按计划读取授权范围内的资料和岗位，筛选机会并记录进展。<br>无需一直守着聊天窗口。','After you connect it, your chosen AI assistant screens the roles and profile data you authorized, tracks matches on its schedule, and reports back.<br>No need to keep a chat window open.')}</p></article>
           <article class="step"><h3>${t('开始交流','Start a conversation')}</h3><p>${t('匹配后共享资料。<br>在专属会话中沟通下一步。','Share profiles after a match.<br>Discuss next steps in your shared room.')}</p></article>
         </div>
       </section>
       ${pricingSection()}
-      <section class="home-bottom"><h2>${t('从这里开始','Start here')}</h2><a href="/login" data-nav class="button">${t('加入聘渡','Join HireFerry')}${icon('arrow')}</a></section>
+      ${publicDiscoveryPromo()}
+      ${donationMode()?`<section class="home-support" aria-label="${t('支持当前部署','Support this deployment')}"><div><div class="eyebrow">${t('自愿支持 · 不影响服务','OPTIONAL · NO SERVICE CHANGES')}</div><p>${t('求职与招聘永久免费。如愿支持本站运营，可自愿捐款。','Job seeking and hiring are free. You can optionally donate to support this site’s operator.')}</p></div><a href="/donate" data-nav class="home-support-link">${icon('heart')}${t('支持本站运营','Support this site')}${icon('arrow')}</a></section>`:''}
     </div>
   </main>`;
 }
@@ -492,38 +610,67 @@ function mountBrand() {
   }).catch(() => { brandMotionModule = null; });
 }
 
+let feedbackModule, feedbackScheduled = false;
+function loadFeedback() {
+  return feedbackModule ||= import('./feedback-ui.js').catch(() => { feedbackModule = null; });
+}
+function scheduleFeedback() {
+  if (feedbackScheduled) return;
+  feedbackScheduled = true;
+  const load = () => void loadFeedback();
+  if ('requestIdleCallback' in window) window.requestIdleCallback(load, {timeout: 1800});
+  else setTimeout(load, 0);
+  document.addEventListener('pointerdown', event => {
+    if (event.target.closest?.('[data-chat-feedback]')) load();
+  }, {capture:true, passive:true});
+}
+
 let homeModules;
 async function mountHome() {
-  void mountGithubStars();
   const canvas=document.querySelector('#sculpture');if(!canvas)return;
   const version=state.render,mountVersion=state.homeMount=(state.homeMount||0)+1;
-  try{
-    homeModules ||= Promise.all([import('./runtime/timeline.js'),import('./runtime/motion.js'),import('./scenes.js'),import('./home-story.js'),import('./particle-type.js')]).catch(error=>{homeModules=null;throw error;});
-    const [{createTimeline},{mountSculpture},{makeScenes},{mountHomeStory},{mountParticleTitles}]=await homeModules;
-    if(version!==state.render||mountVersion!==state.homeMount||!canvas.isConnected)return;
-    const shouldPause=state.motionPaused || navigator.connection?.saveData===true;
-    state.particleTitles=mountParticleTitles(document.querySelector('.home-story'));
-    state.sculpture=mountSculpture(canvas,createTimeline(makeScenes(),{hold:8,morph:2}),{
-      onState: status => {
-        const paused=status==='paused';
-        if(status==='paused'||status==='playing')state.motionPaused=paused;
-        state.particleTitles?.pause(state.motionPaused);
-        state.brandMotion?.pause(state.motionPaused);
-        const button=document.querySelector('[data-action=pause]');
-        if(button){
-          button.innerHTML=icon(paused?'play':'pause');
-          button.setAttribute('aria-label',paused?t('继续动画','Resume animation'):t('暂停动画','Pause animation'));
-          button.setAttribute('aria-pressed',String(paused));
-          button.hidden=status==='reduced'||status==='unsupported';
+  const scheduleIdle=task=>{
+    if('requestIdleCallback' in window)window.requestIdleCallback(()=>void task(),{timeout:1400});
+    else setTimeout(()=>void task(),0);
+  };
+  scheduleIdle(()=>{
+    if(version===state.render&&mountVersion===state.homeMount&&canvas.isConnected)void mountGithubStars();
+  });
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches||navigator.connection?.saveData===true){
+    canvas.hidden=true;
+    const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;
+    return;
+  }
+  const start = async () => {
+    try{
+      homeModules ||= Promise.all([import('./runtime/timeline.js'),import('./runtime/motion.js'),import('./scenes.js'),import('./home-story.js'),import('./particle-type.js')]).catch(error=>{homeModules=null;throw error;});
+      const [{createTimeline},{mountSculpture},{makeScenes},{mountHomeStory},{mountParticleTitles}]=await homeModules;
+      if(version!==state.render||mountVersion!==state.homeMount||!canvas.isConnected)return;
+      const shouldPause=state.motionPaused || navigator.connection?.saveData===true;
+      state.particleTitles=mountParticleTitles(document.querySelector('.home-story'));
+      state.sculpture=mountSculpture(canvas,createTimeline(makeScenes(),{hold:8,morph:2}),{
+        onState: status => {
+          const paused=status==='paused';
+          if(status==='paused'||status==='playing')state.motionPaused=paused;
+          state.particleTitles?.pause(state.motionPaused);
+          state.brandMotion?.pause(state.motionPaused);
+          const button=document.querySelector('[data-action=pause]');
+          if(button){
+            button.innerHTML=icon(paused?'play':'pause');
+            button.setAttribute('aria-label',paused?t('继续动画','Resume animation'):t('暂停动画','Pause animation'));
+            button.setAttribute('aria-pressed',String(paused));
+            button.hidden=status==='reduced'||status==='unsupported';
+          }
+          if(status==='unsupported'){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}
         }
-        if(status==='unsupported')document.querySelector('.fallback').hidden=false;
-      }
-    });
-    state.sculpture?.pause(shouldPause);
-    state.homeStory=mountHomeStory(document.querySelector('.home-story'),{
-      onPosition:position=>{state.sculpture?.seek(position);state.particleTitles?.seek(position);}
-    });
-  }catch{if(version===state.render&&mountVersion===state.homeMount){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}}
+      });
+      state.sculpture?.pause(shouldPause);
+      state.homeStory=mountHomeStory(document.querySelector('.home-story'),{
+        onPosition:position=>{state.sculpture?.seek(position);state.particleTitles?.seek(position);}
+      });
+    }catch{if(version===state.render&&mountVersion===state.homeMount){const fallback=document.querySelector('.fallback');if(fallback)fallback.hidden=false;}}
+  };
+  scheduleIdle(()=>void start());
 }
 
 function sidebar(tab,admin=false) {
@@ -531,6 +678,7 @@ function sidebar(tab,admin=false) {
     ...(state.owner||state.staff?[['overview','chart',t('总览','Overview')]]:[]),
     ['messages','message',t('消息','Messages')],['matches','link',t('人才与岗位','People & roles')],['mandates','target',t('寻找委托','Search briefs')],
     ...(state.owner||state.staff?[['orders','receipt',t('订单与流水','Orders')]]:[]),
+    ...(state.owner||state.staff?[['announcements','info',t('公告管理','Announcements')]]:[]),
     ...(state.owner?[['promos','receipt',t('优惠码','Promotions')],['team','person',t('团队','Team')],['agents','bot',t('平台 AI','Platform AI')],['keys','key',t('通行密钥','Passkeys')]]:[])
   ]:[
     ['messages','message',t('消息','Messages')],
@@ -545,7 +693,26 @@ function sidebar(tab,admin=false) {
   const logout=`<button type="button" data-action="logout">${icon('logout')}<span>${t('退出登录','Sign out')}</span></button>`;
   return `<aside class="sidebar workspace-sidebar" data-dom-key="sidebar"><div class="workspace-sidebar-top"><div class="workspace-nav-label">${t('工作空间','WORKSPACE')}</div><button type="button" class="icon-button workspace-panel-toggle" data-workspace-panel="navigation" aria-controls="workspace-navigation" aria-expanded="true" aria-label="${t('收起导航栏','Collapse navigation')}" title="${t('收起导航栏','Collapse navigation')}" data-label-collapse="${t('收起导航栏','Collapse navigation')}" data-label-expand="${t('展开导航栏','Expand navigation')}">${icon('panel')}</button></div><nav id="workspace-navigation" class="sidebar-nav" aria-label="${t('工作台导航','Workspace navigation')}">${primary.map(item).join('')}<div class="workspace-secondary"><div class="workspace-nav-label">${t('管理与连接','MANAGE & CONNECT')}</div>${secondary.map(item).join('')}${cliConnection}</div><details class="workspace-more"><summary aria-label="${t('更多页面','More pages')}">${icon('board')}<span>${t('更多','More')}</span></summary><div class="workspace-more-menu">${secondary.map(item).join('')}${cliConnection}<a href="/contact" data-nav>${icon('info')}<span>${t('帮助与联系','Help & contact')}</span></a>${logout}</div></details></nav><div class="workspace-sidebar-foot"><a href="/contact" data-nav class="workspace-support" aria-label="${t('联系聘渡','Contact HireFerry')}" title="${t('联系聘渡','Contact HireFerry')}">${icon('message')}<span>${t('需要帮忙？','Need a hand?')}<small>${t('联系聘渡','Contact HireFerry')}</small></span>${icon('arrow')}</a><div class="sidebar-user">${admin?`<span class="avatar">${icon('shield')}</span>`:avatar(state.user)}<div class="sidebar-account"><div class="sidebar-name">${admin?esc(state.staff?.name||state.user?.name||t('聘渡管理团队','HireFerry team')):esc(state.user?.name||t('我的账户','My account'))}</div><div class="role-label">${admin?(state.owner?t('超级管理员','Super administrator'):state.staff?t('团队员工','Staff'):t('团队经理','Team manager')):roleText(state.user?.role)}</div></div><button class="icon-button" type="button" data-action="logout" aria-label="${t('退出登录','Sign out')}">${icon('logout')}</button></div><div class="workspace-policy-links"><a href="/privacy" data-nav>${t('隐私','Privacy')}</a><a href="/terms" data-nav>${t('条款','Terms')}</a></div></div></aside>`;
 }
-function shell(body,tab,admin=false) {const activation=!admin&&state.user?.role==='employer'&&!state.user.employer_paid&&tab!=='orders'&&tab!=='messages'?`<div class="workspace-activation"><span>${t('招聘方账户尚未开通','Employer account not active')}</span><a href="/app?tab=orders" data-nav class="text-button">${t('查看开通与付款','Activation & payments')}${icon('arrow')}</a></div>`:'';return `<main id="main" class="page-width app-layout workspace-layout" data-workspace-page="${esc(tab)}">${sidebar(tab,admin)}<section class="app-content" tabindex="-1">${activation}${body}</section></main>`;}
+async function refreshAnnouncement(version) {
+  if(!state.user || state.admin){state.announcement=null;return;}
+  const identity=identityOf(state);
+  let announcement=null;
+  try {
+    announcement=await api('/api/announcement');
+  } catch { /* Notices must not prevent workspace content from loading. */ }
+  if(version!==state.render || identity!==identityOf(state))return;
+  state.announcement=announcement;
+  const slot=root.querySelector('[data-platform-announcement]');
+  if(slot)slot.innerHTML=announcementBanner();
+}
+function announcementBanner() {
+  const record=state.announcement?.announcement;
+  if(!record?.enabled || (record.require_ack && state.announcement.acknowledged))return '';
+  const title=state.lang==='en'?(record.title_en||record.title):(record.title||record.title_en);
+  const html=state.lang==='en'?(record.body_html_en||record.body_html):(record.body_html||record.body_html_en);
+  return `<aside class="platform-announcement ${record.require_ack?'requires-ack':''}" role="status" aria-labelledby="platform-announcement-title">${icon('info')}<div class="platform-announcement-content"><strong id="platform-announcement-title">${esc(title)}</strong><div class="markdown platform-announcement-body">${html||''}</div>${record.require_ack?`<div class="platform-announcement-actions"><button type="button" class="button small" data-action="ack-announcement" data-version="${esc(record.version)}">${icon('check')}${t('我已阅读并确认','I have read and acknowledge')}</button></div>`:''}</div></aside>`;
+}
+function shell(body,tab,admin=false) {const activation=!admin&&state.user?.role==='employer'&&!state.user.employer_paid&&tab!=='orders'&&tab!=='messages'?`<div class="workspace-activation"><span>${t('招聘方账户尚未开通','Employer account not active')}</span><a href="/app?tab=orders" data-nav class="text-button">${t('查看开通与付款','Activation & payments')}${icon('arrow')}</a></div>`:'';const profileClaim=!admin&&tab!=='profile'&&tab!=='messages'&&state.user?.role==='seeker'&&isGeneratedHandle(state.user.handle)?`<aside class="workspace-profile-claim" aria-labelledby="workspace-profile-claim-title">${icon('person')}<div><strong id="workspace-profile-claim-title">${t('先抢注你的独一无二名字','Claim your unique name first')}</strong><span>${t('设置名字后，招聘方和 AI 才能找到你的公开主页。','Set your name so employers and AI can find your public profile.')}</span></div><a href="/app?tab=profile" data-nav class="button secondary small">${t('去设置','Set it up')}${icon('arrow')}</a></aside>`:'';return `<main id="main" class="page-width app-layout workspace-layout" data-workspace-page="${esc(tab)}">${sidebar(tab,admin)}<section class="app-content" tabindex="-1">${admin?'':`<div class="platform-announcement-slot" data-platform-announcement>${announcementBanner()}</div>`}${profileClaim}${activation}${body}</section></main>`;}
 function paymentProviders(record) {
   const code=currency(record).currency,configured=state.config?.payment_currencies;
   return (state.config?.providers||[]).filter(provider=>(!configured||(Array.isArray(configured[provider])&&configured[provider].includes(code)))&&(provider!=='waffo'||!state.config?.waffo_regions||waffoRegions(record).length>0));
@@ -559,29 +726,98 @@ function waffoRegions(record) {
 function paymentModeNotice(provider='waffo') {
   return state.config?.payment_modes?.[provider]==='test'?`<p class="payment-test-notice" role="status">${icon('info')}<span>${t('测试模式 · 不会真实扣款','Test mode · No real charges')}</span></p>`:'';
 }
-function gatewayInputs(record,{hideRegions=false}={}) {
+function gatewayInputs(record,{hideRegions=false,regionId='payment-region'}={}) {
   const providers=paymentProviders(record),code=currency(record).currency;
   const regions=waffoRegions(record);
-  return providers.length?`<div class="gateway-choice">${providers.map((name,i)=>`<label class="gateway-option"><input type="radio" name="provider" value="${esc(name)}" ${i===0?'checked':''}><span>${esc(providerText(name))}<small>${name==='stripe'?t('安全在线结账','Secure online checkout'):t('一次性支付','One-time payment')}</small></span></label>`).join('')}</div>${providers.includes('waffo')?`${!hideRegions&&regions.length?`<div class="field"><label for="payment-region">${t('Waffo Pancake 区域','Waffo Pancake region')}</label><select class="input" id="payment-region" name="payment_region">${regions.map(([name])=>`<option value="${esc(name)}">${esc(regionText(name))}</option>`).join('')}</select></div>`:''}${paymentModeNotice()}`:''}`:notice(t(`当前没有支持 ${code} 的在线支付方式。请更换币种或联系支持邮箱。`,`No online payment method is available for ${code}. Choose another currency or contact support.`),'warning');
+  return providers.length?`<div class="gateway-choice">${providers.map((name,i)=>`<label class="gateway-option"><input type="radio" name="provider" value="${esc(name)}" ${i===0?'checked':''}><span>${esc(providerText(name))}<small>${name==='stripe'?t('安全在线结账','Secure online checkout'):t('一次性支付','One-time payment')}</small></span></label>`).join('')}</div>${providers.includes('waffo')?`${!hideRegions&&regions.length?`<div class="field"><label for="${esc(regionId)}">${t('Waffo Pancake 区域','Waffo Pancake region')}</label><select class="input" id="${esc(regionId)}" name="payment_region">${regions.map(([name])=>`<option value="${esc(name)}">${esc(regionText(name))}</option>`).join('')}</select></div>`:''}${paymentModeNotice()}`:''}`:notice(t(`当前没有支持 ${code} 的在线支付方式。请更换币种或联系支持邮箱。`,`No online payment method is available for ${code}. Choose another currency or contact support.`),'warning');
 }
 
-function login() {return `<main id="main" class="page-width auth-wrap"><section class="auth-intro"><h1>${t('从认识你<br>开始匹配','Start with you<br>Find the fit')}</h1><p>${t('用邮箱登录。<br>开始求职或招聘。','Sign in with your email.<br>Find work or find people.')}</p></section><section class="auth-card"><h2>${t('欢迎来到聘渡','Welcome to HireFerry')}</h2><p class="subtitle">${t('登录或创建账户','Sign in or create an account')}</p><a href="${state.config?.google_enabled?'/api/auth/google/start':'#'}" class="button secondary full" data-google-sign-in ${!state.config?.google_enabled?'aria-disabled="true" data-action="google-unavailable"':''}><span class="google-mark">G</span>${t('使用 Google 继续','Continue with Google')}</a>${state.config?.humangrant_enabled?humanGrant().loginButton():''}<div class="separator">${t('或使用邮箱','or use your email')}</div><form data-form="email-start"><div class="field"><label for="login-email">${t('邮箱地址','Email address')}</label><input class="input" id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required maxlength="254"></div><button type="submit" class="button full" ${state.config?.email_enabled===false?'disabled':''}>${t('发送登录验证码','Send a sign-in code')}${icon('arrow')}</button></form>${state.config?.email_enabled===false?`<p class="help">${t('邮箱登录暂未开放。','Email sign-in is not available yet.')}</p>`:''}<div class="auth-legal">${t('继续即表示你已阅读并同意','By continuing, you agree to our')} <a href="/terms" data-nav>${t('服务条款','Terms')}</a> ${t('及','and')} <a href="/privacy" data-nav>${t('隐私说明','Privacy notice')}</a>。</div></section></main>`;}
-function emailCode(email,devCode) {const card=document.querySelector('.auth-card');card.innerHTML=`<h2>${t('查收你的邮箱','Check your inbox')}</h2><p class="subtitle">${t('验证码已发送至','We sent a sign-in code to')}<br><span class="auth-email">${esc(email)}</span></p><form data-form="email-verify"><input type="hidden" name="email" value="${esc(email)}"><div class="field"><label for="email-code">${t('登录验证码','Sign-in code')}</label><input class="input code-input" id="email-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" maxlength="12" placeholder="· · · · · ·" required><p class="help">${t('验证码短期有效，且只能使用一次。','This code expires soon and can only be used once.')}</p></div>${devCode?notice(`${t('仅开发测试环境','Development environment only')}: <strong>${esc(devCode)}</strong>`,'warning'):''}<button class="button full" type="submit">${t('确认并继续','Verify and continue')}${icon('arrow')}</button></form><div class="auth-legal"><button class="text-button" data-action="restart-login">${t('换一个邮箱','Use a different email')}</button></div>`;document.querySelector('#email-code').focus();}
-function chooseRole() {openDialog(`<div class="eyebrow">YOUR NEXT CHAPTER</div><h2 id="dialog-title">${t('这次，你想寻找什么？','What brings you here?')}</h2><p class="dialog-intro">${t('选择你的身份，我们会为你准备合适的开始。','Choose your role. We’ll prepare the right start for you.')}</p><div class="role-options"><button class="role-card" data-action="role-seeker">${icon('person')}<strong>${t('我在找工作','I’m finding work')}</strong><span>${t('告诉平台期待，我们帮你持续找。','Share your expectations. We help with the search.')}</span><b>${t('永久免费','Always free')} →</b></button><button class="role-card" data-action="role-employer">${icon('briefcase')}<strong>${t('我想招人','I’m hiring')}</strong><span>${t('发布岗位，我们帮你认真寻找。','Share your role. We help find the right person.')}</span><b>${money(pricing().onboarding_cents)} ${t('一次性开通','one-time activation')} →</b></button></div><p class="promo-entry"><a class="text-button" href="/app?tab=promos" data-nav>${t('使用优惠码或申请免费激活','Use a code or apply for free activation')}${icon('arrow')}</a></p><p class="help" style="margin-top:20px">${t('选择后，身份将与这个账户关联。招聘方完成开通后即可发布岗位，费用会在确认前列明。','Your choice is linked to this account. Employers can post after activation; any fee is shown before confirmation.')}</p>`,{close:false});}
+function acquisitionSource() {
+  const params=new URLSearchParams(location.search), parts=[params.get('utm_source'),params.get('utm_medium'),params.get('utm_campaign'),params.get('utm_content'),params.get('ref')].filter(Boolean).map(value=>value.trim()).filter(Boolean);
+  const current=parts.join(':').slice(0,120);
+  try {
+    if(current) sessionStorage.setItem('hireferry:acquisition_source',current);
+    return current||sessionStorage.getItem('hireferry:acquisition_source')||'';
+  } catch { return current; }
+}
+function referralCode() {
+  const value = qs().get('ref') || '';
+  const current = /^hf_[A-Za-z0-9_-]{1,61}$/u.test(value) ? value.toLowerCase() : '';
+  try {
+    if (current) sessionStorage.setItem(referralCodeKey, current);
+    return current || sessionStorage.getItem(referralCodeKey) || '';
+  } catch { return current; }
+}
+function login() {
+  const source=acquisitionSource(),referral=referralCode(),intent=currentRoleIntent();
+  const googleParams=new URLSearchParams();
+  if(source)googleParams.set('source',source);
+  if(referral)googleParams.set('referral_code',referral);
+  const googleHref=state.config?.google_enabled?`/api/auth/google/start${googleParams.toString()?`?${googleParams}`:''}`:'#';
+  const intentContext=intent==='employer'?`<p class="auth-context">${t('招聘方 · 免费发布一个岗位。登录后继续创建岗位。','Employer · post one role free. Sign in to continue to the editor.')}</p>`:intent==='seeker'?`<p class="auth-context">${t('求职者 · 创建独一无二的名字和公开主页。','Job seeker · create a unique name and public homepage.')}</p>`:'';
+  const emailLinkStatus=qs().get('email_link')==='expired'?`<p class="notice error" role="alert">${icon('info')}<span>${t('这个登录链接已过期、已使用或无效。请重新发送一个新的链接。','This sign-in link expired, was already used, or is invalid. Request a new one.')}</span></p>`:'';
+  return `<main id="main" class="page-width auth-wrap">
+    <section class="auth-intro">
+      <p class="auth-eyebrow">${t('聘渡 · AI 人才匹配','HIREFERRY · AI TALENT MATCHING')}</p>
+      <h1>${t('从认识你<br>开始匹配','Start with you<br>Find the fit')}</h1>
+      <p>${t('不用设置密码。<br>用 Google、Passkey 或邮箱魔法链接登录。','No password to set.<br>Use Google, Passkey or an email magic link.')}</p>
+      <ul class="auth-points" aria-label="${t('聘渡特点','HireFerry highlights')}">
+        <li><span>01</span>${t('求职免费，先浏览公开机会','Free for job seekers. Browse public opportunities first.')}</li>
+        <li><span>02</span>${t('岗位和主页由本人主动公开','People choose what to publish.')}</li>
+      </ul>
+    </section>
+    <section class="auth-card">
+      <div class="auth-card-heading">
+        <div>
+          <p class="auth-kicker">WELCOME TO HIREFERRY</p>
+          <h2>${t('欢迎来到聘渡','Welcome to HireFerry')}</h2>
+        </div>
+        <span class="auth-card-symbol" aria-hidden="true">↗</span>
+      </div>
+      <p class="subtitle">${t('登录或创建账户','Sign in or create an account')}</p>
+      ${intentContext}${emailLinkStatus}
+      <div class="auth-methods">
+        <a href="${googleHref}" class="button auth-google-button full" data-google-sign-in ${!state.config?.google_enabled?'aria-disabled="true" data-action="google-unavailable"':''}><span class="google-mark">G</span>${t('使用 Google 继续','Continue with Google')}</a>
+        <button type="button" class="button auth-passkey-button secondary full" data-action="user-passkey-login">${icon('key')}${t('使用 Passkey 登录','Sign in with Passkey')}</button>
+      </div>
+      <p class="help auth-method-help">${t('使用此设备、同步的密码管理器或安全密钥中的 Passkey。','Use a passkey from this device, a synced password manager, or a security key.')}</p>
+      ${state.config?.humangrant_enabled?humanGrant().loginButton():''}
+      <div class="separator">${t('或使用邮箱魔法链接','or use an email magic link')}</div>
+      <form data-form="email-start" aria-describedby="email-status">
+        <div class="field">
+          <label for="login-email">${t('邮箱地址','Email address')}</label>
+          <input class="input" id="login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required maxlength="254">
+        </div>
+        ${referral?`<p class="notice">${icon('person')}<span>${t('你正通过成员邀请链接注册。','You are joining through a member invitation link.')}</span></p>`:''}
+        <button type="submit" class="button auth-submit full" ${state.config?.email_enabled===false?'disabled':''}>${t('发送登录链接','Send sign-in link')}${icon('arrow')}</button>
+        <p id="email-status" class="help" role="status" aria-live="polite" aria-atomic="true">${t('不需要设置密码，链接只能使用一次。','No password is needed. The link works once.')}</p>
+      </form>
+      ${state.config?.email_enabled===false?`<p class="help">${t('邮箱登录暂未开放。','Email sign-in is not available yet.')}</p>`:''}
+      <div class="auth-legal">${t('继续即表示你已阅读并同意','By continuing, you agree to our')} <a href="/terms" data-nav>${t('服务条款','Terms')}</a> ${t('及','and')} <a href="/privacy" data-nav>${t('隐私说明','Privacy notice')}</a>。</div>
+    </section>
+  </main>`;
+}
+function emailCode(email,devCode,devMagicLink) {const card=document.querySelector('.auth-card');card.innerHTML=`<h2>${t('查收你的邮箱','Check your inbox')}</h2><p class="subtitle">${t('登录链接已发送至','A magic sign-in link was sent to')}<br><span class="auth-email">${esc(email)}</span></p><div class="notice auth-magic-note">${icon('mail')}<div><strong>${t('打开邮件里的登录链接即可继续','Open the sign-in link in the email to continue')}</strong><p>${t('链接短期有效且只能使用一次。如果你暂时无法打开链接，可以使用下面的备用验证码。','The link expires soon and works once. If you cannot open it, use the fallback code below.')}</p>${devMagicLink?`<a class="button secondary small" href="${esc(devMagicLink)}">${t('开发测试：打开魔法链接','Development: open magic link')}</a>`:''}</div></div><form data-form="email-verify"><input type="hidden" name="email" value="${esc(email)}"><details class="section-disclosure auth-code-fallback"${devCode?' open':''}><summary>${t('改用备用验证码','Use the fallback code')}</summary><div class="disclosure-content"><div class="field"><label for="email-code">${t('登录验证码','Sign-in code')}</label><input class="input code-input" id="email-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]+" maxlength="12" placeholder="· · · · · ·" required><p class="help">${t('验证码短期有效，且只能使用一次。','This code expires soon and can only be used once.')}</p></div>${devCode?notice(`${t('仅开发测试环境','Development environment only')}: <strong>${esc(devCode)}</strong>`,'warning'):''}<button class="button full" type="submit">${t('用验证码继续','Continue with code')}${icon('arrow')}</button></div></details></form><div class="auth-legal"><button class="text-button" data-action="restart-login">${t('换一个邮箱','Use a different email')}</button></div>`;if(devCode)document.querySelector('#email-code')?.focus();}
+function chooseRole() {
+  const intent=currentRoleIntent();
+  if(intent==='employer') {openDialog(`<div class="eyebrow">FOR RECRUITERS</div><h2 id="dialog-title">${t(donationMode()?'继续发布永久免费岗位':'继续发布免费岗位',donationMode()?'Continue to your permanently free role':'Continue to your free role')}</h2><p class="dialog-intro">${t(donationMode()?'你刚才选择了招聘方。永久免费开通后，直接进入岗位编辑器。':'你刚才选择了招聘方。完成一次免费开通后，直接进入岗位编辑器。',donationMode()?'You chose the employer path. Activate for free forever, then go straight to the role editor.':'You chose the employer path. Complete the free activation once, then go straight to the role editor.')}</p><button class="role-card role-card-primary" data-action="role-employer">${icon('briefcase')}<strong>${t('开通招聘方账户','Activate employer account')}</strong><span>${t(donationMode()?'永久免费，不公开邮箱、订单或私聊。':'早期阶段免费，不公开邮箱、订单或私聊。',donationMode()?'Free forever. Email, orders and private chats stay private.':'Free early access. Email, orders and private chats stay private.')}</span><b>${(donationMode()||Number(pricing().onboarding_minor??pricing().onboarding_cents)===0)?t('永久免费开通','Free forever'):discountLabel(money(pricing().onboarding_original_minor??pricing().onboarding_cents),money(pricing().onboarding_minor??pricing().onboarding_cents))+' '+t('一次性开通','one-time activation')} →</b></button>`,{close:false});return;}
+  if(intent==='seeker') {openDialog(`<div class="eyebrow">FOR JOB SEEKERS</div><h2 id="dialog-title">${t('继续创建你的公开主页','Continue to your public homepage')}</h2><p class="dialog-intro">${t('你刚才选择了求职者路径。注册和创建主页免费，是否公开由你自己决定。','You chose the job seeker path. Registration and profile creation are free; publishing is always your choice.')}</p><button class="role-card role-card-primary" data-action="role-seeker">${icon('person')}<strong>${t('创建求职者资料','Create job seeker profile')}</strong><span>${t('先保存资料，再决定是否打开公开主页。','Save your profile first, then choose whether to publish it.')}</span><b>${t('永久免费','Always free')} →</b></button>`,{close:false});return;}
+  openDialog(`<div class="eyebrow">YOUR NEXT CHAPTER</div><h2 id="dialog-title">${t('这次，你想寻找什么？','What brings you here?')}</h2><p class="dialog-intro">${t('选择你的身份，我们会为你准备合适的开始。','Choose your role. We’ll prepare the right start for you.')}</p><div class="role-options"><button class="role-card" data-action="role-seeker">${icon('person')}<strong>${t('我在找工作','I’m finding work')}</strong><span>${t('告诉平台期待，我们帮你持续找。','Share your expectations. We help with the search.')}</span><b>${t('永久免费','Always free')} →</b></button><button class="role-card" data-action="role-employer">${icon('briefcase')}<strong>${t('我想招人','I’m hiring')}</strong><span>${t('发布岗位，我们帮你认真寻找。','Share your role. We help find the right person.')}</span><b>${(donationMode()||Number(pricing().onboarding_minor??pricing().onboarding_cents)===0)?t('永久免费开通','Free forever'):discountLabel(money(pricing().onboarding_original_minor??pricing().onboarding_cents),money(pricing().onboarding_minor??pricing().onboarding_cents))+' '+t('一次性开通','one-time activation')} →</b></button></div><p class="promo-entry"><a class="text-button" href="/app?tab=promos" data-nav>${t(donationMode()?'捐赠模式无需付款':'使用优惠码或申请免费激活',donationMode()?'No payment in donation mode':'Use a code or apply for free activation')}${icon('arrow')}</a></p><p class="help" style="margin-top:20px">${t('选择后，身份将与这个账户关联。招聘方完成开通后即可发布岗位，费用会在确认前列明。','Your choice is linked to this account. Employers can post after activation; any fee is shown before confirmation.')}</p>`,{close:false});
+}
 function activationOptions(region) {
   const options=pricing().activation_currency_options||[{...currency(),onboarding_minor:pricing().onboarding_cents}];
   const settings=state.config?.waffo_regions?.[region];
   return settings?settings.currencies.map(code=>options.find(option=>option.currency===code)).filter(Boolean):options;
 }
 function activationCurrencyOptions(options,selected) {
-  return options.map(option=>`<option value="${esc(option.currency)}" ${option.currency===selected?'selected':''}>${esc(option.currency)} · ${money(option.onboarding_minor,option)}</option>`).join('');
+  return options.map(option=>`<option value="${esc(option.currency)}" ${option.currency===selected?'selected':''}>${esc(option.currency)} · ${discountText(money(option.onboarding_original_minor??option.onboarding_minor,option),money(option.onboarding_minor,option))}</option>`).join('');
 }
 function employerActivation(retry=false) {
   const regions=Object.keys(state.config?.waffo_regions||{}).filter(region=>activationOptions(region).length);
   const region=regions.find(region=>activationOptions(region).some(option=>option.currency===currency().currency))||regions[0];
   const options=activationOptions(region),selected=options.find(option=>option.currency===currency().currency)||options[0];
   const free=Number(selected?.onboarding_minor)===0;
-  openDialog(`<div class="eyebrow">FOR EMPLOYERS</div><h2 id="dialog-title">${retry?t('重新发起开通','Restart activation'):t('开通招聘方账户','Activate your employer account')}</h2><p class="dialog-intro">${t('一次性开通招聘方账户，之后可以发布多个岗位。每个岗位的发布费单独计算。','Activate your employer account once. Then publish multiple roles, each with its own posting fee.')}</p><p class="promo-entry"><a class="text-button" href="/app?tab=promos" data-nav>${t('使用优惠码或申请免费激活','Use a code or apply for free activation')}${icon('arrow')}</a></p><form data-form="activate-employer" class="activation-checkout">${!free&&regions.length?`<fieldset class="payment-region-choice"><legend>${t('Waffo Pancake 区域','Waffo Pancake region')}</legend><div class="payment-region-options">${regions.map(name=>`<label><input type="radio" name="payment_region" value="${esc(name)}" ${name===region?'checked':''}><span>${icon(name==='global'?'globe':'wallet')}<strong>${esc(regionText(name))}</strong><small>${esc(state.config.waffo_regions[name].payment_methods.map(paymentMethodText).join(' · '))}</small></span></label>`).join('')}</div></fieldset>`:''}<div class="field"><label for="activation-currency">${t('付款币种','Payment currency')}</label><select class="input" name="currency" id="activation-currency">${activationCurrencyOptions(options,selected?.currency)}</select></div><div class="cost-summary activation-total"><div class="cost-row total"><span>${t('招聘方开通 · 一次性','Employer activation · one-time')}</span><strong data-activation-total>${money(selected?.onboarding_minor,selected)}</strong></div></div><div data-activation-gateway>${free?'':gatewayInputs(selected,{hideRegions:true})}</div><p class="cost-rule" data-activation-rule>${free?t('开通免费，确认后即可使用。','Activation is free and takes effect on confirmation.'):t('付款确认后自动开通。不自动续费，无月费。','Activates after payment confirmation. No renewals or monthly fees.')}</p><div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">${t('稍后再说','Maybe later')}</button><button type="submit" class="button" ${free||paymentProviders(selected).length?'':'disabled'}><span data-activation-submit>${free?t('确认开通','Activate account'):t('前往支付','Continue to payment')}</span>${icon('arrow')}</button></div></form>`);
+  openDialog(`<div class="eyebrow">FOR EMPLOYERS</div><h2 id="dialog-title">${retry?t('重新发起开通','Restart activation'):t('开通招聘方账户','Activate your employer account')}</h2><p class="dialog-intro">${free?t(donationMode()?'永久免费开通，之后可以发布多个岗位。':'早期阶段免费开通，之后可以发布多个岗位。',donationMode()?'Free forever includes multiple roles.':'Free early access includes multiple roles.'):t('一次性开通招聘方账户，之后可以发布多个岗位。每个岗位的发布费单独计算。','Activate your employer account once. Then publish multiple roles, each with its own posting fee.')}</p><p class="promo-entry"><a class="text-button" href="/app?tab=promos" data-nav>${t(donationMode()?'捐赠模式无需付款':'使用优惠码或申请免费激活',donationMode()?'No payment in donation mode':'Use a code or apply for free activation')}${icon('arrow')}</a></p><form data-form="activate-employer" class="activation-checkout">${!free&&regions.length?`<fieldset class="payment-region-choice"><legend>${t('Waffo Pancake 区域','Waffo Pancake region')}</legend><div class="payment-region-options">${regions.map(name=>`<label><input type="radio" name="payment_region" value="${esc(name)}" ${name===region?'checked':''}><span>${icon(name==='global'?'globe':'wallet')}<strong>${esc(regionText(name))}</strong><small>${esc(state.config.waffo_regions[name].payment_methods.map(paymentMethodText).join(' · '))}</small></span></label>`).join('')}</div></fieldset>`:''}<div class="field"><label for="activation-currency">${t(donationMode()?'支持币种（无需付款）':'付款币种',donationMode()?'Supported currency (no payment)':'Payment currency')}</label><select class="input" name="currency" id="activation-currency">${activationCurrencyOptions(options,selected?.currency)}</select></div><div class="cost-summary activation-total"><div class="cost-row total"><span>${t('招聘方开通 · 一次性','Employer activation · one-time')}</span><strong data-activation-total>${money(selected?.onboarding_minor,selected)}</strong></div></div><div data-activation-gateway>${free?'':gatewayInputs(selected,{hideRegions:true})}</div><p class="cost-rule" data-activation-rule>${free?t(donationMode()?'永久免费，确认后即可使用。':'开通免费，确认后即可使用。',donationMode()?'Free forever and ready after confirmation.':'Activation is free and takes effect on confirmation.'):t('付款确认后自动开通。不自动续费，无月费。','Activates after payment confirmation. No renewals or monthly fees.')}</p><div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">${t('稍后再说','Maybe later')}</button><button type="submit" class="button" ${free||paymentProviders(selected).length?'':'disabled'}><span data-activation-submit>${free?t('确认开通','Activate account'):t(donationMode()?'确认免费':'前往支付',donationMode()?'Confirm free':'Continue to payment')}</span>${icon('arrow')}</button></div></form>`);
 }
 function refreshActivationPayment(form) {
   const select=form.elements.currency,options=activationOptions(form.elements.payment_region?.value);
@@ -590,14 +826,137 @@ function refreshActivationPayment(form) {
   const free=Number(selected?.onboarding_minor)===0;
   form.querySelector('[data-activation-total]').textContent=money(selected?.onboarding_minor,selected);
   form.querySelector('[data-activation-gateway]').innerHTML=free?'':gatewayInputs(selected,{hideRegions:true});
-  form.querySelector('[data-activation-rule]').textContent=free?t('开通免费，确认后即可使用。','Activation is free and takes effect on confirmation.'):t('付款确认后自动开通。不自动续费，无月费。','Activates after payment confirmation. No renewals or monthly fees.');
+  form.querySelector('[data-activation-rule]').textContent=free?t(donationMode()?'永久免费，确认后即可使用。':'开通免费，确认后即可使用。',donationMode()?'Free forever and ready after confirmation.':'Activation is free and takes effect on confirmation.'):t('付款确认后自动开通。不自动续费，无月费。','Activates after payment confirmation. No renewals or monthly fees.');
   form.querySelector('[type="submit"]').disabled=!selected||(!free&&!paymentProviders(selected).length);
-  form.querySelector('[data-activation-submit]').textContent=free?t('确认开通','Activate account'):t('前往支付','Continue to payment');
+  form.querySelector('[data-activation-submit]').textContent=free?t('确认开通','Activate account'):t(donationMode()?'确认免费':'前往支付',donationMode()?'Confirm free':'Continue to payment');
 }
 
+async function publicProfilePage(handle,onRecord) {
+  const data = await api(`/api/public-profiles/${encodeURIComponent(handle)}`);
+  const p = data.profile;onRecord?.(p);
+  const links = Object.entries(p.ai_profile_links || {}).map(([name,url]) => `<a class="button secondary small" href="${esc(url)}" rel="me noopener" target="_blank">${esc(name)}</a>`).join('');
+  const claimHref = marketingHref(`/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile&ref=profile_${encodeURIComponent(p.handle)}`, { utm_source: 'profile', utm_medium: 'cta', utm_campaign: 'profile_claim', utm_content: 'public_profile' });
+  return `<main id="main" class="page-width public-profile"><section class="panel profile-hero">${avatar(p,'large')}<p class="eyebrow">@${esc(p.handle)}</p><h1>${esc(p.name || p.handle)}</h1>${p.public_email ? `<a class="contact-email" href="mailto:${encodeURIComponent(p.public_email)}">${esc(p.public_email)}</a>` : ''}${links ? `<div class="profile-links">${links}</div>` : ''}<div class="profile-claim"><p>${t('也想拥有自己的独立 AI 身份？注册一个独一无二的名字，创建你的个人主页。','Want your own independent AI identity? Register a unique name and create your personal homepage.')}</p><a class="button" href="${claimHref}" data-nav>${t('注册我的名字','Register my name')}${icon('arrow')}</a></div></section><section class="panel markdown"><h2>${t('个人介绍','About')}</h2>${p.resume_html || `<p class="help">${t('这个人还没有填写公开介绍。','This person has not added a public introduction yet.')}</p>`}</section></main>`;
+}
+function employerLandingPage() {
+  const contact=contactMailto('HireFerry 招聘合作');
+  const postHref=marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew',{utm_source:'employer_landing',utm_medium:'cta',utm_campaign:'employer_cta',utm_content:'hero'});
+  const templateHref=marketingHref('/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew%3Ftemplate%3Dopensource',{utm_source:'employer_landing',utm_medium:'cta',utm_campaign:'employer_cta',utm_content:'opensource_template'});
+  const directoryHref=marketingHref('/discover',{utm_source:'employer_landing',utm_medium:'cta',utm_campaign:'employer_cta',utm_content:'directory'});
+  return `<main id="main" class="page-width employer-landing"><section class="employer-hero"><div class="employer-hero-copy"><p class="eyebrow">FOR RECRUITERS · PERMANENTLY FREE</p><h1>${t('AI 自动筛简历，少收一堆不匹配简历。','AI resume screening, with fewer mismatched résumés.')}</h1><p>${t('招聘方永久免费发布岗位，欢迎在成功招到人后捐赠支持。写清业务、赛道和真正要解决的问题，求职者和 AI 都能直接理解你的需求。','Role publishing is permanently free; donations are welcome when HireFerry helps you hire. Describe the business, niche and real problem so candidates and AI can understand the role.')}</p><div class="employer-hero-actions"><a href="${esc(postHref)}" data-nav class="button">${t('免费发布一个岗位','Post one role free')}${icon('arrow')}</a><a href="${esc(templateHref)}" data-nav class="button secondary">${t('用开源岗位模板开始','Start with an open-source template')}</a><a href="${esc(directoryHref)}" data-nav class="button secondary">${t('先看公开目录','View public directory')}</a></div><ul class="employer-proof-chips" aria-label="${t('招聘方永久免费权益','Permanent free recruiter benefits')}"><li>${t('永久免费发布','Permanent free publishing')}</li><li>${t('无需月费','No monthly fee')}</li><li>${t('仅公开主动发布内容','Only your explicit public content')}</li></ul></div><aside class="employer-hero-card"><p class="pricing-kicker">${t('招聘方现在得到什么','WHAT YOU GET')}</p><h2>${t('永久免费、公开、可被 AI 读取','Permanent free, public and AI-readable')}</h2><ul><li>${t('岗位发布和账户开通永久免费','Permanent free activation and role publishing')}</li><li>${t('只公开你明确发布的岗位内容','Only the role content you explicitly publish is public')}</li><li>${t('公开 MCP 让 AI 直接检索岗位','Public MCP lets AI search the role directly')}</li></ul><details class="section-disclosure employer-template-preview"><summary>${t('开源模板会帮你填什么？','What does the open-source template cover?')}</summary><div class="disclosure-content"><ul><li>${t('项目问题与真实用户','The project problem and real users')}</li><li>${t('职责、公开代码/issue/文档/release 证据','Responsibilities and public code, issue, documentation, or release evidence')}</li><li>${t('远程方式、时区和申请材料','Working arrangement, time zone, and application evidence')}</li></ul></div></details><a class="text-button" href="${esc(contact)}">${t('需要协助导入岗位？联系团队','Need help importing a role? Contact us')} ${icon('arrow')}</a></aside></section><section class="employer-benefit-grid"><article><span class="employer-step">01</span><h2>${t('写清真实问题','Describe the real problem')}</h2><p>${t('不要只填职位名称。补充业务方向、目标用户、关键职责和经验边界，减少无效申请。','Go beyond a title. Add the business, users, responsibilities and experience boundaries to reduce noise.')}</p></article><article><span class="employer-step">02</span><h2>${t('公开一个岗位','Publish one role')}</h2><p>${t('岗位可以先公开一个版本，随时调整招聘人数；发布费用为 0。','Start with one public version and adjust the hiring target later. Publication costs 0.')}</p></article><article><span class="employer-step">03</span><h2>${t('让 AI 帮你匹配','Let AI find the fit')}</h2><p>${t('求职者可以直接浏览，AI 也可以通过免费 MCP 读取明确公开的岗位。','Candidates can browse directly, and AI can read explicitly public roles through the free MCP.')}</p></article></section><section class="employer-proof"><div><p class="eyebrow">${t('清晰的边界','CLEAR BOUNDARIES')}</p><h2>${t('公开岗位，不公开私聊。','Public roles, private conversations.')}</h2></div><p>${t('公开目录只包含你主动发布且仍在招聘中的岗位。账户邮箱、订单、匹配历史和私聊不会因为公开岗位而开放。','The public directory includes only roles you deliberately publish while hiring. Account email, orders, match history and private conversations stay private.')}</p></section><section class="employer-proof employer-search-intent"><div><p class="eyebrow">${t('你可能正在寻找','SEARCH INTENT')}</p><h2>${t('AI 自动筛简历，先看公开证据。','AI resume screening that starts with public evidence.')}</h2></div><p>${t('如果你在找 BOSS 直聘自动筛简历、AI 自动筛简历、智能简历筛选或人岗匹配工具，HireFerry 不是 BOSS 直聘插件，也不抓取第三方简历、不自动打招呼；它提供自己的公开岗位和公开主页，只有本人主动公开的内容才会被 AI 读取。','If you are looking for BOSS Zhipin resume screening, AI resume screening, intelligent candidate filtering or job matching, HireFerry is not a BOSS Zhipin plug-in and does not scrape third-party résumés or send automatic greetings. It provides its own public roles and profiles, and AI reads only what people explicitly publish.')}</p></section></main>`;
+}
+function jobToolsLandingPage() {
+  const seekerHref=marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile',{utm_source:'job_tools',utm_medium:'landing',utm_campaign:'local_first_integration',utm_content:'seeker'});
+  const employerHref=marketingHref('/for-employers',{utm_source:'job_tools',utm_medium:'landing',utm_campaign:'local_first_integration',utm_content:'employer'});
+  const directoryHref=marketingHref('/discover',{utm_source:'job_tools',utm_medium:'landing',utm_campaign:'local_first_integration',utm_content:'directory'});
+  const docs=`${String(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry').replace(/\/$/,'')}/blob/main/docs/mcp-public.md`;
+  return `<main id="main" class="page-width job-tools-landing"><section class="job-tools-hero"><div><p class="eyebrow">FOR LOCAL-FIRST JOB TOOLS · MCP READY</p><h1>${t('让本地工具负责私密投递，让公开层负责被发现。','Let local tools keep applications private. Let the public layer make people discoverable.')}</h1><p>${t('JobSync、Ollama、CLI 和 Agent 可以继续保存草稿、投递记录和私密简历。HireFerry 只接收用户明确公开的主页与岗位，让人与 AI 都能找到真实、可验证的机会。','JobSync, Ollama, CLIs and Agents can keep drafts, applications and private résumés local. HireFerry only receives profiles and roles people explicitly publish, so people and AI can find real, verifiable opportunities.')}</p><div class="job-tools-actions"><a class="button" href="${esc(directoryHref)}" data-nav>${t('查看公开目录','View public directory')}${icon('arrow')}</a><a class="button secondary" href="${esc(seekerHref)}" data-nav>${t('创建公开主页','Create a public profile')}${icon('person')}</a></div><ul class="job-tools-proof" aria-label="${t('本地优先接入边界','Local-first integration boundaries')}"><li>${t('私密资料留在本地','Private data stays local')}</li><li>${t('公开由用户主动选择','Publishing is explicit')}</li><li>${t('公共 MCP 只读','Public MCP is read-only')}</li></ul></div><aside class="job-tools-hero-card"><p class="pricing-kicker">${t('互补关系','COMPLEMENTARY LAYERS')}</p><h2>${t('你的工具继续管理过程，HireFerry 提供公开发现。','Your tool manages the process. HireFerry provides public discovery.')}</h2><div class="job-tools-layer"><span>01</span><div><strong>${t('本地层','Local layer')}</strong><p>${t('目标、草稿、投递记录、Ollama 数据和私密会话。','Goals, drafts, applications, Ollama data and private conversations.')}</p></div></div><div class="job-tools-layer"><span>02</span><div><strong>${t('公开层','Public layer')}</strong><p>${t('主动公开的主页、岗位、README 徽章和只读 MCP。','Explicitly public profiles, roles, README badges and read-only MCP.')}</p></div></div></aside></section><section class="job-tools-grid"><article><span class="job-tools-step">01</span><h2>${t('保留你的隐私边界','Keep your privacy boundary')}</h2><p>${t('不需要把完整简历、投递历史或第三方服务凭据同步给 HireFerry。只公开你愿意被发现的字段。','You do not need to sync a full résumé, application history or third-party credentials. Publish only the fields you want discovered.')}</p></article><article><span class="job-tools-step">02</span><h2>${t('公开一份可验证的证据','Publish verifiable evidence')}</h2><p>${t('求职者可以公开目标、项目证据和 AI profile；招聘方可以免费发布明确的岗位要求。','Seekers can publish goals, project evidence and AI profiles. Employers can publish clear role requirements for free.')}</p></article><article><span class="job-tools-step">03</span><h2>${t('让 AI 读取同一份公开信息','Let AI read the same public data')}</h2><p>${t('公共 MCP 无需登录、只读，只返回明确公开的岗位和简历。查看工具说明与 curl 示例。','Public MCP needs no login, is read-only, and returns only explicitly public roles and résumés. Read the tool guide and curl examples.')}</p><a class="text-button" href="${esc(docs)}" target="_blank" rel="noopener noreferrer">${t('查看 MCP 文档','Read MCP docs')}${icon('arrow')}</a></article></section><section class="job-tools-cta"><div><p class="eyebrow">${t('适合开源作者、Agent 开发者和求职工具维护者','FOR OPEN-SOURCE AUTHORS, AGENT BUILDERS AND JOB TOOL MAINTAINERS')}</p><h2>${t('先互相链接，再决定是否深度集成。','Start with links. Decide on deeper integration later.')}</h2><p>${t('你可以继续维护自己的工作流；HireFerry 只补上公开主页、公开岗位和 AI 可读目录这一段。','Keep your own workflow. HireFerry fills the public profile, public role and AI-readable directory gap.')}</p></div><div class="job-tools-cta-actions"><a class="button" href="${esc(employerHref)}" data-nav>${t('招聘方免费发布岗位','Post a role free')}${icon('briefcase')}</a><a class="button secondary" href="${esc(directoryHref)}" data-nav>${t('浏览公开机会','Browse public opportunities')}${icon('arrow')}</a></div></section></main>`;
+}
+function publicSearchSummary(value) {return String(value||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,240);}
+function publicDirectoryQuery(tab,{resetPage=false}={}) {const p=new URLSearchParams();p.set('tab',tab);if(qs().get('q'))p.set('q',qs().get('q'));if(!resetPage&&qs().get('page'))p.set('page',qs().get('page'));return p;}
+function publicMcpEndpoint() {return `${location.origin}/mcp/public`;}
+function publicMcpExample() {return `curl ${publicMcpEndpoint()} \\
+  -H 'Content-Type: application/json' \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hireferry_public_search_jobs","arguments":{"q":"Rust backend","page":1}}}'`;}
+function publicMcpCard() {
+  const endpoint=publicMcpEndpoint(),example=publicMcpExample();
+  const docs=`${String(state.config?.source_url||'https://github.com/TokenNotIncluded/hireferry').replace(/\/$/,'')}/blob/main/docs/mcp-public.md`;
+  const tools=['hireferry_public_get_site_config','hireferry_public_search_jobs','hireferry_public_get_job','hireferry_public_search_people','hireferry_public_get_person'];
+  return `<aside class="public-directory-note public-mcp-card" aria-labelledby="public-mcp-title"><span>${icon('bot')}</span><div><strong id="public-mcp-title">${t('给 AI 的入口','For AI agents')}</strong><p>${t('无需登录 · 只读 · 只返回本人明确公开的岗位和简历。这个地址是 POST-only 接口，不能直接当网页打开。','No login · read-only · only explicitly public roles and résumés. This is a POST-only endpoint, not a web page.')}</p><div class="public-mcp-endpoint"><code>${esc(endpoint)}</code><button type="button" class="button secondary small" data-action="copy-public-mcp" data-copy="${esc(endpoint)}">${icon('copy')}${t('复制地址','Copy endpoint')}</button></div><div class="public-mcp-actions"><button type="button" class="button secondary small" data-action="copy-public-mcp-example" data-copy="${esc(example)}">${icon('copy')}${t('复制请求示例','Copy request')}</button><a class="text-button" href="${esc(docs)}" target="_blank" rel="noopener noreferrer">${t('查看工具说明','View tool guide')} ${icon('arrow')}</a><a class="text-button" href="/for-job-tools" data-nav>${t('本地求职工具如何接入','Local job-tool integration')} ${icon('arrow')}</a></div><details class="public-mcp-tools"><summary>${t('查看 5 个公开工具','View 5 public tools')}</summary><ul>${tools.map(name=>`<li><code>${name}</code></li>`).join('')}</ul></details><details class="public-mcp-example"><summary>${t('查看 curl 示例','View curl example')}</summary><pre><code>${esc(example)}</code></pre></details></div></aside>`;
+}
+function publicDirectoryCta(placement='directory') {
+  const seekerHref=marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile',{utm_source:'directory',utm_medium:'cta',utm_campaign:'directory_cta',utm_content:'profile'});
+  const employerHref=marketingHref(`/for-employers?utm_source=directory&utm_campaign=employer_cta&utm_content=${encodeURIComponent(placement)}`,{utm_medium:'cta'});
+  return `<section class="public-directory-cta" aria-labelledby="public-directory-cta-title"><div><p class="eyebrow">${t('下一步 · 永久免费','NEXT STEP · PERMANENTLY FREE')}</p><h2 id="public-directory-cta-title">${t('找到方向后，把自己也放进公开目录。','Once you find your direction, put yourself on the public directory.')}</h2><p>${t('求职者可以注册独一无二的名字并公开个人主页；招聘方可以永久免费发布岗位。AI 会读取你明确公开的内容。','Job seekers can claim a unique name and publish a homepage. Employers can publish roles permanently free. AI reads only what you explicitly make public.')}</p></div><div class="public-directory-cta-actions"><a href="${esc(seekerHref)}" data-nav class="button">${t('创建我的公开主页','Create my public profile')}${icon('arrow')}</a><a href="${esc(employerHref)}" data-nav class="button secondary">${t('发布免费岗位','Post a free role')}${icon('arrow')}</a></div></section>`;
+}
+function publicDirectorySkeleton(path=location.pathname) {
+  const detail=path!=='/discover';
+  return `<main id="main" class="page-width public-directory public-directory-loading" aria-busy="true"><div class="sr-only" role="status" aria-live="polite">${t('正在加载公开目录','Loading public directory')}</div><header class="public-directory-hero"><div><p class="eyebrow">${t('聘渡 · 公开目录','HIREFERRY · OPEN DIRECTORY')}</p><span class="skeleton-line skeleton-title" aria-hidden="true"></span><span class="skeleton-line" aria-hidden="true"></span><span class="skeleton-line short" aria-hidden="true"></span></div></header>${detail?'<section class="public-directory-panel public-directory-skeleton-detail"><span class="skeleton-line skeleton-title" aria-hidden="true"></span><span class="skeleton-line" aria-hidden="true"></span><span class="skeleton-line" aria-hidden="true"></span><span class="skeleton-block" aria-hidden="true"></span></section>':'<nav class="public-directory-tabs" aria-label="'+t('公开目录','Public directory')+'"><span class="skeleton-pill" aria-hidden="true"></span><span class="skeleton-pill" aria-hidden="true"></span></nav><section class="public-directory-panel"><span class="skeleton-input" aria-hidden="true"></span><div class="public-directory-skeleton-list"><span class="skeleton-block" aria-hidden="true"></span><span class="skeleton-block" aria-hidden="true"></span></div></section>'}</main>`;
+}
+async function publicDirectoryPage() {
+  const tab=qs().get('tab')==='people'?'people':'jobs',query=publicDirectoryQuery(tab),q=query.get('q')||'';
+  const context=new URLSearchParams([...query].filter(([key])=>key!=='tab'));
+  const suffix=context.size?`?${context}`:'';
+  const result=await api(`/api/public/${tab}${suffix}`);
+  const items=result.items||[];
+  const detailHref=(kind,id)=>`/discover/${kind}/${encodeURIComponent(id)}${suffix}`;
+  const tabs=`<nav class="public-directory-tabs" aria-label="${t('公开目录','Public directory')}">${[['jobs','briefcase',t('公开岗位','Public roles')],['people','person',t('公开简历','Public résumés')]].map(([key,ico,label])=>`<a class="${tab===key?'active':''}" href="/discover?${esc(publicDirectoryQuery(key,{resetPage:true}))}" data-nav ${tab===key?'aria-current="page"':''}>${icon(ico)}${label}</a>`).join('')}</nav>`;
+  const cards=tab==='jobs'?items.map(job=>{
+    const href=detailHref('jobs',job.id);
+    return `<article class="public-directory-card" itemscope itemtype="https://schema.org/JobPosting">
+      <span class="public-directory-mark" aria-hidden="true">${icon('briefcase')}</span>
+      <div class="public-directory-card-main">
+        <p class="public-directory-owner" itemprop="hiringOrganization">${esc(job.employer?.name||t('公开招聘方','Public employer'))}</p>
+        <h2 itemprop="title"><a href="${esc(href)}" data-nav>${esc(job.title)}</a></h2>
+        <p class="public-directory-meta"><span class="public-directory-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></span><span>${t('招聘','Hiring')} ${Number(job.headcount||0).toLocaleString(state.lang==='en'?'en-US':'zh-CN')} ${t('人','people')}</span></p>
+        <p class="public-directory-summary" itemprop="description">${esc(publicSearchSummary(job.jd_html||job.jd_md))}</p>
+        <p class="public-directory-card-footnote"><span itemprop="datePosted">${date(job.created_at)}</span>${job.updated_at?`<span>${jobUpdatedText(job)}</span>`:''}</p>
+      </div>
+      <a class="button secondary small" href="${esc(href)}" data-nav aria-label="${esc(t('查看岗位：','View role: ')+job.title)}">${t('查看岗位','View role')}${icon('arrow')}</a>
+    </article>`;
+  }).join(''):items.map(person=>{
+    const href=detailHref('people',person.handle),name=person.name||person.handle;
+    return `<article class="public-directory-card" itemscope itemtype="https://schema.org/Person">
+      <span class="public-directory-mark" aria-hidden="true">${icon('person')}</span>
+      <div class="public-directory-card-main">
+        <p class="public-directory-owner">@${esc(person.handle)}</p>
+        <h2 itemprop="name"><a href="${esc(href)}" data-nav>${esc(name)}</a></h2>
+        <p class="public-directory-meta"><span>${t('公开链接','Public links')} ${Object.keys(person.ai_profile_links||{}).length}</span><span>${t('更新于','Updated')} ${date(person.updated_at||person.created_at)}</span></p>
+        <p class="public-directory-summary" itemprop="description">${esc(publicSearchSummary(person.resume_html||person.resume_md))}</p>
+      </div>
+      <a class="button secondary small" href="${esc(href)}" data-nav aria-label="${esc(t('查看简历：','View résumé: ')+name)}">${t('查看简历','View résumé')}${icon('arrow')}</a>
+    </article>`;
+  }).join('');
+  const searchLabel=tab==='jobs'?t('搜索公开岗位','Search public roles'):t('搜索公开简历','Search public résumés');
+  const searchForm=`<form data-form="public-directory-search" class="public-directory-search" role="search" aria-label="${searchLabel}"><label class="sr-only" for="public-directory-q">${searchLabel}</label><div class="public-directory-search-field"><span aria-hidden="true">${icon('search')}</span><input id="public-directory-q" class="input" name="q" type="search" value="${esc(q)}" maxlength="100" placeholder="${esc(tab==='jobs'?t('岗位、技能或公司','Role, skill or company'):t('姓名、技能或经历','Name, skill or experience'))}" autocomplete="off" enterkeyhint="search"></div><button class="button" type="submit"><span>${t('搜索','Search')}</span>${icon('arrow')}</button></form>`;
+  const count=t(`共 ${Number(result.total||0).toLocaleString('zh-CN')} ${tab==='jobs'?'个公开岗位':'份公开简历'}`,`${Number(result.total||0).toLocaleString('en-US')} ${tab==='jobs'?'public roles':'public résumés'}`);
+  const clearLink=`<a href="/discover?tab=${tab}" data-nav class="public-directory-clear">${icon('close')}${t('清除搜索','Clear search')}</a>`;
+  const emptyAction=q?`<a href="/discover?tab=${tab}" data-nav class="button secondary small">${t('清除搜索','Clear search')}${icon('arrow')}</a>`:tab==='people'?`<a href="${esc(marketingHref('/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile',{utm_source:'directory',utm_medium:'cta',utm_campaign:'directory_empty',utm_content:'profile'}))}" data-nav class="button secondary small">${t('创建我的公开主页','Create my public homepage')}${icon('arrow')}</a>`:`<a href="${esc(marketingHref('/for-employers?utm_source=directory&utm_campaign=employer_cta&utm_content=empty_state',{utm_medium:'cta'}))}" data-nav class="button secondary small">${t('发布免费岗位','Post a free role')}${icon('arrow')}</a>`;
+  const emptyIcon=q?'search':tab==='people'?'person':'briefcase';
+  const emptyTitle=q
+    ? t('还没找到合适的结果','No matches just yet')
+    : tab==='jobs'
+      ? t('新的机会，正在路上','New opportunities are on the way')
+      : t('成为这里的第一份公开简历','Be the first public profile here');
+  const emptyDescription=q
+    ? t('试试更短的关键词，或清除搜索条件，看看全部公开内容。','Try a shorter keyword, or clear your search to explore all public listings.')
+    : tab==='jobs'
+      ? t('目前暂无公开岗位。招聘方发布并保持招聘中的岗位会出现在这里。','There are no public roles yet. Published roles that are still hiring appear here.')
+      : t('目前暂无公开简历。只有本人主动公开的个人主页才会出现在这里。','There are no public profiles yet. Only profiles people choose to publish appear here.');
+  const listContent=cards||empty(emptyTitle,emptyDescription,emptyAction,emptyIcon);
+  return `<main id="main" class="page-width public-directory">
+    <header class="public-directory-hero"><div><p class="eyebrow">${t('聘渡 · 公开目录','HIREFERRY · OPEN DIRECTORY')}</p><h1>${t('发现下一程。','Find your next chapter.')}</h1><p>${t('从公开的岗位与经历出发，让合适的人与机会相遇。','Explore public roles and real experience. Find where you belong.')}</p></div><p class="public-directory-assurance">${icon('globe')}<span>${t('无需登录，自由浏览','Open to explore. No sign-in needed.')}<small>${t('只展示本人主动公开的内容','Only content people choose to make public')}</small></span></p></header>
+    <section class="public-directory-panel" aria-labelledby="public-results-count"><div class="public-directory-controls">${tabs}${searchForm}</div><div class="public-directory-toolbar"><p id="public-results-count" class="results-count" role="status" aria-live="polite">${count}${q?`<span class="public-directory-query">${t('搜索：','Search: ')}“${esc(q)}”</span>`:''}</p>${q?clearLink:`<span class="public-directory-privacy">${t('公开信息 · 自主选择','Public information · Your choice')}</span>`}</div><div class="public-directory-list">${listContent}</div>${pagination(result.total||0,result.limit)}</section>
+    ${publicDirectoryCta('directory')}${publicMcpCard()}
+  </main>`;
+}
+async function publicJobPage(id,onRecord) {const job=await api(`/api/public/jobs/${encodeURIComponent(id)}`);onRecord?.(job);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:job});const link=`${location.origin}/discover/jobs/${encodeURIComponent(job.id)}`,shareText=t(`公开岗位：${job.title}。在聘渡查看岗位详情。`,`Open role: ${job.title}. View the details on HireFerry.`);return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?${esc(publicDirectoryQuery('jobs'))}" data-nav>${icon('back')}${t('返回公开岗位','Back to public roles')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/JobPosting"><p class="eyebrow">${t('公开岗位 · 正在招聘','PUBLIC ROLE · HIRING')}</p>${job.updated_at?`<p class="help">${jobUpdatedText(job)}</p>`:''}<h1 itemprop="title">${esc(job.title)}</h1><p class="public-directory-meta"><span>${esc(job.employer?.name||t('公开招聘方','Public employer'))}</span><span>${money(job.salary_cents,job)} / ${t('月，底薪','month, base')}</span><span>${t('招聘','Hiring')} ${Number(job.headcount||0).toLocaleString(state.lang==='en'?'en-US':'zh-CN')} ${t('人','people')}</span></p><div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(job.title)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享岗位','Share role')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制岗位链接','Copy role link')}</button></div><article class="markdown" itemprop="description">${job.jd_html||`<p class="help">${t('招聘方尚未补充岗位详情。','The recruiter has not added more role details yet.')}</p>`}</article>${jobInteractions().placeholder(job)}</article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
+async function publicPersonPage(handle,onRecord) {const person=await api(`/api/public/people/${encodeURIComponent(handle)}`);onRecord?.(person);syncPageMetadata({doc:document,path:location.pathname,lang:state.lang,config:state.config,origin:location.origin,publicRecord:person});const link=`${location.origin}/discover/people/${encodeURIComponent(person.handle)}`,shareTitle=person.name||person.handle,shareText=t(`看看 ${shareTitle} 的公开求职主页。`,`View ${shareTitle}'s public HireFerry profile.`);const links=Object.entries(person.ai_profile_links||{}).map(([name,url])=>`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="me noopener noreferrer" aria-label="${esc(t(`在新标签页打开 ${name} 主页`,`Open ${name} profile in a new tab`))}">${esc(name)}</a>`).join('');return `<main id="main" class="page-width public-directory-detail"><a class="back-link" href="/discover?${esc(publicDirectoryQuery('people'))}" data-nav>${icon('back')}${t('返回公开简历','Back to public résumés')}</a><div class="public-directory-detail-layout"><article class="public-directory-detail-card" itemscope itemtype="https://schema.org/Person">${avatar(person,'large')}<p class="eyebrow">${t('公开简历','PUBLIC RÉSUMÉ')} · @${esc(person.handle)}</p><h1 itemprop="name">${esc(person.name||person.handle)}</h1>${person.public_email?`<p class="contact-email"><strong>${t('公开联系邮箱','Public contact email')}</strong><a href="mailto:${encodeURIComponent(person.public_email)}">${esc(person.public_email)}</a></p>`:''}${links?`<div class="profile-links">${links}</div>`:''}<div class="public-link-actions"><button type="button" class="button small" data-action="share-public-link" data-copy="${esc(link)}" data-share-title="${esc(shareTitle)}" data-share-text="${esc(shareText)}">${icon('send')}${t('分享主页','Share homepage')}</button><button type="button" class="button secondary small public-copy-link" data-action="copy-public-link" data-copy="${esc(link)}">${icon('copy')}${t('复制公开主页','Copy public homepage')}</button></div><article class="markdown" itemprop="description">${person.resume_html||''}</article></article><aside class="public-detail-aside">${publicDirectoryCta('detail_sidebar')}${publicMcpCard()}</aside></div></main>`;}
+const profileLinkPresets=[['chatgpt','ChatGPT','ChatGPT','https://chatgpt.com/…'],['grok','Grok','Grok','https://grok.com/…'],['claude','Claude','Claude','https://claude.ai/…'],['gemini','Gemini','Gemini','https://gemini.google.com/…'],['perplexity','Perplexity','Perplexity','https://perplexity.ai/…'],['github','GitHub','GitHub','https://github.com/…'],['x','X','X','https://x.com/…']];
+const profileLinkPresetNames=new Set(profileLinkPresets.map(([name])=>name));
+function customProfileLinkRow(label='',url='') {return `<div class="custom-profile-link-row" data-custom-profile-link><div class="custom-profile-link-fields"><label class="field"><span>${t('链接名称','Link name')}</span><input class="input" data-custom-link-label maxlength="32" value="${esc(label)}" placeholder="${esc(t('例如：个人网站','For example: Personal site'))}"></label><label class="field"><span>${t('链接地址','Link URL')}</span><input class="input" data-custom-link-url type="url" maxlength="2048" value="${esc(url)}" placeholder="https://..."></label></div><button type="button" class="icon-button danger-text" data-action="remove-profile-link" aria-label="${esc(t('删除这个链接','Remove this link'))}" title="${esc(t('删除这个链接','Remove this link'))}">${icon('trash')}</button></div>`;}
+function profileLinkFields(links) {return profileLinkPresets.map(([name,zh,en,placeholder])=>`<label class="field"><span>${t(zh,en)}</span><input class="input" name="ai_${name}" form="profile-form" type="url" value="${esc(links[name]||'')}" placeholder="${esc(placeholder)}"></label>`).join('');}
+function customProfileLinks(links) {const entries=Object.entries(links).filter(([name])=>!profileLinkPresetNames.has(name));return `<section class="custom-profile-links-section" aria-labelledby="custom-profile-links-title"><div class="custom-profile-links-heading"><div><h3 id="custom-profile-links-title">${t('更多公开链接','More public links')}</h3><p class="help">${t('可以添加多个个人网站、博客、LinkedIn、作品集或其他公开主页。','Add multiple personal sites, blogs, LinkedIn, portfolios or other public pages.')}</p></div><button type="button" class="button secondary small" data-action="add-profile-link">${icon('plus')}${t('添加链接','Add link')}</button></div><div id="custom-profile-links" class="custom-profile-links-list">${entries.map(([name,url])=>customProfileLinkRow(name,url)).join('')}</div></section>`;}
 async function profilePage() {
-  const u=await api('/api/profile');
-  return shell(`${heading(u.role==='seeker'?t('我的简历','My résumé'):t('团队资料','Team profile'),t('资料仅平台与已匹配的对方可见，不会公开展示。','Your profile is visible only to HireFerry and an introduced counterpart.'),'',u.role==='seeker'?'YOUR RÉSUMÉ':'YOUR PROFILE')}<form data-form="profile"><details class="section-disclosure profile-section" data-disclosure="profile-basics" open><summary>${t('基本资料与联系方式','Profile & contact details')}</summary><div class="disclosure-content"><div class="avatar-editor">${avatar(u,'large')}<div><div class="field-label">${t('你的头像','Your avatar')}</div><div class="avatar-actions"><label class="upload-label">${icon('upload')}${t('上传图片','Upload image')}<input type="file" id="avatar-upload" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="text-button" data-action="svg-avatar">${t('使用 SVG 文本','Use SVG text')}</button></div><p class="help">${t('PNG、JPG 或 WebP。图片会移除附带信息。','PNG, JPG or WebP. Image metadata is removed.')}</p></div></div><div class="grid-2"><div class="field"><label for="profile-name">${t('显示名称','Display name')}</label><input class="input" id="profile-name" name="name" value="${esc(u.name)}" maxlength="100" required></div><div class="field"><label for="profile-email">${t('联系邮箱','Contact email')}</label><input class="input" id="profile-email" type="email" name="public_email" value="${esc(u.public_email)}" placeholder="hello@example.com" maxlength="254"><p class="help">${t('仅平台和已匹配的对方可以看到。','Only HireFerry and an introduced counterpart can see this address.')}</p></div></div>${notice(`${t('登录邮箱','Sign-in email')}: ${esc(u.email)}<br>${t('仅用于登录，不向匹配方展示。无需提供手机号。','Used only for sign-in and never shared with a match. No phone number required.')}`)}${u.role!=='seeker'?'<input type="hidden" name="resume_md" value="">':''}</div></details>${u.role==='seeker'?`<details class="section-disclosure profile-section" data-disclosure="profile-resume" open><summary>${t('经历与技能','Experience & skills')}</summary><div class="disclosure-content"><div class="tabs" role="tablist"><button type="button" data-action="resume-edit" role="tab" aria-selected="true">${t('编辑','Write')}</button><button type="button" data-action="resume-preview" role="tab" aria-selected="false">${t('预览','Preview')}</button></div><label class="field-label" for="resume-md">${t('简历内容','Résumé content')}</label><textarea id="resume-md" name="resume_md" class="input code resume-editor" maxlength="60000" placeholder="${esc(t('# 介绍一下自己\n\n## 我擅长的事\n- ...\n\n## 工作 / 项目经历\n- ...\n\n## 我期待的下一站\n...','# A little about me\n\n## What I do well\n- ...\n\n## Work / projects\n- ...\n\n## What comes next\n...'))}">${esc(u.resume_md)}</textarea><div id="resume-preview" class="markdown" hidden></div><p class="help resume-privacy">${icon('shield')}${t('匹配前，只有平台可以查看这份简历。','Before an introduction, only HireFerry can view this résumé.')}</p></div></details>`:''}<div class="form-actions"><p class="help">${t('不需要填写电话号码、身份证或家庭地址。','No phone number, identity document, or home address required.')}</p><button class="button" type="submit">${t('保存资料','Save profile')}${icon('check')}</button></div></form>`,'profile');
+  const [u,keyData,sessionData]=await Promise.all([api('/api/profile'),api('/api/auth/passkeys'),api('/api/auth/sessions')]),mail=u.email_notifications,sessions=sessionData.items||[];
+  const links=u.ai_profile_links||{};
+  const passkeys=keyData.passkeys||[];
+  const unclaimedHandle=isGeneratedHandle(u.handle);
+  const publicUrl=u.handle&&!unclaimedHandle?`${location.origin}/u/${u.handle}`:'';
+  const badgeUrl=publicUrl&&u.public_profile?`${location.origin}/badge.svg?label=${encodeURIComponent(u.handle)}&message=${encodeURIComponent('AI profile')}`:'';
+  const badgeTarget=publicUrl?`${publicUrl}?utm_source=readme_badge&utm_medium=profile&utm_campaign=profile_badge&utm_content=${encodeURIComponent(u.handle)}`:'';
+  const badgeMarkdown=badgeUrl?`[![${u.handle} AI profile](${badgeUrl})](${badgeTarget})`:'';
+  const profileSetup=unclaimedHandle?`<section class="panel profile-setup-callout" aria-labelledby="profile-setup-title"><p class="eyebrow">NEXT 3 STEPS · FREE</p><h2 id="profile-setup-title">${t('先把名字占下来，再决定公开。','Claim your name first, then decide whether to publish.')}</h2><p>${t('三步完成：注册唯一名字，写清你做过的项目，再打开公开主页。默认不会公开邮箱、私聊或匹配记录。','Three steps: claim a unique name, describe your projects, then choose whether to publish. Email, private chats and match history stay private by default.')}</p><ol><li>${t('注册唯一名字','Claim a unique name')}</li><li>${t('补充经历和公开链接','Add experience and public links')}</li><li>${t('自己决定是否公开','Choose whether to publish')}</li></ol></section>`:'';
+  const handleHelp=unclaimedHandle?t('当前是系统临时名。改成你想抢注的名字并保存，之后这个名字就是你的独立 AI 身份。','This is a temporary system name. Replace it with the name you want to claim, then save it as your independent AI identity.'):t('名字只能使用小写字母、数字、短横线或下划线，且必须独一无二。','Use lowercase letters, numbers, hyphens or underscores. The name must be unique.');
+  const profileExtras=`<section class="panel profile-public-settings"><h2>${t('个人主页','Personal homepage')}</h2><p class="help">${t('注册一个独一无二的用户名，决定是否公开你的个人主页。','Register a unique username and choose whether to publish your personal homepage.')}</p><div class="grid-2"><label class="field">${t('用户名','Username')}<input class="input" name="handle" form="profile-form" autofocus value="${esc(unclaimedHandle?suggestedHandle(u):u.handle||'')}" minlength="3" maxlength="32" pattern="[a-z0-9_-]+" autocomplete="username" placeholder="${esc(t('例如：lightdot','For example: lightdot'))}" required><span class="help">${unclaimedHandle?t(`根据你的资料生成建议名：${suggestedHandle(u)}。点击保存后才会真正抢注，你也可以先修改。`,`Suggested from your details: ${suggestedHandle(u)}. It is only claimed when you save; edit it first if you want.`):handleHelp}</span></label><label class="check-label"><input type="checkbox" name="public_profile" form="profile-form" ${u.public_profile?'checked':''}> ${t('公开个人主页','Publish my homepage')}</label></div>${publicUrl?`<div class="profile-share"><p class="help">${t('主页地址','Homepage')}: <a href="${esc(publicUrl)}" target="_blank" rel="noopener">${esc(publicUrl)}</a></p><button type="button" class="button secondary small" data-action="copy-profile-link" data-copy="${esc(publicUrl)}">${icon('copy')}${t('复制主页链接','Copy homepage link')}</button></div>`:''}${badgeMarkdown?`<div class="profile-badge-share"><div><strong>${t('README 徽章','README badge')}</strong><p class="help">${t('把这段 Markdown 放进项目 README，让别人直接找到你的公开主页。','Paste this Markdown into a project README so people can find your public homepage.')}</p><code>${esc(badgeMarkdown)}</code></div><button type="button" class="button secondary small" data-action="copy-profile-badge" data-copy="${esc(badgeMarkdown)}">${icon('copy')}${t('复制徽章','Copy badge')}</button></div>`:''}<section class="profile-link-section"><h3>${t('公开链接','Public links')}</h3><p class="help">${t('把 AI 主页、GitHub、X 和其他公开资料集中到你的主页。只有你填写的链接会公开。','Collect your AI profiles, GitHub, X and other public pages on your homepage. Only links you enter are public.')}</p><div class="grid-2">${profileLinkFields(links)}</div>${customProfileLinks(links)}</section>${unclaimedHandle?`<div class="profile-claim-actions"><button class="button" type="submit" form="profile-form">${t('保存名字并继续','Save name and continue')}${icon('arrow')}</button><span class="help">${t('先保存名字，下面的经历和公开链接可以稍后补充。','Save your name first. You can add experience and public links below.')}</span></div>`:''}</section>`;
+  const referral=u.referral||{};
+  const referralPanel=referral.url?`<section class="panel referral-panel"><div class="panel-header"><div><h2>${t('邀请同行','Invite people you trust')}</h2><p>${t('把这个链接分享给正在找工作或准备招人的朋友。注册免费，平台会用 AI 协助匹配。','Share this link with people looking for work or hiring. Sign-up is free, and HireFerry uses AI to help with matching.')}</p></div><span class="pill">${t(`已邀请 ${Number(referral.invited_count||0)} 人`,`Invited ${Number(referral.invited_count||0)}`)}</span></div><div class="profile-share"><code>${esc(referral.url)}</code><div class="profile-share-actions"><button type="button" class="button small" data-action="share-referral-link" data-copy="${esc(referral.url)}">${icon('arrow')}${t('直接分享','Share')}</button><button type="button" class="button secondary small" data-action="copy-referral-link" data-copy="${esc(referral.url)}">${icon('copy')}${t('复制链接','Copy link')}</button></div></div><p class="help">${t('邀请只记录新账户的来源，不会自动发送消息，也不会公开被邀请人的邮箱。','Invites only record the source of a new account. No messages are sent automatically, and invitees’ emails stay private.')}</p></section>`:'';
+  const emailChangeNotice=qs().get('email_change')==='confirmed'?notice(t('登录邮箱已完成换绑。','Your sign-in email has been changed successfully.')):qs().get('email_change')==='cancelled'?notice(t('邮箱换绑已取消，当前邮箱没有变化。','The email change was cancelled. Your current email is unchanged.'),'warning'):'';
+  const emailChangePanel=`<section class="panel email-change-panel"><div class="panel-header"><div><h2>${t('换绑登录邮箱','Change sign-in email')}</h2><p>${t('当前登录邮箱：','Current sign-in email:')} <strong>${esc(u.email)}</strong></p></div><span class="pill">${t('无需密码','Passwordless')}</span></div><p class="help">${t('填写新邮箱后，新邮箱会收到确认链接；当前邮箱会收到一个取消链接。只有点击新邮箱的确认链接后才会完成换绑。','The new email receives a confirmation link; the current email receives a cancellation link. The change completes only after the new email is confirmed.')}</p><form data-form="email-change"><div class="field"><label for="change-email">${t('新登录邮箱','New sign-in email')}</label><input class="input" id="change-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="new@example.com" required></div><div class="form-actions"><button type="submit" class="button secondary">${t('发送换绑邮件','Send change links')}${icon('arrow')}</button></div></form></section>`;
+  const emailSettings=`<section class="panel"><h2>${t('邮件通知','Email notifications')}</h2><p class="help">${mail.enabled?t('发送至登录邮箱，可随时关闭。','Sent to your sign-in email. You can turn them off anytime.'):t('平台尚未启用邮件通知。','Email notifications are not enabled yet.')}</p><p class="help">${t('系统每天检查一次你已匹配的岗位和匹配状态；如有变化会发一封摘要。关闭上方“岗位与匹配进展”即可停止此类邮件。','Once daily, the system checks roles already matched to you and their introductions. If something changes, it sends one summary. Turn off job and match updates above to stop these emails.')}</p><form data-form="email-preferences">${[['messages',t('新消息','New messages')],['matches',t('与你有关的岗位与匹配进展（含每日邮件）','Updates to your matched roles and introductions (includes daily email)')],['orders',t('订单动态','Order updates')],['platform',t('平台服务通知','Platform service notices')]].map(([key,label])=>`<label class="check-label"><input type="checkbox" name="${key}" ${mail.preferences[key]?'checked':''}> ${label}</label>`).join('')}<div class="form-actions"><button type="submit" class="button secondary">${t('保存通知设置','Save notification settings')}</button></div></form></section>`;
+  const passkeyPanel=`<section class="panel profile-passkeys"><div class="panel-header"><div><h2>${t('登录 Passkey','Sign-in passkeys')}</h2><p>${t('用设备指纹、面容、密码管理器或安全密钥快速登录。私密部分只保存在你的设备中。','Sign in with a fingerprint, face, password manager, or security key. The private part stays on your device.')}</p></div><span class="pill">WebAuthn</span></div>${passkeys.length?`<div class="list">${passkeys.map(key=>`<div class="list-row"><div><h3>${esc(key.name)}</h3><div class="list-meta"><span>${t('绑定于','Added')} ${date(key.created_at)}</span><span>${t('最近使用','Last used')} ${date(key.last_used_at)}</span></div></div><button type="button" class="text-button danger-text" data-action="delete-user-passkey" data-id="${esc(key.id)}">${t('删除','Remove')}</button></div>`).join('')}</div>`:empty(t('还没有绑定 Passkey。','No passkeys yet.'),t('绑定后，登录页可以直接使用设备验证。','After you add one, the login page can use device verification.'),'','key')}<hr><form data-form="user-passkey-register"><div class="field"><label for="user-passkey-name">${t('Passkey 名称','Passkey name')}</label><input class="input" id="user-passkey-name" name="name" maxlength="80" placeholder="${esc(t('例如：我的手机','For example: My phone'))}" required></div><input type="hidden" name="kind" value=""><div class="form-actions"><button class="button" type="submit">${icon('plus')}${t('绑定 Passkey','Add a passkey')}</button></div></form><p class="help">${t('Android 会打开 Google Password Manager，或系统设置中启用的密码管理器。网页不强制选择 provider；绑定和删除需要刚刚完成登录或重新登录。删除后仍可用邮箱或 Google 登录。','Android opens Google Password Manager or the password manager enabled in system settings. The web page does not force a provider choice. Adding or removing a passkey requires a recent sign-in; email or Google sign-in remains available after removal.')}</p></section>`;
+  const sessionPanel=`<section class="panel profile-sessions"><div class="panel-header"><div><h2>${t('登录会话','Sign-in sessions')}</h2><p>${t('查看这个账户在哪些浏览器登录，并撤销不再使用的会话。','See where this account is signed in and revoke sessions you no longer use.')}</p></div><span class="pill">${sessions.length}</span></div><div class="list">${sessions.map(item=>`<div class="list-row"><div><h3>${item.current?t('当前设备','Current device'):t('其他设备','Other device')}</h3><div class="list-meta"><span>${t('创建于','Created')} ${date(item.created_at)}</span><span>${t('有效至','Expires')} ${date(item.expires_at)}</span></div></div>${item.current?`<span class="status active">${t('正在使用','In use')}</span>`:`<button type="button" class="text-button danger-text" data-action="revoke-user-session" data-id="${esc(item.id)}">${t('撤销','Revoke')}</button>`}</div>`).join('')}</div>${sessions.length>1?`<div class="form-actions"><button type="button" class="button secondary" data-action="revoke-other-sessions">${t('撤销其他所有会话','Revoke all other sessions')}</button></div>`:''}</section>`;
+  return shell(`${profileSetup}${referralPanel}${heading(u.role==='seeker'?t('我的简历','My résumé'):t('团队资料','Team profile'),t('资料仅平台与已匹配的对方可见，不会公开展示。','Your profile is visible only to HireFerry and an introduced counterpart.'),'',u.role==='seeker'?'YOUR RÉSUMÉ':'YOUR PROFILE')}<form id="profile-form" data-form="profile"><details class="section-disclosure profile-section" data-disclosure="profile-basics" open><summary>${t('基本资料与联系方式','Profile & contact details')}</summary><div class="disclosure-content"><div class="avatar-editor">${avatar(u,'large')}<div><div class="field-label">${t('你的头像','Your avatar')}</div><div class="avatar-actions"><label class="upload-label">${icon('upload')}${t('上传图片','Upload image')}<input type="file" id="avatar-upload" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="text-button" data-action="svg-avatar">${t('使用 SVG 文本','Use SVG text')}</button></div><p class="help">${t('PNG、JPG 或 WebP。图片会移除附带信息。','PNG, JPG or WebP. Image metadata is removed.')}</p></div></div><div class="grid-2"><div class="field"><label for="profile-name">${t('显示名称','Display name')}</label><input class="input" id="profile-name" name="name" value="${esc(u.name)}" maxlength="100" required></div><div class="field"><label for="profile-email">${t('联系邮箱','Contact email')}</label><input class="input" id="profile-email" type="email" name="public_email" value="${esc(u.public_email)}" placeholder="hello@example.com" maxlength="254"><p class="help">${t('仅平台和已匹配的对方可以看到。','Only HireFerry and an introduced counterpart can see this address.')}</p></div></div>${notice(`${t('登录邮箱','Sign-in email')}: ${esc(u.email)}<br>${t('仅用于登录，不向匹配方展示。无需提供手机号。','Used only for sign-in and never shared with a match. No phone number required.')}`)}${u.role!=='seeker'?'<input type="hidden" name="resume_md" value="">':''}</div></details>${u.role==='seeker'?`<details class="section-disclosure profile-section" data-disclosure="profile-resume" open><summary>${t('经历与技能','Experience & skills')}</summary><div class="disclosure-content"><div class="tabs" role="tablist"><button type="button" data-action="resume-edit" role="tab" aria-selected="true">${t('编辑','Write')}</button><button type="button" data-action="resume-preview" role="tab" aria-selected="false">${t('预览','Preview')}</button></div><label class="field-label" for="resume-md">${t('简历内容','Résumé content')}</label><textarea id="resume-md" name="resume_md" class="input code resume-editor" maxlength="60000" placeholder="${esc(t('# 介绍一下自己\n\n## 我擅长的事\n- ...\n\n## 工作 / 项目经历\n- ...\n\n## 我期待的下一站\n...','# A little about me\n\n## What I do well\n- ...\n\n## Work / projects\n- ...\n\n## What comes next\n...'))}">${esc(u.resume_md)}</textarea><div id="resume-preview" class="markdown" hidden></div><p class="help resume-privacy">${icon('shield')}${t('匹配前，只有平台可以查看这份简历。','Before an introduction, only HireFerry can view this résumé.')}</p></div></details>`:''}<div class="form-actions"><p class="help">${t('不需要填写电话号码、身份证或家庭地址。','No phone number, identity document, or home address required.')}</p><button class="button" type="submit">${t('保存资料','Save profile')}${icon('check')}</button></div></form>${profileExtras}${emailChangeNotice}${emailChangePanel}${sessionPanel}${passkeyPanel}${emailSettings}`,'profile');
 }
 async function myJobs() {
   const trash=qs().get('view')==='trash';
@@ -606,28 +965,38 @@ async function myJobs() {
   jobCache.clear();jobs.forEach(job=>jobCache.set(job.id,job));
   const actions=trash?`<a href="/app?tab=jobs" data-nav class="button secondary">${icon('back')}${t('返回我的岗位','Back to my roles')}</a>`:`<div class="jobs-page-actions"><a href="/app?tab=jobs&view=trash" data-nav class="button secondary">${icon('trash')}${t('回收站','Trash')}</a><a href="/app/jobs/new" data-nav class="button">${icon('plus')}${t('发布新岗位','Post a new role')}</a></div>`;
   const head=heading(trash?t('岗位回收站','Deleted roles'):t('我的招聘','My roles'),trash?t('首次删除的岗位可以免费恢复一次，或直接永久删除。恢复后再次删除将永久清除。','A role’s first deletion can be restored once for free, or made permanent. Deleting it again after restoration is permanent.'):t('管理岗位与招聘人数，由平台寻找并介绍合适的人。','Manage your roles and hiring targets. HireFerry finds and introduces people.'),actions,trash?'YOUR RECENTLY DELETED ROLES':'YOUR OPPORTUNITIES');
-  const rows=jobs.map(job=>`<article class="list-row job-row"><div class="job-row-main"><h3>${trash?esc(job.title):`<a href="/jobs/${encodeURIComponent(job.id)}" data-nav>${esc(job.title)}</a>`}</h3><div class="list-meta">${jobBadge(job)}<span class="job-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></span><span>${headcountText(job)}</span><span>${t('描述已修改','Description updates')} ${job.edits_used}</span></div><div class="row-actions job-row-links">${trash?`<button class="text-button" data-action="restore-job" data-id="${esc(job.id)}">${t('免费恢复','Restore for free')}</button><button class="text-button danger-text" data-action="permanently-delete-job" data-id="${esc(job.id)}">${t('永久删除','Delete permanently')}</button>`:`${job.status==='published'?`<a class="text-button" href="/app/jobs/${encodeURIComponent(job.id)}/edit" data-nav>${t('修改描述','Edit description')}</a>`:job.status==='draft'?`<a class="text-button" href="/app?tab=orders" data-nav>${t('查看待付订单','View pending order')} →</a>`:''}<button class="text-button ${Number(job.delete_count)>=1?'danger-text':''}" data-action="delete-job" data-id="${esc(job.id)}">${Number(job.delete_count)>=1?t('永久删除','Delete permanently'):t('删除岗位','Delete role')}</button>`}</div></div>${trash?'':headcountControl(job)}</article>`).join('');
+  const rows=jobs.map(job=>`<article class="list-row job-row"><div class="job-row-main"><h3>${trash?esc(job.title):`<a href="/jobs/${encodeURIComponent(job.id)}" data-nav>${esc(job.title)}</a>`}</h3><div class="list-meta">${jobBadge(job)}<span class="job-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></span><span>${headcountText(job)}</span><span>${t('描述已修改','Description updates')} ${job.edits_used}</span></div>${job.updated_at?`<p class="help">${jobUpdatedText(job)}</p>`:''}<div class="row-actions job-row-links">${trash?`<button class="text-button" data-action="restore-job" data-id="${esc(job.id)}">${t('免费恢复','Restore for free')}</button><button class="text-button danger-text" data-action="permanently-delete-job" data-id="${esc(job.id)}">${t('永久删除','Delete permanently')}</button>`:`${publicJobLinks(job)}${pauseJobControl(job)}${job.status==='published'?`<a class="text-button" href="/app/jobs/${encodeURIComponent(job.id)}/edit" data-nav>${t('修改描述','Edit description')}</a>`:job.status==='draft'?`<a class="text-button" href="/app?tab=orders" data-nav>${t('查看待付订单','View pending order')} →</a>`:''}<button class="text-button ${Number(job.delete_count)>=1?'danger-text':''}" data-action="delete-job" data-id="${esc(job.id)}">${Number(job.delete_count)>=1?t('永久删除','Delete permanently'):t('删除岗位','Delete role')}</button>`}</div></div>${trash?'':headcountControl(job)}</article>`).join('');
   return shell(`${head}${!trash&&!state.user.employer_paid?notice(`${t('招聘方账户尚未开通。请先开通账户，即可发布招聘。','Your employer account is not active. Activate it to publish roles.')} <button class="text-button" data-action="role-employer">${t('开通账户','Activate account')} →</button> <a class="text-button" href="/app?tab=promos" data-nav>${t('使用优惠码 / 申请优惠','Use a code / Apply for a promotion')}</a>`,'warning'):''}${!trash?`<details class="section-disclosure" data-disclosure="job-headcount-guide"><summary>${t('人数、暂停与恢复说明','Hiring targets, pausing & resuming')}</summary><div class="disclosure-content">${notice(t('人数可免费、无限次调整，不占描述修改次数。已发布岗位填 0 暂停新匹配，改回正数恢复；已有匹配和会话保留。人数由你手动维护。','Change the hiring target free of charge, as often as needed, without using a description update. For a published role, set 0 to pause new introductions; a positive number resumes them. Existing introductions and chats remain. You maintain the count yourself.'))}</div></details>`:''}<section class="panel"><div class="panel-header"><h2>${trash?t('岗位回收站','Role trash'):t('我的岗位','My roles')} <span class="muted">${jobs.length.toString().padStart(2,'0')}</span></h2><span class="new-label">${trash?t('可恢复一次','ONE RESTORATION'):t('底薪透明','BASE SALARY, UPFRONT')}</span></div>${jobs.length?`<div class="list">${rows}</div>${pagination(r.total??jobs.length,r.limit)}`:empty(trash?t('回收站是空的。','The trash is empty.'):t('第一个岗位，从这里开始。','Your first role starts here.'),trash?t('首次删除的岗位会显示在这里，永久删除的岗位无法恢复。','Roles appear here after their first deletion. Permanently deleted roles cannot be restored.'):t('写清工作内容、固定底薪与招聘人数，我们一起寻找合适的人。','Describe the work, fixed base salary, and hiring target. We’ll help find the right person.'),trash?'':`<a href="/app/jobs/new" data-nav class="button secondary">${icon('plus')}${t('创建岗位','Create a role')}</a>`,trash?'trash':'briefcase')}${trash?`<p class="help job-trash-note">${t('删除与恢复均不收费，也不自动退款。删除期间匹配资料与共同会话暂停访问，平台私聊保持独立；永久删除清除岗位标题与正文，保留必要订单和安全关联记录。','Deletion and restoration are free and do not trigger refunds. Deleted roles and shared rooms are inaccessible while in the trash; private platform chats stay separate. Permanent deletion erases the title and description while retaining necessary order and security records.')}</p>`:''}</section>`,'jobs');
+}
+function roleMismatchPage(expected='employer') {
+  const employer=expected==='employer';
+  const title=employer?t('当前账号是求职者身份','This account is a job seeker account'):t('当前账号是招聘方身份','This account is an employer account');
+  const detail=employer?t('岗位发布只对招聘方账号开放。请退出当前账号，再用招聘方账号登录后重试。','Posting roles is available only to employer accounts. Sign out, then sign in with an employer account and try again.'):t('求职功能只对求职者账号开放。请退出当前账号，再用求职者账号登录后重试。','Job-seeker features are available only to seeker accounts. Sign out, then sign in with a seeker account and try again.');
+  const loginPath=employer?'/login?role=employer&return_to=%2Fapp%2Fjobs%2Fnew':'/login?role=seeker&return_to=%2Fapp%3Ftab%3Dprofile';
+  return shell(`${heading(title,detail,'','ACCOUNT ROLE CHECK')}<section class="panel role-mismatch-panel"><div class="role-mismatch-icon">${icon(employer?'briefcase':'person')}</div><h2>${t('请切换账号后再试','Switch accounts to continue')}</h2><p class="help">${detail}</p><div class="form-actions"><button type="button" class="button" data-action="logout-switch-account" data-return-to="${esc(loginPath)}">${t('退出并切换账号','Sign out and switch account')}${icon('arrow')}</button><a href="/" data-nav class="button secondary">${t('先回首页','Back to home')}</a></div></section>`,state.user?.role==='seeker'?'profile':'jobs');
 }
 async function jobEditor(id) {
   let job=null,terms=null;
   if(id){const result=await api(`/api/jobs/${encodeURIComponent(id)}`);job=result.job;terms=result.terms;}
-  if(!state.user.employer_paid)return shell(`${heading(t('先开通，再出发。','Activate your account to begin.'))}<section class="panel">${empty(t('招聘方账户尚未开通','Your employer account is not active'),t(`开通费用为 ${money(pricing().onboarding_cents)}，开通后可以发布多个岗位。`,`Activation costs ${money(pricing().onboarding_cents)}. Once activated, you can post multiple roles.`),`<div class="promo-entry"><button class="button" data-action="role-employer">${t('开通账户','Activate account')}</button><a class="text-button" href="/app?tab=promos" data-nav>${t('使用优惠码 / 申请优惠','Use a code / Apply for a promotion')}</a></div>`,'briefcase')}</section>`,'jobs');
+  if(!state.user.employer_paid)return shell(`${heading(t(donationMode()?'永久免费，马上开始。':'先开通，再出发。',donationMode()?'Free forever. Start now.':'Activate your account to begin.'))}<section class="panel">${empty(t('招聘方账户尚未开通','Your employer account is not active'),donationMode()?t('招聘方永久免费开通，岗位发布和修改也不收费。','Employer activation is free forever; posting and edits are free too.'):Number(pricing().onboarding_minor??pricing().onboarding_cents)===0?t('早期阶段免费开通，之后可以发布多个岗位。','Free early access includes multiple roles.'):t(`开通费用为 ${money(pricing().onboarding_cents)}，开通后可以发布多个岗位。`,`Activation costs ${money(pricing().onboarding_cents)}. Once activated, you can post multiple roles.`),`<div class="promo-entry"><button class="button" data-action="role-employer">${t(donationMode()?'永久免费开通':'开通账户',donationMode()?'Activate for free forever':'Activate account')}</button><a class="text-button" href="/app?tab=promos" data-nav>${t(donationMode()?'捐赠模式无需付款':'使用优惠码 / 申请优惠',donationMode()?'No payment in donation mode':'Use a code / Apply for a promotion')}</a></div>`,'briefcase')}</section>`,'jobs');
+  const template=qs().get('template');
+  const openSourcePreset={title:t('开源项目维护者 / 开源贡献者','Open-source maintainer / contributor'),jd:t(`## 项目与真实问题\n\n请说明项目解决什么问题、当前用户是谁，以及这份岗位要推进的具体工作。\n\n## 你会做什么\n\n- 维护或扩展开源项目的核心功能\n- 通过 issue、讨论和 release 与社区协作\n- 用可复现的项目证据说明取舍和结果\n\n## 我们希望你\n\n- 有公开代码、issue、文档或 release 记录\n- 能说明你负责过的模块和影响\n- 熟悉异步协作、代码审查和开源许可\n\n## 工作方式与地点\n\n请补充远程 / 混合方式、时区和协作语言。\n\n## 申请方式\n\n请填写 GitHub、作品集或其他公开项目证据。`,`## Project and problem\n\nDescribe the problem, current users, and the concrete work this role should move forward.\n\n## What you will do\n\n- Maintain or extend core open-source functionality\n- Collaborate with the community through issues, discussions, and releases\n- Explain decisions and outcomes with reproducible project evidence\n\n## What you bring\n\n- Public code, issues, documentation, or release history\n- Clear ownership of modules and impact\n- Comfort with async collaboration, review, and open-source licensing\n\n## Working arrangement\n\nAdd remote / hybrid expectations, time zone, and collaboration language.\n\n## How to apply\n\nShare GitHub, a portfolio, or other public project evidence.`)};
+  const preset=(!id&&template==='opensource')?openSourcePreset:(!id&&template==='ai_uiux')?{title:t('AI 产品 UI/UX 设计师','AI Product UI/UX Designer'),jd:t(`## 你会做什么\n\n- 负责面向消费者的 AI 产品体验与界面设计\n- 与产品、工程、GTM 团队协作，把想法推进到上线\n- 建立并迭代设计规范、原型和可用性验证\n\n## 我们希望你\n\n- 有 Consumer AI 产品设计经验\n- 熟悉 AI-native 工作方式\n- 能清楚说明作品集中的取舍、验证和结果\n\n## 工作方式与地点\n\n请补充办公地点、远程/混合方式和时区。\n\n## 申请方式\n\n请填写作品集链接和你希望招聘方了解的项目背景。`,`## What you will do\n\n- Own product experience and interface design for a consumer AI product\n- Work with product, engineering, and GTM teams from idea to launch\n- Build and iterate design systems, prototypes, and usability checks\n\n## What you bring\n\n- Consumer AI product design experience\n- Comfort with AI-native workflows\n- Ability to explain decisions, validation, and outcomes in your portfolio\n\n## Working arrangement\n\nAdd location, remote/hybrid expectations, and time zone.\n\n## How to apply\n\nShare a portfolio link and the project context you want the hiring team to understand.`)}:null;
   const locked=!!job,meta=currency(job),kind=locked?'edit':'publish',settings=feeSettings(kind,meta,terms),free=settings.mode==='free';
   const maximum=Number((terms||pricing()).max_edits),exhausted=locked&&job.edits_used>=maximum;
   const salary=job?.salary_cents??parseMinor('6000',meta.currency_decimals);
   let quote='—';try{quote=money(calculateFee(salary,settings),meta);}catch{}
   return shell(`<a href="/app?tab=jobs" data-nav class="back-link">${icon('back')}${t('返回我的招聘','Back to my roles')}</a>${heading(locked?t('让工作描述更清楚。','Make the role a little clearer.'):t('给好的人，一个好机会。','Give the right person a great opportunity.'),locked?t(`标题、币种与底薪已锁定。修改规则：${feeRule('edit',meta,terms)}，最多 ${maximum} 次。`,`The title, currency, and base salary are locked. Update rule: ${feeRule('edit',meta,terms)}. Up to ${maximum} updates.`):t('填写固定底薪，不含奖金、补贴、提成或预期收入。','Enter fixed base salary only, without bonuses, allowances, commission, or projected income.'))}${exhausted?notice(t('这个岗位已用完全部修改机会。','This role has used all available updates.'),'warning'):''}
-  <form data-form="job" data-id="${esc(job?.id||'')}" data-fee-mode="${settings.mode}" data-fee-bps="${settings.bps}" data-fee-fixed="${settings.fixed_minor}" data-exhausted="${exhausted}"><section class="panel"><div class="field"><label for="job-title">${t('岗位名称','Job title')}</label><input class="input" id="job-title" name="title" maxlength="120" value="${esc(job?.title||'')}" placeholder="${esc(t('例如：Rust 后端工程师','For example: Rust backend engineer'))}" ${locked?'readonly':''} required></div><div class="grid-2"><div class="field"><label for="job-currency">${t('薪资与岗位费用币种','Salary and role-fee currency')}</label>${currencySelect(meta.currency,'currency','job-currency',locked)}<p class="help">${t('金额按所选币种填写，发布后锁定，不自动换算。','Enter amounts in the selected currency. Publication locks it; changing a selection does not convert amounts.')}</p></div><div class="field"><label for="job-salary" id="job-salary-label">${t('每月固定底薪','Fixed monthly base salary')} · ${esc(meta.currency)}</label><input class="input" id="job-salary" name="salary" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" inputmode="decimal" value="${amountValue(salary,meta)}" ${locked?'readonly':''} required><p class="help">${t('只填写实际保证支付的底薪。','Enter only the base salary you guarantee.')}</p></div></div>
+  <form data-form="job" data-id="${esc(job?.id||'')}" data-fee-mode="${settings.mode}" data-fee-bps="${settings.bps}" data-fee-discount="${settings.discount_percent}" data-fee-fixed="${settings.fixed_minor}" data-exhausted="${exhausted}"><section class="panel">${preset?notice(template==='opensource'?t('已载入开源岗位模板。请补充项目、地点、薪资和申请方式后发布。','An open-source role template is loaded. Add project, location, salary, and application details before publishing.'):t('已载入 AI 产品 UI/UX 岗位模板。请补充地点、薪资和申请方式后发布。','An AI product UI/UX role template is loaded. Add location, salary, and application details before publishing.')):''}<div class="field"><label for="job-title">${t('岗位名称','Job title')}</label><input class="input" id="job-title" name="title" maxlength="120" value="${esc(job?.title??preset?.title??'')}" placeholder="${esc(t('例如：Rust 后端工程师','For example: Rust backend engineer'))}" ${locked?'readonly':''} required></div><div class="grid-2"><div class="field"><label for="job-currency">${t('薪资与岗位费用币种','Salary and role-fee currency')}</label>${currencySelect(meta.currency,'currency','job-currency',locked)}<p class="help">${t('金额按所选币种填写，发布后锁定，不自动换算。','Enter amounts in the selected currency. Publication locks it; changing a selection does not convert amounts.')}</p></div><div class="field"><label for="job-salary" id="job-salary-label">${t('每月固定底薪','Fixed monthly base salary')} · ${esc(meta.currency)}</label><input class="input" id="job-salary" name="salary" type="number" min="${amountStep(meta)}" max="${amountValue(1000000000,meta)}" step="${amountStep(meta)}" inputmode="decimal" value="${amountValue(salary,meta)}" ${locked?'readonly':''} required><p class="help">${t('只填写实际保证支付的底薪。','Enter only the base salary you guarantee.')}</p></div></div>
   ${locked?`<div class="notice job-headcount-note">${icon('person')}<div>${headcountText(job)} · <a href="/app?tab=jobs" data-nav class="help-link">${t('招聘人数在我的岗位中免费调整，不占描述修改次数。','Change the hiring target for free in My roles, without using a description update.')}</a></div></div>`:`<div class="field job-headcount-create"><label for="job-headcount">${t('招聘人数','Hiring target')}</label><input class="input" id="job-headcount" name="headcount" type="number" min="0" max="${state.config?.limits?.max_job_headcount??1000000}" step="1" inputmode="numeric" value="1" required aria-describedby="job-headcount-help"><p class="help" id="job-headcount-help">${t('人数不影响发布费，可免费无限次调整。填 0 暂不招聘，改回正数即可恢复新匹配。','The target does not change the publication fee and can be changed for free as often as needed. Set 0 to pause new introductions and a positive number to resume.')}</p></div>`}
-  <div class="field"><label for="job-jd">${t('工作描述 · Markdown','Job description · Markdown')}</label><textarea class="input code resume-editor" id="job-jd" name="jd_md" maxlength="60000" placeholder="${esc(t('## 你会做什么\n\n## 我们希望你\n\n## 工作方式与地点\n\n## 其他说明','## What you will do\n\n## What you bring\n\n## How and where we work\n\n## Anything else'))}" required>${esc(job?.jd_md||'')}</textarea><p class="help">${t('明确工作内容与要求，说明地点和工作方式。请勿索取身份证、手机号等无关信息。','Describe the work, requirements, location, and working arrangement. Avoid requesting unrelated personal information.')}</p></div>
+  <div class="field"><label for="job-jd">${t('工作描述 · Markdown','Job description · Markdown')}</label><textarea class="input code resume-editor" id="job-jd" name="jd_md" maxlength="60000" placeholder="${esc(t('## 你会做什么\n\n## 我们希望你\n\n## 工作方式与地点\n\n## 其他说明','## What you will do\n\n## What you bring\n\n## How and where we work\n\n## Anything else'))}" required>${esc(job?.jd_md??preset?.jd??'')}</textarea><p class="help">${t('明确工作内容与要求，说明地点和工作方式。请勿索取身份证、手机号等无关信息。','Describe the work, requirements, location, and working arrangement. Avoid requesting unrelated personal information.')}</p></div>
   ${locked?'':promos().jobFields()}
   <div class="notice">${icon('info')}<div ${locked?'':'data-job-payment-note'}>${locked?`${t('剩余修改次数','Updates remaining')}: ${Math.max(0,maximum-job.edits_used)} / ${maximum}. `:''}${free?t('本次免费，确认后立即生效。','This operation is free and takes effect on confirmation.'):t('内容在支付确认后生效。修改订单未支付时，现有描述保持展示。','Changes take effect after payment is confirmed. The current description stays visible while an update is unpaid.')}</div></div><div class="cost-summary"><div class="cost-row"><span>${t('计费规则','Fee calculation')}</span><span id="job-fee-rule">${feeRule(kind,meta,terms)}</span></div><div class="cost-row total"><span>${locked?t('本次修改费用','Update fee'):t('本次发布费用','Publication fee')}</span><strong id="job-cost">${quote}</strong></div></div><p id="job-price-error" class="help" role="status" hidden></p><div data-payment-options data-currency="${esc(meta.currency)}" ${free?'hidden':''}>${free?'':gatewayInputs(meta)}</div><div class="form-actions"><a class="button secondary" href="/app?tab=jobs" data-nav>${t('返回','Back')}</a><button class="button" type="submit" data-job-submit ${exhausted||(!free&&!paymentProviders(meta).length)?'disabled':''}>${free?(locked?t('确认保存修改','Confirm update'):t('确认发布岗位','Confirm publication')):t('确认并前往支付','Confirm and continue to payment')}${icon('arrow')}</button></div></section></form>`,'jobs');
 }
 function refreshJobPrice(form) {
   if(!form)return;
   const selected=form.elements.currency?.value||currency().currency,meta=currency(selected),locked=!!form.dataset.id;
-  const settings=locked?{mode:form.dataset.feeMode,bps:Number(form.dataset.feeBps),fixed_minor:Number(form.dataset.feeFixed)}:feeSettings('publish',meta);
+  const settings=locked?{mode:form.dataset.feeMode,bps:Number(form.dataset.feeBps),discount_percent:Number(form.dataset.feeDiscount),fixed_minor:Number(form.dataset.feeFixed)}:feeSettings('publish',meta);
   const paymentOptions=form.querySelector('[data-payment-options]');
   if(!locked&&paymentOptions.dataset.currency!==meta.currency){const previous=form.elements.provider?.value;paymentOptions.innerHTML=settings.mode==='free'?'':gatewayInputs(meta);paymentOptions.dataset.currency=meta.currency;if(previous&&paymentProviders(meta).includes(previous)&&form.elements.provider)form.elements.provider.value=previous;}
   const input=form.elements.salary;
@@ -667,7 +1036,8 @@ async function jobsPage() { await go(state.user?'/app?tab=matches':'/login');ret
 async function jobDetail(id) {
   const {job,employer,jd_html}=await api(`/api/jobs/${encodeURIComponent(id)}`);
   const own=job.owner_id===state.user?.id;
-  return `<main id="main" class="page-width public-layout"><section class="panel"><a class="back-link" href="/app?tab=${own?'jobs':'matches'}" data-nav>${icon('back')}${own?t('我的招聘','My roles'):t('我的匹配','My introductions')}</a><div class="job-heading"><div><h1>${esc(job.title)}</h1><div class="list-meta">${jobBadge(job)}<span>${headcountText(job)}</span><span>${t('发布于','Posted')} ${date(job.created_at)}</span></div></div><div class="job-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></div></div>${job.status==='published'&&jobHeadcount(job)===0?notice(t('这个岗位暂不接收新的匹配，已有匹配会话仍可继续。','This role is paused for new introductions. Existing introduction rooms remain available.')):''}<article class="markdown">${jd_html||''}</article></section><aside class="public-sidebar panel">${avatar(employer,'large')}<h3 style="margin-top:17px">${esc(employer?.name||t('招聘方','Employer'))}</h3><span class="pill">${icon('shield')}${t('仅匹配方可见','Shared with introduced parties')}</span>${employer?.public_email?`<a href="mailto:${encodeURIComponent(employer.public_email)}" class="contact-email">${esc(employer.public_email)}</a>`:`<p class="help" style="margin:16px 0">${t('尚未填写联系邮箱。','No contact email has been added.')}</p>`}<a class="button" href="/app?tab=matches" data-nav>${t('回到匹配会话','Back to introductions')}${icon('message')}</a><p class="help" style="margin-top:18px">${t('这份岗位由平台介绍给你。沟通与后续安排，可以在匹配会话中继续。','HireFerry has introduced this role. Continue the conversation and next steps in your introduction room.')}</p></aside></main>`;
+  const ownerControls=own?`<div class="row-actions job-row-links">${publicJobLinks(job)}${pauseJobControl(job)}</div>${headcountControl(job)}`:'';
+  return `<main id="main" class="page-width public-layout"><section class="panel"><a class="back-link" href="/app?tab=${own?'jobs':'matches'}" data-nav>${icon('back')}${own?t('我的招聘','My roles'):t('我的匹配','My introductions')}</a><div class="job-heading"><div><h1>${esc(job.title)}</h1><div class="list-meta">${jobBadge(job)}<span>${headcountText(job)}</span><span>${t('发布于','Posted')} ${date(job.created_at)}</span>${job.updated_at?`<span>${jobUpdatedText(job)}</span>`:''}</div></div><div class="job-salary">${money(job.salary_cents,job)} <small>/ ${t('月，底薪','month, base')}</small></div></div>${job.status==='published'&&jobHeadcount(job)===0?notice(t('这个岗位暂不接收新的匹配，已有匹配会话仍可继续。','This role is paused for new introductions. Existing introduction rooms remain available.')):''}<article class="markdown">${jd_html||''}</article>${ownerControls}${jobInteractions().placeholder(job,employer)}</section><aside class="public-sidebar panel">${avatar(employer,'large')}<h3 style="margin-top:17px">${esc(employer?.name||t('招聘方','Employer'))}</h3><span class="pill">${icon('shield')}${t('仅匹配方可见','Shared with introduced parties')}</span>${employer?.public_email?`<a href="mailto:${encodeURIComponent(employer.public_email)}" class="contact-email">${esc(employer.public_email)}</a>`:`<p class="help" style="margin:16px 0">${t('尚未填写联系邮箱。','No contact email has been added.')}</p>`}<a class="button" href="/app?tab=matches" data-nav>${t('回到匹配会话','Back to introductions')}${icon('message')}</a><p class="help" style="margin-top:18px">${t('这份岗位由平台介绍给你。沟通与后续安排，可以在匹配会话中继续。','HireFerry has introduced this role. Continue the conversation and next steps in your introduction room.')}</p></aside></main>`;
 }
 async function peoplePage() { await go(state.user?'/app?tab=matches':'/login');return ''; }
 async function personDetail(id) {
@@ -681,7 +1051,46 @@ async function legal(kind) {
 }
 
 function refundsPage() {
-  return `<main id="main" class="page-width"><article class="prose"><div class="eyebrow">PAYMENTS, WITH CARE</div><h1 style="margin-top:18px">${t('退款问题，我们认真核对。','Refunds deserve a careful review.')}</h1><p>${t('这份说明适用于聘渡的招聘方开通、岗位发布和岗位描述修改订单。求职者使用服务免费。','This policy covers HireFerry employer activation, job publication, and job description update orders. The service is free for job seekers.')}</p><h2>${t('如何提出退款问题','How to ask about a refund')}</h2><p>${t('如有误付、重复付款、付款后服务未生效或其他订单异常，请发送邮件至支持邮箱，并提供订单号与简要情况说明。订单号可以在工作台的「订单」中找到。平台会根据订单记录和实际服务情况进行人工核对。','For a mistaken payment, duplicate payment, a service that did not activate after payment, or another order issue, email support with your order number and a brief description. Find the order number under Orders in your workspace. HireFerry reviews the order record and the service actually provided.')}</p><p><a href="${esc(contactMailto(t('HireFerry 订单与退款咨询','HireFerry order and refund inquiry')))}" class="contact-email-link" data-refresh-key="contact-email">${esc(contactEmail())}</a></p><h2>${t('退款如何处理','How refunds are handled')}</h2><p>${t('退款经人工核对后，由平台通过支付服务商的商户后台处理。网站不直接发起退款。我们会在沟通中说明核对结果和后续处理方式；请保留订单号，以便继续跟进。','After review, HireFerry handles refunds through the payment provider’s merchant dashboard. The website does not initiate refunds directly. We explain the review result and next steps in our correspondence. Keep the order number for follow-up.')}</p><h2>${t('如何确认退款状态','How to confirm refund status')}</h2><p>${t('收到并验证 Waffo 成功退款通知后，订单会显示累计已退款金额、当前净额及「部分退款」或「已全额退款」状态。若原订单仍需人工核对，部分退款后可能继续显示「待人工核对」。失败或尚未确认的退款不会显示为成功，也不会扣减已记录的净收款。请在订单页面刷新核对。Stripe 退款请联系支持核对；本站暂不自动同步 Stripe 退款状态和净额。','After a successful Waffo refund notification is received and verified, the order shows the cumulative refunded amount, current net amount, and Partially refunded or Fully refunded status. An order that already needs manual review may retain Needs review after a partial refund. Failed or unconfirmed refunds are not shown as successful and do not reduce recorded net receipts. Refresh the order page to check. For Stripe refunds, contact support to verify the outcome; this website does not yet automatically update Stripe refund status or net amounts.')}</p><h2>${t('只提供必要的信息','Share only what is needed')}</h2><p>${t('退款咨询不需要提供银行卡卡号、手机号、验证码、通行密钥或 AI 访问令牌。请提供订单号与问题说明；支付信息由对应支付服务商处理。','A refund inquiry does not require a card number, phone number, sign-in code, passkey, or AI access token. Send the order number and a description of the issue. Payment information is handled by the relevant provider.')}</p><div class="policy-actions"><a href="/app?tab=orders" data-nav class="button secondary">${t('查看我的订单','View my orders')}${icon('receipt')}</a><a href="/contact" data-nav class="text-button">${t('联系与支持','Contact and support')} →</a></div></article></main>`;
+  return `<main id="main" class="page-width"><article class="prose"><div class="eyebrow">PAYMENTS, WITH CARE</div><h1 style="margin-top:18px">${t('退款问题，我们认真核对。','Refunds deserve a careful review.')}</h1><p>${t('这份说明适用于聘渡的招聘方开通、岗位发布、岗位描述修改和自愿捐款订单。求职者使用服务免费。','This policy covers HireFerry employer activation, job publication, job description update, and voluntary donation orders. The service is free for job seekers.')}</p><h2>${t('如何提出退款问题','How to ask about a refund')}</h2><p>${t('如有误付、重复付款、付款后服务未生效或其他订单异常，请发送邮件至支持邮箱，并提供订单号与简要情况说明。订单号可以在工作台的「订单」中找到。平台会根据订单记录和实际服务情况进行人工核对。','For a mistaken payment, duplicate payment, a service that did not activate after payment, or another order issue, email support with your order number and a brief description. Find the order number under Orders in your workspace. HireFerry reviews the order record and the service actually provided.')}</p><p><a href="${esc(contactMailto(t('HireFerry 订单与退款咨询','HireFerry order and refund inquiry')))}" class="contact-email-link" data-refresh-key="contact-email">${esc(contactEmail())}</a></p><h2>${t('退款如何处理','How refunds are handled')}</h2><p>${t('退款经人工核对后，由平台通过支付服务商的商户后台处理。网站不直接发起退款。我们会在沟通中说明核对结果和后续处理方式；请保留订单号，以便继续跟进。','After review, HireFerry handles refunds through the payment provider’s merchant dashboard. The website does not initiate refunds directly. We explain the review result and next steps in our correspondence. Keep the order number for follow-up.')}</p><h2>${t('如何确认退款状态','How to confirm refund status')}</h2><p>${t('收到并验证 Waffo 成功退款通知后，订单会显示累计已退款金额、当前净额及「部分退款」或「已全额退款」状态。若原订单仍需人工核对，部分退款后可能继续显示「待人工核对」。失败或尚未确认的退款不会显示为成功，也不会扣减已记录的净收款。请在订单页面刷新核对。Stripe 退款请联系支持核对；本站暂不自动同步 Stripe 退款状态和净额。','After a successful Waffo refund notification is received and verified, the order shows the cumulative refunded amount, current net amount, and Partially refunded or Fully refunded status. An order that already needs manual review may retain Needs review after a partial refund. Failed or unconfirmed refunds are not shown as successful and do not reduce recorded net receipts. Refresh the order page to check. For Stripe refunds, contact support to verify the outcome; this website does not yet automatically update Stripe refund status or net amounts.')}</p><h2>${t('只提供必要的信息','Share only what is needed')}</h2><p>${t('退款咨询不需要提供银行卡卡号、手机号、验证码、通行密钥或 AI 访问令牌。请提供订单号与问题说明；支付信息由对应支付服务商处理。','A refund inquiry does not require a card number, phone number, sign-in code, passkey, or AI access token. Send the order number and a description of the issue. Payment information is handled by the relevant provider.')}</p><div class="policy-actions"><a href="/app?tab=orders" data-nav class="button secondary">${t('查看我的订单','View my orders')}${icon('receipt')}</a><a href="/contact" data-nav class="text-button">${t('联系与支持','Contact and support')} →</a></div></article></main>`;
+}
+
+function donationPublicUrl() {
+  let origin=location.origin;
+  try {const configured=new URL(state.config?.public_origin||origin);if(['https:','http:'].includes(configured.protocol))origin=configured.origin;}catch{}
+  return `${origin}/donate`;
+}
+function donationSiteName() {return String(state.config?.name||'HireFerry').trim().slice(0,100)||'HireFerry';}
+function donationAnnouncementText() {
+  const url=donationPublicUrl(),siteName=donationSiteName();
+  return t(`${siteName} 是由部署者独立运营的 HireFerry 实例。自愿捐款通过本站配置的收款方式交给本站运营者，用于本站运行与维护：${url}`,`${siteName} is an independently operated HireFerry deployment. Voluntary donations go to the payment account configured for this site and support its operator: ${url}`);
+}
+function syncDonationPresetState(form) {
+  const input=form?.elements?.namedItem('amount');if(!input)return;
+  const decimals=currency().currency_decimals;let current=null;
+  try{current=parseMinor(input.value,decimals,{min:0});}catch{}
+  for(const preset of form.querySelectorAll('[data-action="donation-amount"]')){
+    let selected=false;try{selected=current!==null&&parseMinor(preset.dataset.amount,decimals,{min:0})===current;}catch{}
+    preset.setAttribute('aria-pressed',String(selected));
+  }
+}
+function donationForm(slot='page') {
+  const meta=currency(),providers=paymentProviders(meta),regions=waffoRegions(meta),unit=10**meta.currency_decimals,min=amountValue(unit,meta),max=amountValue(100_000*unit,meta),suggested=amountValue(30*unit,meta);
+  const payment=providers.length?gatewayInputs(meta,{hideRegions:regions.length<=1,regionId:`donation-region-${slot}`}):'';
+  const defaultRegion=regions.length===1?`<input type="hidden" name="payment_region" value="${esc(regions[0][0])}">`:'';
+  if(!donationMode())return `<section class="donation-checkout donation-checkout-gate"><h2>${t('本站目前未开放捐款','Donations are unavailable')}</h2>${notice(t('当前实例暂未开放捐款。','Donations are not currently enabled on this site.'),'warning')}<a href="/contact" data-nav class="button secondary">${t('联系本站','Contact this site')}</a></section>`;
+  if(!state.user&&state.admin)return `<section class="donation-checkout donation-checkout-gate"><div class="eyebrow">${t('需要会员账户','MEMBER ACCOUNT REQUIRED')}</div><h2>${t('请用会员账户捐款','Sign in with a member account')}</h2><p>${t('当前是管理员会话，捐款订单需要记录在会员账户中。','This is an administrator session. Donation orders must be recorded in a member account.')}</p><a href="/admin" data-nav class="button secondary">${t('返回管理工作台','Return to admin')}</a></section>`;
+  if(!state.user)return `<section class="donation-checkout donation-checkout-gate"><div class="eyebrow">${t('一次性 · 自愿','ONE-TIME · VOLUNTARY')}</div><h2>${t('登录后即可捐款','Sign in to donate')}</h2><p>${t('捐款订单会记录在你的会员账户中。','Your donation order is recorded in your member account.')}</p><a href="/login" data-nav class="button">${t('登录 / 注册','Sign in / create account')}${icon('arrow')}</a><p class="help">${t('登录后，从工作台顶部的“支持本站”入口返回此页。','After signing in, use “Support” at the top of your workspace to return here.')}</p></section>`;
+  if(!providers.length)return `<section class="donation-checkout donation-checkout-gate"><h2>${t('暂时无法在线捐款','Online donations unavailable')}</h2>${notice(t('当前币种没有可用的在线支付方式，请联系本站支持。','No online payment method is available for this currency. Contact this site’s support.'),'warning')}<a href="/contact" data-nav class="button secondary">${t('联系本站','Contact this site')}</a></section>`;
+  const presets=[10,30,50,100].map(value=>value*unit);
+  return `<section class="donation-checkout"><div class="donation-checkout-heading"><div><div class="eyebrow">${t('一次性 · 自愿','ONE-TIME · VOLUNTARY')}</div><h2>${t('我要捐款','Make a donation')}</h2></div><p>${t('捐款支持当前部署实例的运营者。','Your donation supports the operator of this deployment.')}</p></div><form data-form="donation-checkout" data-request-key="${esc(createMessageId())}"><input type="hidden" name="currency" value="${esc(meta.currency)}">${payment}${defaultRegion}<div class="field donation-amount-field"><label for="donation-amount-${esc(slot)}">${t('捐款金额','Donation amount')} · ${esc(meta.currency)}</label><div class="donation-presets">${presets.map(value=>`<button class="donation-preset" type="button" data-action="donation-amount" data-amount="${esc(amountValue(value,meta))}" aria-pressed="${value===30*unit}">${esc(money(value,meta))}</button>`).join('')}</div><input class="input" type="number" inputmode="decimal" id="donation-amount-${esc(slot)}" name="amount" min="${esc(min)}" max="${esc(max)}" step="${esc(amountStep(meta))}" value="${esc(suggested)}" required><p class="help">${t(`金额范围：${money(unit,meta)} 至 ${money(100_000*unit,meta)}。支付由本站已配置的服务商处理。`,`From ${money(unit,meta)} to ${money(100_000*unit,meta)}. Payment is handled by this site's configured provider.`)}</p></div><div class="form-actions"><button type="submit" class="button">${icon('heart')}${t('继续付款','Continue to payment')}${icon('arrow')}</button></div><p class="help donation-payment-footnote">${t('一次性付款。支付成功以本站订单状态确认为准。','One-time payment. The order status on this site confirms whether payment succeeded.')}</p></form></section>`;
+}
+function donationPage() {
+  const url=donationPublicUrl(),siteName=esc(donationSiteName()),announcement=donationAnnouncementText(),embed=`<a href="${url}" target="_blank" rel="noopener noreferrer">${t('支持本站运营','Support this site operator')}</a>`;
+  return `<main id="main" class="page-width donation-page"><section class="donation-hero"><div class="eyebrow">${t('自愿支持当前部署','SUPPORT THIS DEPLOYMENT')}</div><h1>${t('支持本站运营者','Support this site operator')}</h1><p>${t(`你正在访问 ${siteName} 的 HireFerry 独立部署。自愿捐款将进入本站运营者配置的收款账户，用于本站运行与维护。`,`You are using this independent HireFerry deployment: ${siteName}. Voluntary donations go to the payment account configured by this site's operator and support its operation and maintenance.`)}</p><div class="donation-recipient"><span>${t('当前实例','CURRENT SITE')} · <strong>${siteName}</strong></span><span>${t('收款对象','RECIPIENT')} · <strong>${t('本站运营者','This site’s operator')}</strong></span></div></section><section class="donation-content-grid"><div id="donation-checkout" class="donation-checkout-anchor">${donationForm('page')}</div><aside class="donation-share panel" aria-labelledby="donation-share-title"><div class="eyebrow">${t('固定捐款链接','PERMANENT DONATION LINK')}</div><h2 id="donation-share-title">${t('分享捐款入口','Share this donation page')}</h2><p>${t('将固定链接放进公告。访客可先了解用途，登录会员账户后选择金额。','Share this permanent link. Visitors can review its purpose, then sign in to choose an amount.')}</p><div class="donation-url"><code>${esc(url)}</code><button class="button secondary small" type="button" data-action="copy-donation-link" data-copy="${esc(url)}">${icon('copy')}${t('复制链接','Copy link')}</button></div><details class="donation-share-extra"><summary>${t('公告与网页嵌入','Announcement and website embed')}</summary><div class="donation-share-actions"><button class="text-button" type="button" data-action="copy-donation-announcement" data-copy="${esc(announcement)}">${icon('copy')}${t('复制公告文案','Copy announcement text')}</button><button class="text-button" type="button" data-action="copy-donation-html" data-copy="${esc(embed)}">${icon('copy')}${t('复制 HTML 链接','Copy HTML link')}</button></div></details><p class="donation-share-note">${t('公开链接不含个人账户信息。','The public link contains no personal account information.')}</p></aside></section><p class="donation-transparency">${t('捐款完全自愿，不会购买额外功能或影响招聘匹配。','Donations are entirely voluntary and do not buy extra features or affect job matching.')} <a href="/refunds" data-nav>${t('查看订单与退款说明','Order and refund information')}</a></p></main>`;
+}
+function donationDialog() {
+  const siteName=esc(donationSiteName());
+  return `<div class="donation-dialog"><div class="donation-dialog-mark">${icon('heart')}</div><div class="eyebrow">${t('一次性 · 自愿','ONE-TIME · VOLUNTARY')}</div><h2 id="dialog-title">${t('支持本站运营者','Support this site operator')}</h2><p class="dialog-intro">${t(`你的捐款会通过 ${siteName} 这套部署已配置的收款账户交给本站运营者，不影响任何账户或匹配。`,`Your donation goes to this deployment's configured payment account and supports its operator. It does not affect any account or match.`)}</p>${donationForm('dialog')}<a href="/donate" data-nav class="help-link donation-dialog-link">${t('捐款详情与公告分享链接','Donation details and announcement link')} →</a></div>`;
 }
 
 function contactPage() {
@@ -692,26 +1101,31 @@ function contactPage() {
 
 async function render({navigation=false}={}) {
   const navigationStarted=performance.now();
+  const stylePromise=Promise.resolve().then(()=>window.hireferryEnsureRouteStyles?.(location.pathname)||{failed:[]}).catch(()=>({failed:['route-styles']}));
   const fast=sessionReader.fresh()?service.navigateChat?.(new URL(location.href),{onlyIfChanged:!navigation}):null;
   if(fast){
     requests.cancel(`navigation:${state.render}`);
     const version=++state.render;
-    root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
+    root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);root.dataset.styleState='loading';delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
     const record=stage=>requestAnimationFrame(()=>{if(version!==state.render)return;root.dataset[stage==='shell'?'navigationShellMs':'navigationReadyMs']=(performance.now()-navigationStarted).toFixed(1);if(stage!=='shell')root.dataset.navigationState=stage;});
-    record('shell');await fast;record('ready');return;
+    record('shell');await fast;const styleResult=await stylePromise;root.dataset.styleState=styleResult.failed.length?'degraded':'ready';record('ready');return;
   }
   requests.cancel(`navigation:${state.render}`);
-  const version=++state.render;resetAdminViews();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';document.title=(state.config?.name||'HireFerry · 聘渡')+' · '+t('人才双向匹配服务','People-first hiring');
+  const version=++state.render;resetAdminViews();jobInteractionsModule?.destroy();service.stopChat();state.cliGuide?.dispose();state.cliGuide=null;state.homeStory?.dispose();state.homeStory=null;state.particleTitles?.dispose();state.particleTitles=null;document.body.classList.toggle('home-page',location.pathname==='/');state.sculpture?.dispose();state.sculpture=null;document.documentElement.lang=state.lang==='en'?'en':'zh-CN';updatePageMetadata();
+  state.downloads?.dispose();state.downloads=null;
   const path=location.pathname,tab=qs().get('tab');
-  const publicPage=publicPages.has(path);
+  const publicPage=isPublicPagePath(path);
   const pageKey=pageIdentity(path,tab);
   const placeholderTab=path.startsWith('/human/')?'human-review':path.startsWith('/app/jobs/')?'editor':tab||(path==='/admin'?'overview':'messages');
-  const pendingBody=()=>{const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
-  root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
+  const pendingBody=()=>{if(isPublicDirectoryPage(path))return publicDirectorySkeleton(path);const body=pagePlaceholder(placeholderTab,t('正在加载内容','Loading content'));if(path==='/admin'&&state.admin)return shell(body,tab||'overview',true);if(path.startsWith('/app')&&state.user)return shell(body,tab||'messages');return `<main id="main" class="page-width initial-placeholder">${body}</main>`;};
+  root.dataset.navigationState='loading';root.dataset.navigationSequence=String(version);root.dataset.styleState='loading';delete root.dataset.navigationReadyMs;delete root.dataset.navigationShellMs;
   const recordPaint=stage=>requestAnimationFrame(()=>{if(version!==state.render)return;root.dataset[stage==='shell'?'navigationShellMs':'navigationReadyMs']=(performance.now()-navigationStarted).toFixed(1);if(stage!=='shell')root.dataset.navigationState=stage;});
   const showPending=(force=false)=>{if(!force&&root.dataset.pageKey===pageKey){root.classList.add('page-pending');(root.querySelector('.app-content')||root.querySelector('main'))?.setAttribute('aria-busy','true');if((path==='/app'&&(!tab||tab==='messages'))||(path==='/admin'&&tab==='messages'))service.showPendingChat(qs().get('conversation'));}else {controlsUI.clear(root);mountPage(root,header()+pendingBody()+footer(),pageKey,{busy:true});disclosureUI.sync({scope:identityOf(state)});}};
   showPending();
   recordPaint('shell');
+  const styleResult=await stylePromise;
+  if(version!==state.render)return;
+  root.dataset.styleState=styleResult.failed.length?'degraded':'ready';
   try {
     let loadedConfig=false;
     if(!state.config||(!publicPage&&state.configCached)) {
@@ -724,25 +1138,34 @@ async function render({navigation=false}={}) {
       applyConfig(result.value);loadedConfig=true;showPending(true);
     }
     if(resumeCliLogin())return;
-    let body;
+    let body,publicRecord;
+    const rememberPublicRecord=record=>{publicRecord=record;};
     if(path==='/')body=home();
+    else if(path==='/discover')body=await publicDirectoryPage();
+    else if(/^\/discover\/jobs\/[A-Za-z0-9_-]+$/.test(path))body=await publicJobPage(decodeURIComponent(path.split('/')[3]),rememberPublicRecord);
+    else if(/^\/discover\/people\/[A-Za-z0-9_-]+$/.test(path))body=await publicPersonPage(decodeURIComponent(path.split('/')[3]),rememberPublicRecord);
+    else if(/^\/u\/[A-Za-z0-9_-]+$/.test(path))body=await publicProfilePage(decodeURIComponent(path.split('/')[2]),rememberPublicRecord);
+    else if(path==='/for-employers')body=employerLandingPage();
+    else if(path==='/for-job-tools')body=jobToolsLandingPage();
     else if(path==='/cli')body=renderCliGuide({config:state.config,origin:location.origin,lang:state.lang,esc,icon});
+    else if(path==='/downloads')body=renderDownloads({lang:state.lang,icon});
+    else if(path==='/donate'){await session(version);if(version!==state.render)return;body=donationPage();}
     else if(path==='/humangrant')body=humanGrant().intro();
     else if(/^\/human\/[A-Za-z0-9_-]+$/.test(path)){await session(version);if(version!==state.render)return;body=await humanGrant().reviewPage(path.split('/')[2],version);}
     else if(path==='/team/invite'){await session(version);if(version!==state.render)return;body=await team().reviewPage(location.hash.slice(1),version);}
-    else if(path==='/login'){if(!sessionKnown)await session(version);if(version!==state.render||resumeCliLogin())return;if(state.user||state.admin){go(afterSignIn());return;}body=login();}
+    else if(path==='/login'){if(!sessionKnown)await session(version);if(version!==state.render||resumeCliLogin())return;if(state.user||state.admin)return go(afterSignIn());body=login();}
     else if(/^\/staff\/invite\/[A-Za-z0-9_-]{43}$/.test(path)){await session(version);if(version!==state.render)return;body=await staffUI().invitePage(path.split('/')[3]);}
-    else if(path==='/jobs'||path==='/people'){await session(version);if(version!==state.render)return;go(state.user?'/app?tab=matches':'/login');return;}
+    else if(path==='/jobs'||path==='/people')return go(`/discover?tab=${path==='/people'?'people':'jobs'}`);
     else if(/^\/jobs\/[^/]+$/.test(path))body=await jobDetail(decodeURIComponent(path.split('/')[2]));
     else if(/^\/people\/[^/]+$/.test(path))body=await personDetail(decodeURIComponent(path.split('/')[2]));
     else if(path==='/privacy'||path==='/terms')body=await legal(path.slice(1));
     else if(path==='/refunds')body=refundsPage();
     else if(path==='/contact')body=contactPage();
     else if(path==='/app'||path.startsWith('/app/')) {
-      await session(version);if(version!==state.render)return;if(!state.user){go('/login');return;}
-      if(path==='/app'&&!tab&&!qs().has('order')){const returnTo=afterSignIn();if(returnTo!=='/app'){go(returnTo);return;}}
-      if(path==='/app/jobs/new')body=await jobEditor();
-      else if(/^\/app\/jobs\/[^/]+\/edit$/.test(path))body=await jobEditor(decodeURIComponent(path.split('/')[3]));
+      await session(version);if(version!==state.render)return;if(!state.user){const returnTo=path==='/app/jobs/new'?`${path}${location.search}`:'';return go(returnTo?`/login?return_to=${encodeURIComponent(returnTo)}`:'/login');}void refreshAnnouncement(version);
+      if(path==='/app'&&!tab&&!qs().has('order')){const returnTo=afterSignIn();if(returnTo!=='/app')return go(returnTo);}
+      if(path==='/app/jobs/new')body=state.user.role==='employer'?await jobEditor():roleMismatchPage('employer');
+      else if(/^\/app\/jobs\/[^/]+\/edit$/.test(path))body=state.user.role==='employer'?await jobEditor(decodeURIComponent(path.split('/')[3])):roleMismatchPage('employer');
       else if(qs().has('order')&&!tab)body=await paymentReturn();
       else if(tab==='messages')body=await service.messagesPage();
       else if(tab==='mandate')body=await service.mandatePage();
@@ -758,27 +1181,36 @@ async function render({navigation=false}={}) {
     else if(path==='/admin'){await session(version);if(version!==state.render)return;body=await adminPage(tab||'overview');}
     else if(path==='/billing/return'||path==='/payment/return'||path==='/payment/success'||path==='/checkout/return'){await session(version);if(version!==state.render)return;body=await paymentReturn();}
     else body=`<main id="main" class="page-width page-error"><h1 style="margin-top:20px">${t('页面未找到','Page not found')}</h1><p>${t('请检查地址。','Check the address.')}</p><a href="/" data-nav class="button">${t('回到首页','Back to home')}${icon('arrow')}</a></main>`;
-    if(version!==state.render||resumeCliLogin())return;controlsUI.clear(root);mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();controlsUI.sync(root);if(path==='/admin'){financeCleanup=financeModule?.bind(root);peopleJobsModule?.mount(root);}recordPaint('ready');mountBrand();if(path==='/')void mountHome();
+    if(version!==state.render||resumeCliLogin())return;controlsUI.clear(root);mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});syncCurrencyFields();controlsUI.sync(root);if(path==='/admin'){financeCleanup=financeModule?.bind(root);peopleJobsModule?.mount(root);}recordPaint('ready');if(path==='/'){performance.mark('home-first-paint');root.dataset.homeFirstPaint='true';}mountBrand();scheduleFeedback();if(path==='/')void mountHome();
     if(path==='/cli')state.cliGuide=mountCliGuide(root);
-    if(publicPage)void refreshPublicPage(version,{refreshConfig:!loadedConfig});
+    if(path==='/downloads')state.downloads=mountDownloads(root,{lang:state.lang,icon});
+    const publicRefresh=publicPage?refreshPublicPage(version,{refreshConfig:!loadedConfig,publicRecord}):Promise.resolve();
+    // Discussion's session check must not abort a concurrent configuration read
+    // when applying a newly discovered signed-in identity.
+    if(/^\/(?:discover\/)?jobs\/[^/]+$/.test(path))void publicRefresh.then(()=>{if(version===state.render)return jobInteractions().mount(root);});
     if((path==='/app'&&(!tab||tab==='messages')&&!qs().has('order'))||(path==='/admin'&&tab==='messages'))service.mountChat();
     if(path.startsWith('/app')&&tab!=='promos'&&state.user?.role==='unassigned'&&!state.admin)chooseRole();
     if(location.hash){document.getElementById(location.hash.slice(1))?.scrollIntoView();}
-    // Browsers without WebMCP need no eligibility request. Discovery never holds navigation open.
-    if((document.modelContext||navigator.modelContext)?.registerTool&&state.user&&!state.admin&&!state.eligibility){
-      void api('/api/ai/eligibility').then(eligibility=>{if(version!==state.render)return;state.eligibility=eligibility;registerWebMCP();}).catch(()=>{});
-    }else registerWebMCP();
-  } catch(error) {if(version!==state.render)return;const message=`<section class="route-error"><h1>${t('内容暂时无法加载','Content could not be loaded')}</h1><p>${esc(error.message)}</p><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></section>`;const body=path==='/admin'&&state.admin?shell(message,tab||'overview',true):path.startsWith('/app')&&state.user?shell(message,tab||'messages'):`<main id="main" class="page-width">${message}</main>`;mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});recordPaint('error');}
+    registerWebMCP();
+  } catch(error) {if(version!==state.render)return;const publicDetail=isPublicDirectoryPage(path)&&path!=='/discover';const back='/discover?'+publicDirectoryQuery(path.startsWith('/discover/people/')?'people':'jobs');const message=publicDetail?`<section class="route-error public-route-error" role="alert"><p class="eyebrow">${t('公开内容','PUBLIC CONTENT')}</p><h1>${t('这个公开内容暂时无法查看','This public content is not available')}</h1><p>${t('它可能已经停止公开，或者链接已经失效。','It may have stopped being public or the link may have expired.')}</p><div class="form-actions"><a class="button secondary" href="${esc(back)}" data-nav>${t('返回公开目录','Back to public directory')}${icon('back')}</a><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></div></section>`:`<section class="route-error" role="alert"><h1>${t('内容暂时无法加载','Content could not be loaded')}</h1><p>${esc(error.message)}</p><button class="button" data-action="retry">${t('重试','Try again')}${icon('arrow')}</button></section>`;const body=path==='/admin'&&state.admin?shell(message,tab||'overview',true):path.startsWith('/app')&&state.user?shell(message,tab||'messages'):`<main id="main" class="page-width">${message}</main>`;mountPage(root,header()+body+footer(),pageKey);disclosureUI.sync({scope:identityOf(state)});recordPaint('error');}
 }
 
 async function adminPage(tab) {
   if(state.bootstrap&&!state.admin)return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('key')}</span><h1>${t('绑定第一把通行密钥','Add your first passkey')}</h1><p>${t('完成后，管理员登录只接受通行密钥。','After this step, administrator sign-in uses passkeys only.')}</p></div><section class="auth-card"><h2>${t('安全地开始。','A secure beginning.')}</h2><p class="subtitle">${t('使用设备指纹、面容或实体安全密钥。一次性密码不会再用于登录。','Use your device’s fingerprint, face recognition, or security key. The one-time password cannot be used to sign in again.')}</p><form data-form="passkey-register"><div class="field"><label for="passkey-name">${t('密钥名称','Passkey name')}</label><input class="input" id="passkey-name" name="name" value="${t('我的主设备','My primary device')}" maxlength="80" required></div><button class="button full" type="submit">${icon('key')}${t('绑定通行密钥','Create a passkey')}</button></form><p class="help">${t('请在可信设备上操作。首次绑定完成后可以再添加备用密钥。','Use a trusted device. You can add backup passkeys after this first one.')}</p></section></main>`;
   if(!state.admin){const s=await api('/api/admin/auth/status');return `<main id="main" class="page-width admin-auth"><div class="admin-auth-top"><span class="icon-badge">${icon('shield')}</span><h1>${t('聘渡总控台','HireFerry control room')}</h1><p>${t('每次相遇背后，都有人认真负责。','Real people, behind every connection.')}</p></div><section class="auth-card"><h2>${s.initialized?t('欢迎回来。','Welcome back.'):t('第一次，安全启程。','A secure first step.')}</h2><p class="subtitle">${s.initialized?t('使用已绑定的通行密钥登录。','Sign in with a registered passkey.'):t('输入在服务器上生成的一次性密码。','Enter the one-time password generated on the server.')}</p>${s.initialized?`<button class="button full" data-action="admin-passkey-login">${icon('key')}${t('使用通行密钥登录','Sign in with a passkey')}</button><p class="help">${t('支持已绑定的指纹、面容与实体安全密钥。','Supports registered device biometrics and security keys.')}</p><div class="separator">${t('团队员工','Team staff')}</div><a href="/login" data-nav class="button secondary full">${icon('mail')}${t('使用受邀邮箱登录','Sign in with your invited email')}</a><p class="help">${t('请先接受管理员发给你的邀请，再使用自己的账户登录。','Accept the administrator’s invitation first, then sign in with your own account.')}</p>`:`<form data-form="admin-bootstrap"><div class="field"><label for="bootstrap-password">${t('一次性密码','One-time password')}</label><input class="input" type="password" id="bootstrap-password" name="password" autocomplete="one-time-code" required></div><button class="button full" type="submit">${t('验证并绑定通行密钥','Verify and add a passkey')}${icon('arrow')}</button></form><p class="help">${t('管理员需要先在 Linux 服务器中运行初始化命令。密码短期有效，仅用于首次绑定。','An administrator must run the initialization command on the Linux server first. The password expires soon and is only for the first passkey setup.')}</p>`}</section></main>`;}
-  const businessTabs=['messages','matches','mandates','users','jobs'];
+  const businessTabs=['messages','matches','mandates','users','jobs','announcements'];
   if(!state.owner&&!businessTabs.includes(tab)&&!(state.staff&&['overview','orders'].includes(tab)))return shell(`${heading(t('此页面由超级管理员管理','This page is managed by the super administrator'),t('你可以继续在消息、匹配及其他业务页面协作。','Continue working in messages, introductions, and other business pages.'))}<a class="button" href="/admin?tab=messages" data-nav>${t('打开消息','Open messages')}${icon('arrow')}</a>`,'messages',true);
   if(tab==='team'||tab==='staff')return team().teamPage();
+  if(tab==='announcements')return adminAnnouncementsPage();
   if(tab==='promos')return promos().adminPage();
   if(tab==='messages')return service.messagesPage(true);if(tab==='mandates')return service.adminMandates();if(tab==='agents')return service.adminTokens();if(tab==='users'||tab==='jobs')return peopleJobs().page();if(tab==='orders')return adminOrders();if(tab==='keys')return adminKeys();if(tab==='matches')return ['search','followups'].includes(qs().get('view'))||qs().has('job')||qs().has('candidate')?matchesPage(true):peopleJobs().page();return adminOverview();
+}
+async function adminAnnouncementsPage() {
+  const result=await api('/api/admin/announcement');
+  const a=result.announcement||{};
+  const preview=(state.lang==='en'?(a.body_html_en||a.body_html):(a.body_html||a.body_html_en))||'';
+  const updated=a.updated_at?`${t('最近更新','Updated')} ${date(a.updated_at)}`:'';
+  return shell(`${heading(t('公告管理','Announcements'),t('把平台的重要信息集中管理，决定是否要求用户阅读确认。','Manage important platform updates and decide whether users must acknowledge them.'),`<span class="status ${a.enabled?'paid':'closed'}">${a.enabled?t('已启用','Enabled'):t('已停用','Disabled')}</span>`,'ANNOUNCEMENTS')}<section class="panel announcement-admin-panel"><div class="panel-header"><div><h2>${t('当前公告','Current announcement')}</h2><p>${t('修改正文或确认策略后会生成新版本，用户需要按新版本重新确认。','Editing the copy or acknowledgement policy creates a new version, so users confirm the new version separately.')}</p></div>${updated?`<span class="list-meta">${esc(updated)}</span>`:''}</div><form data-form="admin-announcement" data-version="${esc(a.version||1)}"><div class="announcement-options"><label class="check-label"><input type="checkbox" name="enabled" ${a.enabled?'checked':''}> <span><strong>${t('发布公告','Publish announcement')}</strong><small>${t('启用后，登录用户会在工作台看到公告。','When enabled, signed-in users see it in their workspace.')}</small></span></label><label class="check-label"><input type="checkbox" name="require_ack" ${a.require_ack?'checked':''}> <span><strong>${t('要求阅读确认','Require read confirmation')}</strong><small>${t('用户确认前会持续显示，确认后本版本隐藏。','Keep showing it until the user acknowledges this version.')}</small></span></label></div><div class="grid-2"><div class="field"><label for="announcement-title">${t('标题','Title')}</label><input class="input" id="announcement-title" name="title" value="${esc(a.title||'')}" maxlength="160" required></div><div class="field"><label for="announcement-title-en">${t('英文标题','English title')}</label><input class="input" id="announcement-title-en" name="title_en" value="${esc(a.title_en||'')}" maxlength="160" required></div></div><div class="grid-2"><div class="field"><label for="announcement-body">${t('正文 · Markdown','Body · Markdown')}</label><textarea class="input code" id="announcement-body" name="body_md" rows="10" maxlength="8000" required>${esc(a.body_md||'')}</textarea></div><div class="field"><label for="announcement-body-en">${t('英文正文 · Markdown','English body · Markdown')}</label><textarea class="input code" id="announcement-body-en" name="body_md_en" rows="10" maxlength="8000" required>${esc(a.body_md_en||'')}</textarea></div></div><div class="announcement-admin-preview"><div class="eyebrow">${t('当前预览','CURRENT PREVIEW')}</div><h3>${esc(state.lang==='en'?(a.title_en||a.title):(a.title||a.title_en))}</h3><div class="markdown">${preview}</div></div><div class="form-actions"><span class="help">${t('公告正文支持 Markdown，脚本和外部 HTML 会被清洗。','Announcement Markdown is sanitized; scripts and external HTML are removed.')}</span><button type="submit" class="button">${t('保存公告设置','Save announcement')}${icon('check')}</button></div></form></section>`,'announcements',true);
 }
 async function adminOverview() { return finance().overviewPage(); }
 function orderTable(items) {return items.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>${t('订单','Order')}</th><th>${t('类型','Type')}</th><th>${t('金额','Amount')}</th><th>${t('状态','Status')}</th><th>${t('支付方式','Provider')}</th><th>${t('时间','Created')}</th></tr></thead><tbody>${items.map(o=>`<tr><td><span class="order-number" title="${esc(o.id)}">${esc(o.id.slice(0,12))}</span></td><td>${kindText(o.kind)}</td><td class="money">${money(o.amount_cents,o)}${orderRefundDetails(o)}</td><td>${orderBadge(o)}</td><td>${esc(providerText(o.provider))} ${o.live_mode===false&&o.provider!=='free'?`<span class="test-badge">${t('测试','Test')}</span>`:''}</td><td>${date(o.created_at)}</td></tr>`).join('')}</tbody></table></div>`:empty(t('还没有订单。','No orders yet.'),t('实际交易发生后，记录会出现在这里。','Actual transactions will appear here.'),'','receipt');}
@@ -844,7 +1276,7 @@ async function paymentReturn() {
 function decodeBuffer(value) {const s=value.replace(/-/g,'+').replace(/_/g,'/');return Uint8Array.from(atob(s.padEnd(Math.ceil(s.length/4)*4,'=')),c=>c.charCodeAt(0));}
 function encodeBuffer(buffer) {return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function credentialJson(c) {if(typeof c.toJSON==='function')return c.toJSON();const r=c.response;return {id:c.id,rawId:encodeBuffer(c.rawId),type:c.type,authenticatorAttachment:c.authenticatorAttachment,clientExtensionResults:c.getClientExtensionResults(),response:{clientDataJSON:encodeBuffer(r.clientDataJSON),...(r.attestationObject?{attestationObject:encodeBuffer(r.attestationObject),transports:r.getTransports?.()||[]}:{authenticatorData:encodeBuffer(r.authenticatorData),signature:encodeBuffer(r.signature),userHandle:r.userHandle?encodeBuffer(r.userHandle):null})}};}
-async function passkey(register=false,name='') {const returnPath=state.admin?location.pathname+location.search:'/admin';if(!window.PublicKeyCredential)throw new Error(t('此浏览器不支持通行密钥，请使用支持 WebAuthn 的浏览器。','This browser does not support passkeys. Use a browser with WebAuthn support.'));const prefix='/api/admin/passkeys/'+(register?'register':'login');const start=await api(prefix+'/start',{method:'POST',body:register?{name}:{}});const publicKey=start.options.publicKey;publicKey.challenge=decodeBuffer(publicKey.challenge);if(publicKey.user)publicKey.user.id=decodeBuffer(publicKey.user.id);for(const field of ['allowCredentials','excludeCredentials'])if(publicKey[field])publicKey[field]=publicKey[field].map(c=>({...c,id:decodeBuffer(c.id)}));let credential;try{credential=await navigator.credentials[register?'create':'get']({publicKey});}catch(error){if(error.name==='NotAllowedError')throw new Error(t('验证已取消或超时。可以再次尝试。','Authentication was canceled or timed out. You can try again.'));throw error;}if(!credential)throw new Error(t('没有收到通行密钥。','No passkey response was received.'));await api(prefix+'/finish',{method:'POST',body:{credential:credentialJson(credential)}});await session();if(!resumeCliLogin(true))await go(register?'/admin?tab=keys':returnPath);}
+async function passkey(register=false,name='',scope='admin',kind='') {const member=scope==='member',returnPath=member?afterSignIn():(state.admin?location.pathname+location.search:'/admin');if(!window.PublicKeyCredential)throw new Error(t('此浏览器不支持通行密钥，请使用支持 WebAuthn 的浏览器。','This browser does not support passkeys. Use a browser with WebAuthn support.'));const prefix=(member?'/api/auth/passkeys':'/api/admin/passkeys')+'/'+(register?'register':'login');const start=await api(prefix+'/start',{method:'POST',body:register?{name,...(kind?{kind}:{})}:{}});const publicKey=start.options.publicKey;publicKey.challenge=decodeBuffer(publicKey.challenge);if(publicKey.user)publicKey.user.id=decodeBuffer(publicKey.user.id);for(const field of ['allowCredentials','excludeCredentials'])if(publicKey[field])publicKey[field]=publicKey[field].map(c=>({...c,id:decodeBuffer(c.id)}));let credential;try{credential=await navigator.credentials[register?'create':'get']({publicKey});}catch(error){if(error.name==='NotAllowedError')throw new Error(t('验证已取消或超时。通行密钥没有被修改，可以再次尝试。','Authentication was canceled or timed out. Nothing was changed. You can try again.'));if(error.name==='InvalidStateError')throw new Error(t('这台设备已经绑定了这把 Passkey。请刷新已绑定设备列表。','This device already has this passkey. Refresh the passkey list.'));if(error.name==='NotSupportedError')throw new Error(t('当前浏览器没有可用的通行密钥功能，请改用邮箱或 Google 登录。','This browser has no usable passkey support. Use email or Google sign-in.'));if(error.name==='SecurityError')throw new Error(t('当前浏览器或来源不允许绑定 Passkey。请使用 HTTPS 的当前域名重试。','This browser or origin cannot bind a passkey. Retry from the current HTTPS domain.'));throw error;}if(!credential)throw new Error(t('没有收到通行密钥。','No passkey response was received.'));await api(prefix+'/finish',{method:'POST',body:{credential:credentialJson(credential)}});await session();if(!resumeCliLogin(true))await go(register?(member?'/app?tab=profile':'/admin?tab=keys'):returnPath);}
 async function payOrder(order,paymentRegion) {
   if(order.kind==='onboarding' && ['expired','failed','canceled','cancelled','refunded'].includes(effectiveOrderStatus(order))){
     await session();
@@ -877,18 +1309,25 @@ document.addEventListener('submit',async event=>{
   const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const submit=event.submitter||form.querySelector('[type=submit]'),data=new FormData(form),kind=form.dataset.form;setBusy(submit,true);
   try {
     if(kind.startsWith('hg-'))await humanGrant().submit(form,data);
+    else if(kind==='email-preferences'){await api('/api/notifications/email',{method:'PUT',body:Object.fromEntries(['messages','matches','orders','platform'].map(key=>[key,data.has(key)]))});notify(t('通知设置已保存。','Notification settings saved.'));}
+    else if(kind==='donation-checkout'){const decimals=currency().currency_decimals,unit=10**decimals,amountMinor=parseMinor(String(data.get('amount')||''),decimals,{min:unit,max:100_000*unit});const order=await api('/api/donations',{method:'POST',body:{amount_minor:amountMinor,currency:String(data.get('currency')||''),provider:String(data.get('provider')||''),request_key:form.dataset.requestKey}});await payOrder(order,String(data.get('payment_region')||''));}
+    else if(kind==='admin-announcement'){await api('/api/admin/announcement',{method:'PUT',body:{enabled:data.has('enabled'),title:String(data.get('title')||''),title_en:String(data.get('title_en')||''),body_md:String(data.get('body_md')||''),body_md_en:String(data.get('body_md_en')||''),require_ack:data.has('require_ack'),expected_version:Number(form.dataset.version||1)}});await render();notify(t('公告设置已保存。','Announcement settings saved.'));}
+    else if(kind==='admin-email'){const result=await api('/api/admin/notifications/email',{method:'POST',body:{user_id:form.dataset.userId,subject:data.get('subject'),body:data.get('body'),request_key:form.dataset.requestKey}});closeDialog();notify(t('邮件已排队，可在通知记录中核对发送状态。','Email queued. Check the delivery records for its status.'));}
     else if(kind.startsWith('team-'))await team().submit(form,data);
     else if(kind.startsWith('staff-'))await staffUI().submit(form,data);
     else if(kind.startsWith('promo-'))await promos().submit(form,data);
-    else if(kind==='email-start'){const email=String(data.get('email')).trim();const r=await api('/api/auth/email/start',{method:'POST',body:{email}});emailCode(email,r.dev_code);}
+    else if(kind==='public-directory-search'){const p=new URLSearchParams({tab:qs().get('tab')==='people'?'people':'jobs'});const q=String(data.get('q')||'').trim();if(q)p.set('q',q);go('/discover?'+p);}
+    else if(kind==='email-start'){rememberBillingReturn();const email=String(data.get('email')).trim(),status=form.querySelector('#email-status');if(status)status.textContent=t('正在发送登录链接…','Sending the sign-in link…');const source=acquisitionSource(),referral=referralCode();const r=await api('/api/auth/email/start',{method:'POST',body:{email,...(source?{source}: {}),...(referral?{referral_code:referral}: {})}});emailCode(email,r.dev_code,r.dev_magic_link);}
     else if(kind==='email-verify'){await api('/api/auth/email/verify',{method:'POST',body:{email:data.get('email'),code:data.get('code')}});await session();if(!resumeCliLogin(true))go(afterSignIn());}
-    else if(kind==='profile'){state.user=await api('/api/profile',{method:'PUT',body:{name:data.get('name'),public_email:data.get('public_email'),resume_md:data.get('resume_md')||'',visible:false}});notify(t('已保存。你的下一站，又近了一点。','Saved. One step closer to what’s next.'));}
+    else if(kind==='email-change'){const r=await api('/api/auth/email/change/start',{method:'POST',body:{email:String(data.get('email')||'').trim()}});if(r.dev_confirm_link||r.dev_cancel_link)notify(t('开发环境已生成确认和取消链接，请查看接口返回。','Development links were generated; inspect the API response.'));else notify(t('确认链接已发到新邮箱，旧邮箱也收到取消链接。','A confirmation link was sent to the new email; the old email also received a cancellation link.'));}
+    else if(kind==='profile'){const links={};for(const input of document.querySelectorAll('[name^="ai_"]')){const value=String(input.value||'').trim();if(value)links[input.name.slice(3)]=value;}for(const row of document.querySelectorAll('[data-custom-profile-link]')){const name=String(row.querySelector('[data-custom-link-label]')?.value||'').trim(),value=String(row.querySelector('[data-custom-link-url]')?.value||'').trim();if(name&&value)links[name]=value;}state.user=await api('/api/profile',{method:'PUT',body:{name:data.get('name'),handle:document.querySelector('[name="handle"]')?.value||state.user.handle,public_email:data.get('public_email'),resume_md:data.get('resume_md')||'',public_profile:!!document.querySelector('[name="public_profile"]')?.checked,ai_profile_links:links,visible:false}});notify(t('资料和个人主页设置已保存。','Profile and homepage settings saved.'));}
     else if(kind==='svg-avatar'){state.user=await api('/api/profile/avatar',{method:'PUT',body:{svg:data.get('svg')}});closeDialog();await render();notify(t('头像已更新。','Avatar updated.'));}
-    else if(kind==='activate-employer'){const r=await api('/api/role',{method:'POST',body:{role:'employer',provider:data.get('provider')||'',currency:data.get('currency')}});state.user=r.user;closeDialog();if(r.order){await go('/app?tab=orders');await payOrder(r.order,data.get('payment_region'));}else go('/app');}
+    else if(kind==='activate-employer'){const r=await api('/api/role',{method:'POST',body:{role:'employer',provider:data.get('provider')||'',currency:data.get('currency')}});state.user=r.user;closeDialog();if(r.order){await go('/app?tab=orders');await payOrder(r.order,data.get('payment_region'));}else go(consumeRoleReturn()||'/app');}
     else if(kind==='job'){const id=form.dataset.id,body=id?{jd_md:data.get('jd_md'),provider:data.get('provider')||''}:promos().prepareJob(form,newJobInput(data));const r=await api(id?`/api/jobs/${encodeURIComponent(id)}/edit`:'/api/jobs',{method:'POST',body});if(r.order&&r.order.status!=='paid'){await go('/app?tab=orders');await payOrder(r.order,data.get('payment_region'));}else{await go('/app?tab=jobs');notify(id?t('岗位描述已更新。','Role description updated.'):t('岗位已发布。','Role published.'));}}
     else if(kind==='job-headcount'){const count=headcountInput(data.get('headcount'));await saveJobHeadcount(form.dataset.id,count,form.dataset.admin==='true');if(form.dataset.admin==='true')closeDialog();await render();notify(count===0?t('人数已保存为 0，暂停新匹配；已有会话保留。','Target saved as 0. New introductions are paused; existing chats remain.'):t('招聘人数已免费更新。','Hiring target updated for free.'));}
     else if(kind==='token'||kind==='admin-token'){const r=await api(kind==='admin-token'?'/api/admin/tokens':'/api/tokens',{method:'POST',body:{name:data.get('name')}});await render();document.querySelector('#new-token').innerHTML=`<div class="token-secret"><strong class="field-label">${t('请现在保存，令牌只显示一次。','Save it now. This token is shown only once.')}</strong><code>${esc(r.token)}</code><button class="text-button" type="button" data-action="copy-token" data-copy="${esc(r.token)}">${icon('copy')}${t('复制令牌','Copy token')}</button><p class="help">${t('请勿分享或放入公开仓库。','Do not share it or put it in a public repository.')}</p></div>`;form.reset();notify(t('访问令牌已创建。','Access token created.'));}
     else if(kind==='chat')await service.sendMessage(form,data);
+    else if(kind==='chat-job-card')await service.sendJobCard(form,data);
     else if(kind==='mandate')await service.saveMandate(form,data);
     else if(kind==='admin-mandate')await service.saveMandate(form,data,true);
     else if(kind==='outreach')await service.saveOutreach(form,data);
@@ -896,6 +1335,7 @@ document.addEventListener('submit',async event=>{
     else if(kind==='mandate-filter'){const p=new URLSearchParams({tab:'mandates'});for(const[k,v]of data)if(v)p.set(k,v);go('/admin?'+p);}
     else if(kind==='admin-bootstrap'){await api('/api/admin/auth/bootstrap',{method:'POST',body:{password:data.get('password')}});await session();await render();}
     else if(kind==='passkey-register'){await passkey(true,String(data.get('name')));}
+    else if(kind==='user-passkey-register'){await passkey(true,String(data.get('name')),'member',String(data.get('kind')||''));}
     else if(kind==='people-jobs-filter')await peopleJobs().submit(form,data);
     else if(kind==='admin-user'){const body={name:data.get('name'),public_email:data.get('public_email')};if(form.querySelector('[name=resume_md]')){body.resume_md=data.get('resume_md');body.visible=false;}await api(`/api/admin/users/${encodeURIComponent(form.dataset.id)}`,{method:'PATCH',body});closeDialog();await render();notify(t('用户资料已更新。','Profile updated.'));}
     else if(kind==='admin-user-access'){const reason=String(data.get('reason')||'').trim();if(!reason||new TextEncoder().encode(reason).length>500)throw new Error(t('请填写操作原因，最多 500 字节。','Enter a reason of at most 500 bytes.'));const banned=form.dataset.banned==='true';await api(`/api/admin/users/${encodeURIComponent(form.dataset.id)}/access`,{method:'POST',body:{banned,reason}});closeDialog();await render();notify(banned?t('账户已封禁，旧登录和 AI 令牌已撤销。','Account suspended. Old sign-ins and AI tokens are revoked.'):t('访问已恢复，请让用户重新登录。','Access restored. The person must sign in again.'));}
@@ -904,7 +1344,7 @@ document.addEventListener('submit',async event=>{
     else if(kind==='workbench-introduce')await service.introduceCandidate(form,data);
     else if(kind==='workbench-bulk-introduce')await service.introduceCandidateBatch(form,data);
     else if(kind==='match')await service.saveFollowup(form,data);
-  }catch(error){notify(error.message,true);}finally{setBusy(submit,false);}
+  }catch(error){if(kind==='email-start'){const status=form.querySelector('#email-status');if(status)status.textContent=t('没有发送成功，请检查邮箱地址或稍后重试。','The link was not sent. Check the address or try again later.');}notify(error.message,true);}finally{setBusy(submit,false);}
 });
 let navigationIntentTimer;
 function prefetchNavigation(link) {
@@ -922,7 +1362,7 @@ document.addEventListener('focusin',event=>prefetchNavigation(event.target.close
 document.addEventListener('pointerdown',event=>{if(event.button===0)prefetchNavigation(event.target.closest('[data-nav]'));});
 document.addEventListener('click',async event=>{
   const brandLink=event.target.closest('[data-brand]');if(brandLink){logoClicks++;clearTimeout(logoTimeout);logoTimeout=setTimeout(()=>logoClicks=0,1800);if(logoClicks>=5){logoClicks=0;event.preventDefault();go('/admin');return;}if(location.pathname==='/'){event.preventDefault();return;}}
-  const scroll=event.target.closest('[data-scroll]');if(scroll){event.preventDefault();if(location.pathname!=='/')go('/#'+scroll.dataset.scroll);else document.getElementById(scroll.dataset.scroll)?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});return;}
+  const scroll=event.target.closest('[data-scroll]');if(scroll){event.preventDefault();const target=document.getElementById(scroll.dataset.scroll);if(target)target.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});else if(location.pathname!=='/')go('/#'+scroll.dataset.scroll);return;}
   if(event.target.closest('[data-google-sign-in]')&&state.config?.google_enabled){rememberBillingReturn();team().returnAfterLogin();}
   const nav=event.target.closest('[data-nav]');if(nav&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&event.button===0){event.preventDefault();go(nav.getAttribute('href'));return;}
   const button=event.target.closest('[data-action]');if(!button||button.disabled)return;event.preventDefault();const action=button.dataset.action,id=button.dataset.id;
@@ -930,40 +1370,76 @@ document.addEventListener('click',async event=>{
     if(action.startsWith('hg-'))await humanGrant().action(action,button);
     else if(action.startsWith('team-')){setBusy(button,true);await team().action(action,button);}
     else if(action.startsWith('staff-'))await staffUI().action(action,button);
+    else if(action==='donation-dialog'){if(!sessionKnown)await session();openDialog(donationDialog());}
+    else if(action==='donation-amount'){const form=button.closest('form'),input=form?.elements.namedItem('amount');if(input){input.value=button.dataset.amount||'';syncDonationPresetState(form);input.focus();}}
+    else if(action==='copy-donation-link'){await copyText(button.dataset.copy);notify(t('捐款链接已复制。','Donation link copied.'));}
+    else if(action==='copy-donation-announcement'){await copyText(button.dataset.copy);notify(t('公告文案已复制。','Announcement text copied.'));}
+    else if(action==='copy-donation-html'){await copyText(button.dataset.copy);notify(t('公告 HTML 链接已复制。','HTML announcement link copied.'));}
     else if(action.startsWith('promo-')){setBusy(button,true);await promos().action(action,button);}
     else if(action==='language'){state.lang=state.lang==='en'?'zh':'en';localStorage.setItem('hireferry-language',state.lang);closeDialog();await render();}
     else if(action==='close-dialog')closeDialog();
     else if(action==='pause')state.sculpture?.pause();
+    else if(action==='ack-announcement'){setBusy(button,true);const identity=identityOf(state),version=Number(button.dataset.version);await api('/api/announcement/ack',{method:'POST',body:{version}});if(identity===identityOf(state)&&state.announcement?.announcement?.version===version)state.announcement.acknowledged=true;await render();notify(t('已记录阅读确认。','Read confirmation recorded.'));}
     else if(action==='retry'||action==='billing-refresh'){setBusy(button,true);if(action==='billing-refresh')await session();await render();}
     else if(action==='google-unavailable')notify(t('Google 登录暂未开放，请使用邮箱。','Google sign-in is not available yet. Please use email.'),true);
     else if(action==='restart-login')await render();
-    else if(action==='logout'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});go('/');}
-    else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;closeDialog();go(afterSignIn());}
+    else if(action==='logout'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null,announcement:null});go('/');}
+    else if(action==='logout-switch-account'){disclosureUI.reset();await api('/api/auth/logout',{method:'POST',body:{}});Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null,announcement:null});go(button.dataset.returnTo||'/login');}
+    else if(action==='role-seeker'){setBusy(button,true);const r=await api('/api/role',{method:'POST',body:{role:'seeker'}});state.user=r.user;clearRoleIntent();closeDialog();go(consumeRoleReturn()||defaultRoleReturn('seeker'));}
     else if(action==='role-employer'){
       setBusy(button,true);
-      if(state.user?.role==='unassigned'){const r=await api('/api/role',{method:'POST',body:{role:'employer'}});state.user=r.user;closeDialog();await render();}
+      if(shouldAutoActivateEmployer(state.user)){const r=await api('/api/role',{method:'POST',body:{role:'employer'}});state.user=r.user;clearRoleIntent();closeDialog();await go(consumeRoleReturn()||defaultRoleReturn('employer'));}
       else await session();
-      if(state.user?.employer_paid)await go('/app?tab=jobs');
+      clearRoleIntent();
+      if(state.user?.employer_paid)await go(consumeRoleReturn()||defaultRoleReturn('employer'));
       else {const orders=await api('/api/orders');const recovery=activationRecovery(state.user,orders.items||[]);
         if(recovery.kind==='pending')await payOrder(recovery.order);
         else if(recovery.kind==='review'){await go('/app?tab=orders');notify(t('已有开通款项，请先联系平台核对。','An activation payment is recorded. Contact support for a review.'),true);}
         else if(['start','retry'].includes(recovery.kind))employerActivation(recovery.kind==='retry');
       }
     }
-    else if(action==='svg-avatar')openDialog(`<div class="eyebrow">YOUR AVATAR</div><h2 id="dialog-title">${t('用一段 SVG 表达自己。','An avatar, in SVG.')}</h2><p class="dialog-intro">${t('支持静态 SVG。脚本、外部资源和动画会被拒绝。','Static SVG only. Scripts, external resources, and animation are rejected.')}</p><form data-form="svg-avatar"><div class="field"><label for="avatar-svg">${t('SVG 文本','SVG source')}</label><textarea class="input code" name="svg" id="avatar-svg" rows="8" required maxlength="50000" placeholder="&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 64 64&quot;&gt;…&lt;/svg&gt;"></textarea></div><div class="form-actions"><button class="button" type="submit">${t('保存头像','Save avatar')}${icon('check')}</button></div></form>`);
+    else if(action==='svg-avatar')openDialog(`<div class="eyebrow">YOUR AVATAR</div><h2 id="dialog-title">${t('用一段 SVG 表达自己。','An avatar, in SVG.')}</h2><p class="dialog-intro">${t('支持安全的 SVG 动画。脚本、事件处理器、CSS、嵌入 HTML 和外部资源会被拒绝。','Safe SVG animation is supported. Scripts, event handlers, CSS, embedded HTML, and external resources are rejected.')}</p><form data-form="svg-avatar"><div class="field"><label for="avatar-svg">${t('SVG 文本','SVG source')}</label><textarea class="input code" name="svg" id="avatar-svg" rows="8" required maxlength="50000" placeholder="&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 64 64&quot;&gt;…&lt;/svg&gt;"></textarea></div><div class="form-actions"><button class="button" type="submit">${t('保存头像','Save avatar')}${icon('check')}</button></div></form>`);
     else if(action==='resume-preview'){const r=await api('/api/markdown',{method:'POST',body:{text:document.querySelector('#resume-md').value}});document.querySelector('#resume-preview').innerHTML=r.html;document.querySelector('#resume-preview').hidden=false;document.querySelector('#resume-md').hidden=true;document.querySelectorAll('.tabs [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b===button)));}
     else if(action==='resume-edit'){document.querySelector('#resume-md').hidden=false;document.querySelector('#resume-preview').hidden=true;document.querySelectorAll('.tabs [role=tab]').forEach(b=>b.setAttribute('aria-selected',String(b===button)));}
     else if(action==='delete-job')await jobLifecycleDialog(id);
     else if(action==='restore-job')await jobLifecycleDialog(id,'restore');
     else if(action==='permanently-delete-job')await jobLifecycleDialog(id,'permanent');
     else if(action==='admin-restore-job')await jobLifecycleDialog(id,'restore',true);
+    else if(action==='pause-job')confirmDialog(t('暂停这个岗位的招聘？','Pause hiring for this role?'),t('暂停后，岗位会移出公开目录并停止新匹配；已有匹配和会话保留。设置正数招聘人数即可恢复，不占描述修改次数。','The role will leave the public directory and stop new introductions. Existing introductions and chats remain. Set a positive hiring target to resume, without using a description update.'),async()=>{await saveJobHeadcount(id,0);await render();notify(t('已暂停招聘，岗位已移出公开目录。','Hiring paused. The role is no longer in the public directory.'));});
     else if(action==='close-job')confirmDialog(t('结束这个岗位的招聘？','Close this role?'),t('关闭后不能恢复招聘。仅想暂停，请将招聘人数设为 0。原有订单记录保留。','Closing cannot be undone. To pause temporarily, set the hiring target to 0. Order records remain.'),async()=>{await api(`/api/jobs/${encodeURIComponent(id)}/close`,{method:'POST',body:{}});await render();notify(t('岗位已关闭。','Role closed.'));});
     else if(action==='pay-order'){setBusy(button,true);await payOrder(await api(`/api/orders/${encodeURIComponent(id)}`));}
     else if(action==='copy-command'){await copyCliCommand(button);notify(t('命令已复制。','Command copied.'));}
-    else if(action==='copy-token'){await navigator.clipboard.writeText(button.dataset.copy);notify(t('已复制。请妥善保管。','Copied. Keep it private.'));}
+    else if(action==='copy-public-mcp'){await copyText(button.dataset.copy);notify(t('公开 MCP 地址已复制。','Public MCP endpoint copied.'));}
+    else if(action==='copy-public-mcp-example'){await copyText(button.dataset.copy);notify(t('请求示例已复制。','Request example copied.'));}
+    else if(action==='share-public-link'){
+      const url=button.dataset.copy,title=button.dataset.shareTitle||t('聘渡公开内容','HireFerry public content'),text=button.dataset.shareText||title;
+      if(typeof navigator.share==='function'){
+        try{await navigator.share({title,text,url});notify(t('分享面板已打开。','Share sheet opened.'));}
+        catch(error){if(error?.name!=='AbortError'){await copyText(url);notify(t('已复制公开链接，可以发给别人。','Public link copied. You can send it to someone.'));}}
+      }else{await copyText(url);notify(t('设备不支持直接分享，已复制公开链接。','Direct sharing is unavailable, so the public link was copied.'));}
+    }
+    else if(action==='copy-public-link'){await copyText(button.dataset.copy);notify(t('公开链接已复制。','Public link copied.'));}
+    else if(action==='copy-token'){await copyText(button.dataset.copy);notify(t('已复制。请妥善保管。','Copied. Keep it private.'));}
+    else if(action==='copy-profile-link'){await copyText(button.dataset.copy);notify(t('主页链接已复制，可以分享给别人。','Homepage link copied. You can share it now.'));}
+    else if(action==='copy-profile-badge'){await copyText(button.dataset.copy);notify(t('README 徽章已复制。','README badge copied.'));}
+    else if(action==='add-profile-link'){const list=document.querySelector('#custom-profile-links');if(list){list.insertAdjacentHTML('beforeend',customProfileLinkRow());list.lastElementChild?.querySelector('[data-custom-link-label]')?.focus();}}
+    else if(action==='remove-profile-link'){button.closest('[data-custom-profile-link]')?.remove();}
+    else if(action==='copy-referral-link'){await copyText(button.dataset.copy);notify(t('邀请链接已复制，可以发给朋友。','Invite link copied.'));}
+    else if(action==='share-referral-link'){
+      const url=button.dataset.copy;
+      if(typeof navigator.share==='function'){
+        try{await navigator.share({title:t('加入聘渡','Join HireFerry'),text:t('免费注册，让 AI 帮你找工作或匹配人才。','Sign up free and let AI help you find work or people.'),url});notify(t('分享面板已打开。','Share sheet opened.'));}
+        catch(error){if(error?.name!=='AbortError'){await copyText(url);notify(t('已复制邀请链接，可以发给朋友。','Invite link copied. You can send it to a friend.'));}}
+      }else{await copyText(url);notify(t('设备不支持直接分享，已复制邀请链接。','Direct sharing is unavailable, so the invite link was copied.'));}
+    }
     else if(action==='revoke-token')confirmDialog(t('撤销这个 AI 连接？','Revoke this AI connection?'),t('使用这个令牌的 AI 将立即失去访问权限。','The AI using this token will immediately lose access.'),async()=>{await api(`/api/tokens/${encodeURIComponent(id)}`,{method:'DELETE'});await render();notify(t('连接已撤销。','Connection revoked.'));});
+    else if(action==='user-passkey-login'){setBusy(button,true);await passkey(false,'','member');}
     else if(action==='admin-passkey-login'||action==='admin-reauth'){setBusy(button,true);await passkey();}
     else if(action==='delete-passkey')confirmDialog(t('移除这把通行密钥？','Remove this passkey?'),t('移除后，这把密钥无法再登录总控台。必须保留至少一把。','This passkey will no longer sign in. At least one passkey must remain.'),async()=>{await api(`/api/admin/passkeys/${encodeURIComponent(id)}`,{method:'DELETE'});await render();notify(t('通行密钥已移除。','Passkey removed.'));},{danger:true});
+    else if(action==='delete-user-passkey')confirmDialog(t('删除这把 Passkey？','Remove this passkey?'),t('删除后它不能再登录这个账户，但你仍可使用邮箱或 Google 登录。','It will no longer sign in to this account. Email or Google sign-in remains available.'),async()=>{await api(`/api/auth/passkeys/${encodeURIComponent(id)}`,{method:'DELETE'});await render();notify(t('Passkey 已删除。','Passkey removed.'));},{danger:true});
+    else if(action==='revoke-user-session')confirmDialog(t('撤销这个登录会话？','Revoke this sign-in session?'),t('该设备会立即退出登录；当前设备不会受影响。','That device will be signed out immediately. This device stays signed in.'),async()=>{await api(`/api/auth/sessions/${encodeURIComponent(id)}`,{method:'DELETE'});await render();notify(t('登录会话已撤销。','Sign-in session revoked.'));},{danger:true});
+    else if(action==='revoke-other-sessions')confirmDialog(t('撤销其他所有会话？','Revoke all other sessions?'),t('其他浏览器和设备会立即退出登录。当前设备会保留。','Other browsers and devices will be signed out immediately. This device stays signed in.'),async()=>{await api('/api/auth/sessions/revoke-others',{method:'POST',body:{}});await render();notify(t('其他登录会话已撤销。','Other sign-in sessions revoked.'));},{danger:true});
+    else if(action==='admin-email-user'){const [user,history]=await Promise.all([api(`/api/admin/users/${encodeURIComponent(id)}`),api(`/api/admin/notifications/email?user_id=${encodeURIComponent(id)}`)]);openDialog(`<h2 id="dialog-title">${t('发送服务通知','Send service notice')}</h2><p class="dialog-intro">${esc(user.name||id)} · ${t('发送至该用户登录邮箱，遵守其通知设置。','Sent to this user’s sign-in email, respecting their preferences.')}</p><form data-form="admin-email" data-user-id="${esc(id)}" data-request-key="${createMessageId()}"><div class="field"><label for="mail-subject">${t('主题','Subject')}</label><input id="mail-subject" name="subject" class="input" maxlength="160" required></div><div class="field"><label for="mail-body">${t('内容','Message')}</label><textarea id="mail-body" name="body" class="input" rows="5" maxlength="5000" required></textarea></div><div class="form-actions"><button type="submit" class="button">${t('确认并发送','Confirm & send')}</button></div></form><details class="section-disclosure"><summary>${t('最近发送记录','Recent delivery records')}</summary><div class="disclosure-content">${history.items.length?history.items.slice(0,10).map(item=>`<p>${esc(item.subject)} · ${esc(({pending:t('排队中','Queued'),processing:t('发送中','Sending'),accepted:t('SMTP 已接受','SMTP accepted'),failed:t('发送失败','Failed'),cancelled:t('已取消','Cancelled')})[item.status]||item.status)} · ${date(item.created_at)}</p>`).join(''):`<p>${t('暂无记录','No records yet')}</p>`}</div></details>`);}
     else if(action==='admin-edit-user')await editUser(id);
     else if(action==='admin-user-access')await userAccessDialog(id);
     else if(action==='delete-resume')confirmDialog(t('删除这份简历？','Delete this résumé?'),t('简历内容将被清空，并停止共享。此操作不能撤销。','The résumé will be erased and no longer shared. This cannot be undone.'),async()=>{await api(`/api/admin/users/${encodeURIComponent(id)}/resume`,{method:'DELETE'});await render();notify(t('简历已删除。','Résumé deleted.'));},{danger:true});
@@ -975,6 +1451,7 @@ document.addEventListener('click',async event=>{
     else if(action==='update-match'||action==='match-detail')await editMatch(id);
     else if(action==='chat-older'){setBusy(button,true);await service.olderMessages();}
     else if(action==='chat-latest')service.scrollLatest();
+    else if(action==='chat-job-card'){setBusy(button,true);await service.chatJobCardDialog();}
     else if(action==='admin-mandate')await service.adminMandate(id);
     else if(action==='new-outreach')service.outreachDialog(button.dataset.user);
     else if(action==='edit-outreach')service.outreachDialog(button.dataset.user,id);
@@ -990,6 +1467,7 @@ document.addEventListener('click',async event=>{
   }catch(error){notify(error.message,true);}finally{setBusy(button,false);}
 });
 document.addEventListener('input',event=>{
+  if(event.target.matches('form[data-form="donation-checkout"] [name="amount"]'))syncDonationPresetState(event.target.form);
   if(event.target.id==='salary-example'){try{document.querySelector('#salary-example-result').textContent=money(calculateFee(centsInput(event.target.value),feeSettings('publish')));}catch{document.querySelector('#salary-example-result').textContent='—';}}
   if(['job-salary','job-promo-code'].includes(event.target.id)){promos().changed(event.target);refreshJobPrice(event.target.closest('form'));}
   if(event.target.closest('[data-form="promo-activation"]'))promos().changed(event.target);
@@ -1008,10 +1486,10 @@ document.addEventListener('change',event=>{
 document.addEventListener('change',async event=>{if(event.target.id!=='avatar-upload')return;const file=event.target.files[0];if(!file)return;if(file.size>2*1024*1024){notify(t('图片不能超过 2 MB。','The image must be 2 MB or smaller.'),true);return;}const data=new FormData();data.append('file',file);try{state.user=await api('/api/profile/avatar',{method:'POST',body:data});document.querySelector('.avatar-editor .avatar').outerHTML=avatar(state.user,'large');notify(t('头像已更新。','Avatar updated.'));}catch(error){notify(error.message,true);}event.target.value='';});
 window.addEventListener('popstate',()=>{closeDialog();render();});
 window.addEventListener('hashchange',()=>{if(location.pathname==='/team/invite'){closeDialog();void render();}});
-window.addEventListener('pagehide',event=>{resetAdminViews();service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted){state.homeStory?.dispose();state.particleTitles?.dispose();state.sculpture?.dispose();state.brandMotion?.dispose();}});
+window.addEventListener('pagehide',event=>{invalidateWebMCP();resetAdminViews();service.stopChat();if(dialogs.querySelector('#webhook-signing-secret, #team-invitation-secret, #team-ai-secret'))closeDialog();if(!event.persisted){state.homeStory?.dispose();state.particleTitles?.dispose();state.sculpture?.dispose();state.brandMotion?.dispose();}});
 function resetPrivateView() {
   disclosureUI.reset();
-  invalidateIdentity();sessionKnown=true;Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null});service.stopChat();closeDialog();root.dataset.pageKey='';
+  invalidateIdentity();sessionKnown=true;Object.assign(state,{user:null,admin:false,owner:false,super_admin:false,staffRole:null,staff:null,bootstrap:false,csrf:null,announcement:null});service.stopChat();closeDialog();root.dataset.pageKey='';
 }
 async function refreshVisibleSession() {
   if(document.hidden||!state.config)return;
@@ -1020,55 +1498,108 @@ async function refreshVisibleSession() {
   catch(error){sessionReader.invalidate();requests.invalidate();if(error.status===401&&(state.user||state.admin)){resetPrivateView();void render();}}
 }
 window.addEventListener('storage',event=>{if(event.key==='hireferry-session-change'){resetPrivateView();void render();}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else void refreshVisibleSession();});
-window.addEventListener('online',()=>{if(publicPages.has(location.pathname))void refreshPublicPage(state.render);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(navigationIntentTimer);requests.invalidate();}else if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else if(isPublicPagePath(location.pathname))void render();else void refreshVisibleSession();});
+window.addEventListener('online',()=>{if(publicPages.has(location.pathname))void refreshPublicPage(state.render);else if(isPublicPagePath(location.pathname))void render();});
 window.addEventListener('pageshow',event=>{if(event.persisted){resetPrivateView();void render();}});
 
 const service=createServiceUI({state,api,t,esc,icon,avatar,money,currency,currencies,currencySelect,amountValue,amountStep,date,heading,shell,empty,notice,badge,matchText,openDialog,closeDialog,notify,go,render,centsInput});
 
-let registeredTools=[];
-function registerWebMCP() {
+const webMCPOwner=createWebMCPOwner();
+const publicWebMCPOwner=createWebMCPOwner();
+let webMCPEligibilityRead=null,webMCPEpoch=0,relationWebMCPOwner;
+const webMCPIdentity=(value=state)=>JSON.stringify([identityOf(value),!!value.admin,!!value.owner,value.staffRole||value.staff_role||null,value.user?.role||null,!!value.user?.banned]);
+function clearWebMCPCatalog() {webMCPEpoch++;void webMCPOwner.clear();void publicWebMCPOwner.clear();void relationWebMCPOwner?.clear();}
+function invalidateWebMCP() {webMCPEligibilityRead=null;clearWebMCPCatalog();}
+function registerWebMCP({refreshEligibility=false}={}) {
   const context=document.modelContext||navigator.modelContext;
-  if(!context?.registerTool)return;
-  for(const name of registeredTools){try{context.unregisterTool(name);}catch{}}
-  registeredTools=[];
+  const publicPage=location.pathname==='/discover'||/^\/discover\/(?:jobs|people)\/[^/]+$/.test(location.pathname);
+  if(!context?.registerTool){invalidateWebMCP();return;}
+  if(publicPage){const epoch=webMCPEpoch,scope=`public:${location.pathname}`;void publicWebMCPOwner.sync({scope,tools:publicWebMCPTools(()=>webMCPEpoch===epoch&&(location.pathname==='/discover'||location.pathname.startsWith('/discover/'))),isCurrent:()=>webMCPEpoch===epoch&&(location.pathname==='/discover'||location.pathname.startsWith('/discover/'))});}else void publicWebMCPOwner.clear();
   // Human managers do not inherit the owner's browser-AI tool catalog.
-  if(state.staffRole&&!state.owner&&!state.staff)return;
-  if(!state.admin&&(!state.user||!state.eligibility?.eligible))return;
+  if(state.staffRole&&!state.owner&&!state.staff||(!state.admin&&!state.user)){void webMCPOwner.clear();return;}
+  const scope=webMCPIdentity();
+  if(!state.admin&&(!state.eligibility||refreshEligibility)){
+    if(webMCPEligibilityRead?.scope!==scope){
+      const request={scope};webMCPEligibilityRead=request;
+      void api('/api/ai/eligibility',{fresh:true}).then(eligibility=>{
+        if(webMCPEligibilityRead!==request||webMCPIdentity()!==scope)return;
+        state.eligibility=eligibility;registerWebMCP();
+      }).catch(()=>{if(webMCPEligibilityRead===request&&webMCPIdentity()===scope)invalidateWebMCP();})
+        .finally(()=>{if(webMCPEligibilityRead===request)webMCPEligibilityRead=null;});
+    }
+  }
+  if(!state.admin&&!state.eligibility?.eligible){if(state.eligibility)clearWebMCPCatalog();else void webMCPOwner.clear();return;}
+  const epoch=webMCPEpoch;
+  const isCurrent=()=>webMCPEpoch===epoch&&webMCPIdentity()===scope&&(state.admin||state.eligibility?.eligible!==false);
+  void webMCPOwner.sync({scope,tools:webMCPTools(()=>isCurrent()&&webMCPOwner.isCurrent(scope)),isCurrent});
+  if(state.admin&&relationPageActive()&&root.querySelector('.people-jobs-workspace')){
+    relationWebMCPOwner ||= createRelationTools({api:(path,options={})=>api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}})});
+    void relationWebMCPOwner.sync({scope,isCurrent:()=>isCurrent()&&state.admin&&relationPageActive()});
+  }else void relationWebMCPOwner?.clear();
+}
+function relationPageActive() {
+  if(location.pathname!=='/admin')return false;
+  const query=qs(),tab=query.get('tab');
+  return ['users','jobs'].includes(tab)||(tab==='matches'&&!['search','followups'].includes(query.get('view'))&&!query.has('job')&&!query.has('candidate'));
+}
+function publicWebMCPTools(isCurrent) {
+  const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
+  const str={type:'string'};
+  const publicApi=(path)=>{if(!isCurrent())throw new Error('Public directory changed. Reopen it.');return api(path,{fresh:true});};
+  const tool=(name,description,inputSchema,execute)=>({name,description,inputSchema,annotations:{readOnlyHint:true,destructiveHint:false,consequentialHint:false},execute:async input=>{try{const value=await execute(input||{});return{content:[{type:'text',text:JSON.stringify(value)}]};}catch(error){return{content:[{type:'text',text:error.message}],isError:true};}}});
+  const query=(path,input={})=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(input))if(v!==undefined&&v!==null&&v!=='')p.set(k,String(v));return p.size?`${path}?${p}`:path;};
+  return [
+    tool('hireferry_public_get_site_config',t('读取公开站点设置和免费公开 MCP 入口。','Read public site settings and the free public MCP endpoint.'),object(),()=>publicApi('/api/config')),
+    tool('hireferry_public_search_jobs',t('搜索公开、正在招聘的岗位。','Search published public roles that are still hiring.'),object({q:str,page:{type:'integer',minimum:1}}),x=>publicApi(query('/api/public/jobs',x))),
+    tool('hireferry_public_get_job',t('读取一个公开岗位。','Read one public role.'),object({id:str},['id']),x=>publicApi(`/api/public/jobs/${encodeURIComponent(x.id)}`)),
+    tool('hireferry_public_search_people',t('搜索明确公开的求职者简历。','Search seeker résumés explicitly marked public.'),object({q:str,page:{type:'integer',minimum:1}}),x=>publicApi(query('/api/public/people',x))),
+    tool('hireferry_public_get_person',t('读取一个公开简历。','Read one public résumé.'),object({handle:{type:'string',pattern:'^[a-z0-9_-]{3,32}$'}},['handle']),x=>publicApi(`/api/public/people/${encodeURIComponent(x.handle)}`)),
+  ];
+}
+function webMCPTools(isCurrent) {
+  const tools=[];
+  const requireCurrent=()=>{if(!isCurrent())throw new Error('Session changed. Reopen the current workspace.');};
   const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
   const str={type:'string'},integer={type:'integer'},bool={type:'boolean'};
   const idSchema=object({id:str},['id']);
   const versionedIdSchema=object({id:str,expected_version:{type:'integer',minimum:0}},['id','expected_version']);
   const headcountSchema={type:'integer',minimum:0,maximum:state.config?.limits?.max_job_headcount??1000000};
   const currencySchema={type:'string',enum:currencies().map(option=>option.currency)};
-  const aiApi=(path,options={})=>api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}});
+  const aiApi=(path,options={})=>{requireCurrent();return api(path,{...options,headers:{...options.headers,'X-HireFerry-AI':'webmcp'}});};
   const queryPath=(path,values={})=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(values))if(v!==undefined&&v!==null&&v!=='')p.set(k,String(v));return path+(p.size?'?'+p:'');};
   const tool=(name,description,inputSchema,execute,readOnly=false,destructive=false)=>{
-    try{
-      context.registerTool({
-        name,description,inputSchema,annotations:{readOnlyHint:readOnly,destructiveHint:destructive},
-        execute:async input=>{
-          try{
-            const eligibility=await api('/api/ai/eligibility');
-            if(!eligibility.eligible)throw new Error(t('当前暂不具备 AI 访问资格。招聘方需要发布权益有效、未关闭或删除，且符合发布时币种与薪资门槛的岗位；人数为 0 不影响资格。','AI access is not currently available. Employers need an entitled, published role that meets its recorded salary threshold in its currency and is neither closed nor deleted. A target of 0 does not remove eligibility.'));
-            const result=await execute(input||{});
-            return{content:[{type:'text',text:JSON.stringify(result)}]};
-          }catch(error){return{content:[{type:'text',text:error.message}],isError:true};}
-        },
-      });
-      registeredTools.push(name);
-    }catch{
-      // Unsupported browsers keep the full human-operated workspace.
-    }
+    tools.push({
+      name,description,inputSchema,annotations:{readOnlyHint:readOnly,destructiveHint:destructive,consequentialHint:destructive},
+      execute:async input=>{
+        try{
+          requireCurrent();
+          const eligibility=await api('/api/ai/eligibility',{fresh:true});
+          requireCurrent();
+          if(!eligibility.eligible){state.eligibility=eligibility;invalidateWebMCP();throw new Error(t('当前暂不具备 AI 访问资格。','AI access is not currently available.'));}
+          const result=await execute(input||{});
+          requireCurrent();
+          return{content:[{type:'text',text:JSON.stringify(result)}]};
+        }catch(error){return{content:[{type:'text',text:error.message}],isError:true};}
+      },
+    });
   };
   tool('hireferry_get_site_config','Read current site pricing, allowed currencies and their minor-unit precision, AI salary thresholds, and operational limits. Existing roles retain their original published terms.',object(),()=>api('/api/config'),true);
   const chatToolPrefix=state.admin?'hireferry_admin_':'hireferry_';
   tool(chatToolPrefix+'list_conversations','List accessible private platform conversations and separate introduction rooms. Private platform history is never copied into a match room.',object(),()=>aiApi('/api/chat/conversations'),true);
   tool(chatToolPrefix+'read_messages','Read a permitted conversation. Omit after for the latest 100 messages; use after for new messages or before for older history. Administrators can read archived rooms, but writable=false rooms cannot receive messages.',object({id:str,after:integer,before:integer,limit:{type:'integer',minimum:1,maximum:100}},['id']),x=>aiApi(queryPath(`/api/chat/conversations/${encodeURIComponent(x.id)}/messages`,{after:x.after,before:x.before,limit:x.limit})),true);
-  tool(chatToolPrefix+'send_message','Send a message in the chosen permitted conversation. Only send when authorized by the human. Messages are marked as AI-authored. A platform private conversation and an introduction room have different participants; verify the intended recipient first.',object({conversation_id:str,body:str,client_id:str},['conversation_id','body']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/messages`,{method:'POST',body:{body:x.body,client_id:x.client_id||createMessageId()}}));
+  tool(chatToolPrefix+'send_message','Send a message in the chosen permitted conversation. Only send when authorized by the human. Messages are marked as AI-authored. A platform private conversation and an introduction room have different participants; verify the intended recipient first.',object({conversation_id:str,body:{type:'string',minLength:1,maxLength:10000},client_id:str,format:{enum:['plain','markdown','openui']}},['conversation_id','body']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/messages`,{method:'POST',body:{body:x.body,client_id:x.client_id||createMessageId(),...(x.format?{format:x.format}:{})}}));
   tool(chatToolPrefix+'get_chat_updates','Read new messages across permitted conversations with an incremental numeric cursor. Poll no faster than every 5 seconds.',object({after:integer,limit:{type:'integer',minimum:1,maximum:100}}),x=>aiApi(queryPath('/api/chat/updates',x)),true);
+  tool('hireferry_get_chat_capabilities','Read chat formats, streaming transports, welcome copy, limits and the OpenUI library schema URL.',object(),()=>api('/api/chat/capabilities'),true);
+  tool(chatToolPrefix+'get_conversation','Read current participants and write access for one permitted conversation.',object({conversation_id:str},['conversation_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}`),true);
+  tool(chatToolPrefix+'get_chat_events','Read compact message events after a saved event cursor. These IDs differ from message IDs. On resync_required reload messages and use event_cursor. Prefer the SSE endpoint from get_chat_capabilities for subscriptions.',object({conversation_id:str,after:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:100}},['after']),x=>aiApi(queryPath('/api/chat/events',x)),true);
+  tool(chatToolPrefix+'begin_message','Begin one AI-authored message with its first nonempty text chunk. Reuse client_id and the same first chunk on retries. Requires user authorization to send in this room.',object({conversation_id:str,client_id:{type:'string',minLength:1,maxLength:80},body:{type:'string',minLength:1,maxLength:10000},format:{enum:['plain','markdown','openui']}},['conversation_id','client_id','body']),x=>{const{conversation_id,...body}=x;return aiApi(`/api/chat/conversations/${encodeURIComponent(conversation_id)}/streams`,{method:'POST',body});});
+  tool(chatToolPrefix+'append_message','Append the next chunk of your active message. Sequence starts at 1; repeat the same sequence and delta for safe retries. Returns a compact acknowledgement.',object({conversation_id:str,message_id:{type:'integer',minimum:1},sequence:{type:'integer',minimum:1,maximum:4096},delta:{type:'string',minLength:1,maxLength:4000}},['conversation_id','message_id','sequence','delta']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/streams/${x.message_id}/append`,{method:'POST',body:{sequence:x.sequence,delta:x.delta}}));
+  for(const action of ['finish','cancel'])tool(chatToolPrefix+action+'_message',`${action==='finish'?'Complete':'Stop'} your active message using its next sequence. Stopping retains the partial text and labels it as stopped.`,object({conversation_id:str,message_id:{type:'integer',minimum:1},sequence:{type:'integer',minimum:1,maximum:4097}},['conversation_id','message_id','sequence']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/streams/${x.message_id}/${action}`,{method:'POST',body:{sequence:x.sequence}}));
   tool(chatToolPrefix+'mark_read','Mark messages in a permitted conversation as read.',object({conversation_id:str,message_id:integer},['conversation_id','message_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/read`,{method:'POST',body:{message_id:x.message_id}}));
   if(state.admin){
+    tool('hireferry_admin_send_job_card','Send a clickable job card into a seeker’s private platform chat. Existing introductions open their room; otherwise the card prepares a reviewed draft. The card itself never grants access.',object({conversation_id:str,job_id:str},['conversation_id','job_id']),x=>aiApi(`/api/chat/conversations/${encodeURIComponent(x.conversation_id)}/job-card`,{method:'POST',body:{job_id:x.job_id}}));
+    tool('hireferry_admin_send_email_notification','Queue one authorized service email to a platform user. Uses the platform SMTP server and stored login email, and respects notification preferences. No arbitrary email addresses. Reuse request_key for identical retries. Queue acceptance is not inbox delivery.',object({user_id:str,subject:{type:'string',minLength:1,maxLength:160},body:{type:'string',minLength:1,maxLength:5000},request_key:{type:'string',minLength:8,maxLength:128,pattern:'^[A-Za-z0-9_-]+$'}},['user_id','subject','body','request_key']),x=>aiApi('/api/admin/notifications/email',{method:'POST',body:x}));
+    tool('hireferry_admin_list_email_notifications','Read recent email delivery records. accepted means SMTP accepted, not inbox delivery or reading.',object({user_id:str}),x=>aiApi(queryPath('/api/admin/notifications/email',x)),true);
     const listSchema=object({q:str,role:{type:'string',enum:['seeker','employer','unassigned']},page:{type:'integer',minimum:1}});
     tool('hireferry_admin_list_users','List platform users for service operations. Never disclose private data to an unrelated party.',listSchema,x=>aiApi(queryPath('/api/admin/users',x)),true);
     tool('hireferry_admin_get_user','Read a user profile as the platform administrator.',idSchema,x=>aiApi(`/api/admin/users/${encodeURIComponent(x.id)}`),true);
@@ -1097,13 +1628,13 @@ function registerWebMCP() {
     tool('hireferry_admin_list_orders','Read orders, including test/live flags and payment status. This does not change payments.',object({from:str,to:str,status:str,page:{type:'integer',minimum:1}}),x=>aiApi(queryPath('/api/admin/orders',x)),true);
     tool('hireferry_admin_overview','Read revenue statistics for one currency and separate currency_totals. Never add or compare amounts across currencies. Dates are UTC; explicitly distinguish live revenue from test transactions.',object({from:str,to:str,currency:{type:'string',pattern:'^[A-Z]{3}$'},mode:{type:'string',enum:['live','test']}}),x=>aiApi(queryPath('/api/admin/overview',x)),true);
     tool('hireferry_admin_audit','Read the platform business audit log.',object(),()=>aiApi('/api/admin/audit'),true);
-    return;
+    return tools;
   }
   tool('hireferry_get_profile','Read your own private profile.',object(),()=>aiApi('/api/profile'),true);
   tool('hireferry_update_profile','Update your own profile and contact email. Profiles are shared only with HireFerry and active introduced parties. Sign-in email is private.',object({name:str,public_email:str,resume_md:str},['name','public_email','resume_md']),x=>aiApi('/api/profile',{method:'PUT',body:{...x,visible:false}}));
   tool('hireferry_set_svg_avatar','Set a static SVG avatar on your own profile. Unsafe SVG is rejected.',object({svg:str},['svg']),x=>aiApi('/api/profile/avatar',{method:'PUT',body:x}));
   tool('hireferry_set_image_avatar','Upload your own PNG, JPEG, or WebP avatar as base64 bytes, maximum 2 MiB.',object({base64:str,mime_type:{type:'string',enum:['image/png','image/jpeg','image/webp']}},['base64','mime_type']),x=>{if(x.base64.length>2800000)throw new Error('Image is too large');const bytes=Uint8Array.from(atob(x.base64),c=>c.charCodeAt(0));const form=new FormData();form.append('file',new Blob([bytes],{type:x.mime_type}),'avatar');return aiApi('/api/profile/avatar',{method:'POST',body:form});});
-  tool('hireferry_list_introductions','Read only your active platform introductions. There is no public directory of jobs or people.',object(),()=>aiApi('/api/matches'),true);
+  tool('hireferry_list_introductions','Read only your active platform introductions. Public discovery is separate: use the unauthenticated /mcp/public endpoint or the public directory for explicitly public roles and résumés.',object(),()=>aiApi('/api/matches'),true);
   tool('hireferry_get_introduced_job','Read your own role or a role introduced to you by HireFerry. Unrelated job IDs are not accessible.',idSchema,x=>aiApi(`/api/jobs/${encodeURIComponent(x.id)}`),true);
   tool('hireferry_get_introduced_person','Read a job seeker introduced to you by HireFerry. Unrelated profiles are not accessible.',idSchema,x=>aiApi(`/api/people/${encodeURIComponent(x.id)}`),true);
   tool('hireferry_list_orders','Read your own payment orders.',object(),()=>aiApi('/api/orders'),true);
@@ -1124,5 +1655,6 @@ function registerWebMCP() {
     tool('hireferry_edit_job','Request a description update. The title, currency, and salary are locked. Read the job’s frozen terms for edit_mode, edit_fixed_minor, edit_bps, and max_edits. Free mode applies immediately; a paid update keeps the existing description until payment is confirmed. Provider is required only for a paid operation.',object({id:str,jd_md:str,provider:{type:'string',enum:['stripe','waffo','']}},['id','jd_md']),x=>aiApi(`/api/jobs/${encodeURIComponent(x.id)}/edit`,{method:'POST',body:{jd_md:x.jd_md,provider:x.provider||''}}));
     tool('hireferry_close_job','Permanently close your own role to new introductions, only with human authorization. To pause temporarily use set_job_headcount with zero instead. Closed roles cannot be reopened by increasing headcount. Closing the last qualifying role also ends employer AI eligibility.',idSchema,x=>aiApi(`/api/jobs/${encodeURIComponent(x.id)}/close`,{method:'POST',body:{}}),false,true);
   }
+  return tools;
 }
 render();

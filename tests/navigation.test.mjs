@@ -60,6 +60,29 @@ test('a same-page refresh preserves an unchanged live input and applies changed 
   assert.equal(input.value, 'Confirmed');
 });
 
+test('a public chrome refresh keeps the exact main subtree and its live controls', () => {
+  const draft = e('input', {id:'public-directory-q', value:'Rust'});
+  draft.value = 'Unsubmitted search';
+  const discussion = e('textarea', {id:'job-comment-body'});
+  discussion.value = 'Unsubmitted public comment';
+  const details = e('details', {open:''});
+  const main = e('main', {id:'main'}, [draft, details, discussion]);
+  const header = e('header', {'data-dom-key':'site-header'}, [e('a', {href:'/login'})]);
+  const footer = e('footer', {'data-dom-key':'footer'}, [e('a', {href:'mailto:old@example.test'})]);
+  const root = e('div', {}, [header, main, footer]);
+  const next = e('div', {}, [e('header', {'data-dom-key':'site-header'}, [e('a', {href:'/app'})]), e('main', {id:'main'}), e('footer', {'data-dom-key':'footer'}, [e('a', {href:'mailto:new@example.test'})])]);
+  reconcileChildren(root, next, {preserve:main});
+  assert.equal(root.childNodes[0], header);
+  assert.equal(header.firstChild.getAttribute('href'), '/app');
+  assert.equal(root.childNodes[1], main);
+  assert.deepEqual(main.childNodes, [draft, details, discussion]);
+  assert.equal(draft.value, 'Unsubmitted search');
+  assert.equal(discussion.value, 'Unsubmitted public comment');
+  assert.equal(details.hasAttribute('open'), true);
+  assert.equal(root.childNodes[2], footer);
+  assert.equal(footer.firstChild.getAttribute('href'), 'mailto:new@example.test');
+});
+
 test('inserting a banner and changing navigation order never recreates existing keyed nodes', () => {
   const a = e('a', {href:'/a'}), b = e('a', {href:'/b'}), footer = e('footer', {'data-dom-key':'footer'});
   const root = e('div', {}, [a, b, footer]);
